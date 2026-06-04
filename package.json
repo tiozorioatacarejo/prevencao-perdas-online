@@ -1,0 +1,10 @@
+{
+  "name": "relatorio-prevencao-perdas",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Sistema web local para digitalizar o Relatorio Diario de Atividades - Prevencao de Perdas.",
+  "scripts": {
+    "start": "node server.js",
+    "init-db": "node scripts/init-db.js"
+  }
+}

@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: prevencao-perdas
+    env: node
+    plan: free
+    buildCommand: npm run init-db
+    startCommand: npm start
+    envVars:
+      - key: APP_DATA_DIR
+        value: /opt/render/project/src/data
+      - key: APP_UPLOAD_DIR
+        value: /opt/render/project/src/uploads
