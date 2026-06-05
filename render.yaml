@@ -3,7 +3,7 @@ services:
     name: prevencao-perdas
     env: node
     plan: free
-    buildCommand: npm run init-db
+    buildCommand: npm install && npm run init-db
     startCommand: npm start
     envVars:
       - key: APP_DATA_DIR
