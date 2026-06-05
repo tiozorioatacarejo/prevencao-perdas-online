@@ -66,13 +66,11 @@ Porta: usar a variavel PORT da plataforma
 
 O servidor ja esta preparado para usar `process.env.PORT`.
 
-## Acessos de teste
+## Acesso inicial
 
 | Perfil | Usuario | Senha |
 | --- | --- | --- |
 | Administrador | admin | adm123 |
-| Prevencao | prevencao | prev123 |
-| Encarregada | encarregada | enc123 |
 
 ## Criar acesso para colaboradores
 
@@ -84,7 +82,8 @@ O servidor ja esta preparado para usar `process.env.PORT`.
 6. Vincule o acesso ao colaborador cadastrado.
 7. Repasse usuario e senha para a pessoa.
 
-Quando o colaborador entrar, ele vera apenas o menu **Checklist** e o nome dele ja ficara travado no preenchimento.
+Usuarios dos perfis prevencao e colaborador veem **Painel**, **Checklist** e **Pendencias**.
+Usuario encarregada ve **Painel**, **Checklist**, **Resumo** e **Pendencias**.
 Somente o administrador ve todos os menus do sistema.
 
 ## Recursos entregues
@@ -112,7 +111,8 @@ Somente o administrador ve todos os menus do sistema.
 - Exportacao em PDF e Excel.
 - Controle de pendencias com responsavel, status e solucao.
 - Banco SQLite local em `data/app.sqlite`.
-- Dados de exemplo criados automaticamente na primeira execucao.
+- Na versao online, use PostgreSQL configurando `DATABASE_URL` no Render.
+- A primeira execucao cria apenas o acesso administrador inicial.
 
 ## Observacoes
 

@@ -4,7 +4,9 @@ Esta pasta e uma copia separada do projeto para publicar em um servico com link 
 
 ## Importante
 
-Esta versao continua usando SQLite. Para testes e uso simples, funciona bem. Para uso definitivo em producao, o ideal e migrar para PostgreSQL ou outro banco online gerenciado.
+Esta versao esta preparada para usar PostgreSQL online quando a variavel `DATABASE_URL` estiver configurada no Render.
+
+Se `DATABASE_URL` nao existir, o sistema usa SQLite apenas como modo local/teste. No Render, use PostgreSQL para os dados nao sumirem quando o servidor reiniciar.
 
 ## Render
 
@@ -18,6 +20,12 @@ Build Command: npm run init-db
 Start Command: npm start
 ```
 
+5. Em **Environment**, adicione a variavel:
+
+```text
+DATABASE_URL=cole_aqui_a_string_do_postgresql
+```
+
 O arquivo `render.yaml` ja inclui uma configuracao basica.
 
 ## Acessos iniciais
@@ -25,8 +33,6 @@ O arquivo `render.yaml` ja inclui uma configuracao basica.
 | Perfil | Usuario | Senha |
 | --- | --- | --- |
 | Administrador | admin | adm123 |
-| Prevencao | prevencao | prev123 |
-| Encarregada | encarregada | enc123 |
 
 Depois de acessar como administrador, crie os colaboradores e os acessos reais na aba **Acessos**.
 

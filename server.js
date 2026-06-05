@@ -9,8 +9,10 @@ const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || "0.0.0.0";
 const BUNDLED_PYTHON = "C:\\Users\\tiozo\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\python.exe";
 const PYTHON = process.env.PYTHON_EXE || (fs.existsSync(BUNDLED_PYTHON) ? BUNDLED_PYTHON : "python");
-const DATA_DIR = path.join(ROOT, "data");
-const UPLOAD_DIR = path.join(ROOT, "uploads");
+const DATA_DIR = process.env.APP_DATA_DIR || path.join(ROOT, "data");
+const UPLOAD_DIR = process.env.APP_UPLOAD_DIR || path.join(ROOT, "uploads");
+const DATABASE_URL = process.env.DATABASE_URL || "";
+let pgPool = null;
 
 const sessions = new Map();
 
@@ -38,7 +40,113 @@ const activities = [
 fs.mkdirSync(DATA_DIR, { recursive: true });
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
-function runDb(payload) {
+async function postgresPool() {
+  if (!DATABASE_URL) return null;
+  if (!pgPool) {
+    const { Pool } = require("pg");
+    pgPool = new Pool({
+      connectionString: DATABASE_URL,
+      ssl: DATABASE_URL.includes("localhost") ? false : { rejectUnauthorized: false },
+    });
+    await initPostgres(pgPool);
+  }
+  return pgPool;
+}
+
+function toPostgresSql(sql) {
+  let index = 0;
+  return sql.replace(/\?/g, () => `$${++index}`);
+}
+
+async function initPostgres(pool) {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS users (
+      id SERIAL PRIMARY KEY,
+      username TEXT UNIQUE NOT NULL,
+      password TEXT NOT NULL,
+      role TEXT NOT NULL,
+      display_name TEXT NOT NULL,
+      collaborator_id INTEGER,
+      status TEXT NOT NULL DEFAULT 'ativo'
+    );
+
+    CREATE TABLE IF NOT EXISTS collaborators (
+      id SERIAL PRIMARY KEY,
+      name TEXT NOT NULL,
+      role TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'ativo',
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS checklists (
+      id SERIAL PRIMARY KEY,
+      date TEXT NOT NULL,
+      collaborator_id INTEGER NOT NULL REFERENCES collaborators(id),
+      activity TEXT NOT NULL,
+      answer TEXT NOT NULL,
+      observation TEXT,
+      price_divergence_products TEXT,
+      expired_products TEXT,
+      photo_path TEXT,
+      sent_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      created_by INTEGER NOT NULL REFERENCES users(id),
+      corrected_by INTEGER REFERENCES users(id),
+      corrected_at TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS operational_summaries (
+      id SERIAL PRIMARY KEY,
+      date TEXT UNIQUE NOT NULL,
+      losses_value REAL NOT NULL DEFAULT 0,
+      consumption_value REAL NOT NULL DEFAULT 0,
+      bottles_count INTEGER NOT NULL DEFAULT 0,
+      bottles_details TEXT,
+      receipts_count INTEGER NOT NULL DEFAULT 0,
+      price_divergence_products TEXT,
+      expired_products TEXT,
+      occurrences TEXT,
+      corrective_actions TEXT,
+      pending_items TEXT,
+      sent_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      created_by INTEGER NOT NULL REFERENCES users(id),
+      corrected_by INTEGER REFERENCES users(id),
+      corrected_at TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS pendencies (
+      id SERIAL PRIMARY KEY,
+      description TEXT NOT NULL,
+      responsible_id INTEGER NOT NULL REFERENCES collaborators(id),
+      opened_at TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'Aberto',
+      attachment_path TEXT,
+      solution_observation TEXT,
+      created_by INTEGER NOT NULL REFERENCES users(id),
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+  const existing = await pool.query("SELECT COUNT(*) AS total FROM users");
+  if (Number(existing.rows[0].total) === 0) {
+    await pool.query(
+      "INSERT INTO users (username, password, role, display_name, status) VALUES ($1, $2, $3, $4, $5)",
+      ["admin", "adm123", "administrador", "Administrador", "ativo"]
+    );
+  }
+}
+
+async function runDb(payload) {
+  const pool = await postgresPool();
+  if (pool) {
+    if (payload.action === "query") {
+      const result = await pool.query(toPostgresSql(payload.sql), payload.params || []);
+      return { rows: result.rows };
+    }
+    if (payload.action === "execute") {
+      const result = await pool.query(toPostgresSql(payload.sql), payload.params || []);
+      return { changes: result.rowCount };
+    }
+    throw new Error("Ação de banco inválida");
+  }
   const result = spawnSync(PYTHON, [path.join(ROOT, "scripts", "db.py")], {
     input: JSON.stringify(payload),
     encoding: "utf8",
@@ -49,11 +157,11 @@ function runDb(payload) {
   return JSON.parse(result.stdout);
 }
 
-function query(sql, params = []) {
-  return runDb({ action: "query", sql, params }).rows;
+async function query(sql, params = []) {
+  return (await runDb({ action: "query", sql, params })).rows;
 }
 
-function execute(sql, params = []) {
+async function execute(sql, params = []) {
   return runDb({ action: "execute", sql, params });
 }
 
@@ -174,7 +282,7 @@ function escapeHtml(value) {
     .replaceAll('"', "&quot;");
 }
 
-function rowsForReports(filters) {
+async function rowsForReports(filters) {
   const where = [];
   const params = [];
   if (filters.date) {
@@ -283,7 +391,7 @@ async function api(req, res, url) {
 
   if (method === "POST" && url.pathname === "/api/login") {
     const body = await readBody(req);
-    const users = query(
+  const users = await query(
       "SELECT id, username, role, display_name, collaborator_id, status FROM users WHERE username = ? AND password = ? AND status = 'ativo'",
       [
       body.username,
@@ -306,7 +414,7 @@ async function api(req, res, url) {
   if (method === "GET" && url.pathname === "/api/users") {
     if (!isAdmin(user)) return send(res, 403, { error: "Apenas administrador pode gerenciar acessos." });
     return send(res, 200, {
-      rows: query(
+      rows: await query(
         `
         SELECT u.id, u.username, u.password, u.role, u.display_name, u.collaborator_id, u.status,
                c.name AS collaborator
@@ -321,7 +429,7 @@ async function api(req, res, url) {
   if (method === "POST" && url.pathname === "/api/users") {
     if (!isAdmin(user)) return send(res, 403, { error: "Apenas administrador pode gerenciar acessos." });
     const body = await readBody(req);
-    execute(
+    await execute(
       "INSERT INTO users (username, password, role, display_name, collaborator_id, status) VALUES (?, ?, ?, ?, ?, ?)",
       [
         body.username,
@@ -339,7 +447,7 @@ async function api(req, res, url) {
     if (!isAdmin(user)) return send(res, 403, { error: "Apenas administrador pode gerenciar acessos." });
     const id = Number(url.pathname.split("/").pop());
     const body = await readBody(req);
-    execute(
+    await execute(
       "UPDATE users SET username = ?, password = ?, role = ?, display_name = ?, collaborator_id = ?, status = ? WHERE id = ?",
       [
         body.username,
@@ -358,7 +466,7 @@ async function api(req, res, url) {
     if (!isAdmin(user)) return send(res, 403, { error: "Apenas administrador pode gerenciar acessos." });
     const id = Number(url.pathname.split("/").pop());
     if (id === user.id) return send(res, 400, { error: "Você não pode excluir o próprio acesso enquanto está logado." });
-    execute("DELETE FROM users WHERE id = ?", [id]);
+    await execute("DELETE FROM users WHERE id = ?", [id]);
     return send(res, 200, { ok: true, message: "Acesso excluído." });
   }
 
@@ -367,12 +475,12 @@ async function api(req, res, url) {
     const sql = status
       ? "SELECT * FROM collaborators WHERE status = ? ORDER BY name"
       : "SELECT * FROM collaborators ORDER BY status, name";
-    return send(res, 200, { rows: query(sql, status ? [status] : []) });
+    return send(res, 200, { rows: await query(sql, status ? [status] : []) });
   }
 
   if (method === "POST" && url.pathname === "/api/collaborators") {
     const body = await readBody(req);
-    execute("INSERT INTO collaborators (name, role, status) VALUES (?, ?, ?)", [
+    await execute("INSERT INTO collaborators (name, role, status) VALUES (?, ?, ?)", [
       body.name,
       body.role,
       body.status || "ativo",
@@ -383,7 +491,7 @@ async function api(req, res, url) {
   if (method === "PUT" && url.pathname.startsWith("/api/collaborators/")) {
     const id = Number(url.pathname.split("/").pop());
     const body = await readBody(req);
-    execute("UPDATE collaborators SET name = ?, role = ?, status = ? WHERE id = ?", [
+    await execute("UPDATE collaborators SET name = ?, role = ?, status = ? WHERE id = ?", [
       body.name,
       body.role,
       body.status,
@@ -394,23 +502,23 @@ async function api(req, res, url) {
 
   if (method === "DELETE" && url.pathname.startsWith("/api/collaborators/")) {
     const id = Number(url.pathname.split("/").pop());
-    const checklistCount = query("SELECT COUNT(*) AS total FROM checklists WHERE collaborator_id = ?", [id])[0].total;
-    const pendencyCount = query("SELECT COUNT(*) AS total FROM pendencies WHERE responsible_id = ?", [id])[0].total;
-    execute("UPDATE users SET collaborator_id = NULL, status = 'inativo' WHERE collaborator_id = ?", [id]);
+    const checklistCount = (await query("SELECT COUNT(*) AS total FROM checklists WHERE collaborator_id = ?", [id]))[0].total;
+    const pendencyCount = (await query("SELECT COUNT(*) AS total FROM pendencies WHERE responsible_id = ?", [id]))[0].total;
+    await execute("UPDATE users SET collaborator_id = NULL, status = 'inativo' WHERE collaborator_id = ?", [id]);
     if (checklistCount > 0 || pendencyCount > 0) {
-      execute("UPDATE collaborators SET status = 'inativo' WHERE id = ?", [id]);
+      await execute("UPDATE collaborators SET status = 'inativo' WHERE id = ?", [id]);
       return send(res, 200, {
         ok: true,
         mode: "inactivated",
         message: "Colaborador possui registros vinculados e foi inativado para preservar o histórico.",
       });
     }
-    execute("DELETE FROM collaborators WHERE id = ?", [id]);
+    await execute("DELETE FROM collaborators WHERE id = ?", [id]);
     return send(res, 200, { ok: true, mode: "deleted", message: "Colaborador excluído." });
   }
 
   if (method === "GET" && url.pathname === "/api/checklists") {
-    return send(res, 200, { rows: rowsForReports(Object.fromEntries(url.searchParams.entries())) });
+    return send(res, 200, { rows: await rowsForReports(Object.fromEntries(url.searchParams.entries())) });
   }
 
   if (method === "POST" && url.pathname === "/api/checklists") {
@@ -418,7 +526,7 @@ async function api(req, res, url) {
     const date = today();
     const collaboratorId = user.collaborator_id || body.collaboratorId;
     if (!collaboratorId) return send(res, 400, { error: "Selecione um colaborador." });
-    execute(
+    await execute(
       "INSERT INTO checklists (date, collaborator_id, activity, answer, observation, price_divergence_products, expired_products, sent_at, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
       [
         date,
@@ -437,14 +545,14 @@ async function api(req, res, url) {
 
   if (method === "PUT" && url.pathname.startsWith("/api/checklists/")) {
     const id = Number(url.pathname.split("/").pop());
-    const record = query("SELECT created_by FROM checklists WHERE id = ?", [id])[0];
+    const record = (await query("SELECT created_by FROM checklists WHERE id = ?", [id]))[0];
     if (!record) return send(res, 404, { error: "Preenchimento não encontrado." });
     if (!canCorrect(user) && record.created_by !== user.id) {
       return send(res, 403, { error: "Você só pode corrigir preenchimentos enviados por você." });
     }
     const body = await readBody(req);
     const collaboratorId = canCorrect(user) ? body.collaboratorId : user.collaborator_id || body.collaboratorId;
-    execute(
+    await execute(
       "UPDATE checklists SET collaborator_id = ?, activity = ?, answer = ?, observation = ?, price_divergence_products = ?, expired_products = ?, corrected_by = ?, corrected_at = ? WHERE id = ?",
       [
         collaboratorId,
@@ -464,13 +572,13 @@ async function api(req, res, url) {
   if (method === "DELETE" && url.pathname.startsWith("/api/checklists/")) {
     if (!canDeleteRecords(user)) return send(res, 403, { error: "Apenas administrador pode excluir preenchimentos." });
     const id = Number(url.pathname.split("/").pop());
-    execute("DELETE FROM checklists WHERE id = ?", [id]);
+    await execute("DELETE FROM checklists WHERE id = ?", [id]);
     return send(res, 200, { ok: true, message: "Preenchimento excluído." });
   }
 
   if (method === "GET" && url.pathname === "/api/summary") {
     const date = url.searchParams.get("date") || today();
-    const rows = query("SELECT * FROM operational_summaries WHERE date = ?", [date]);
+    const rows = await query("SELECT * FROM operational_summaries WHERE date = ?", [date]);
     return send(res, 200, { row: rows[0] || null });
   }
 
@@ -479,7 +587,7 @@ async function api(req, res, url) {
       return send(res, 403, { error: "Apenas administrador ou encarregada podem salvar o resumo." });
     }
     const body = await readBody(req);
-    const existing = query("SELECT id FROM operational_summaries WHERE date = ?", [body.date || today()])[0];
+    const existing = (await query("SELECT id FROM operational_summaries WHERE date = ?", [body.date || today()]))[0];
     if (existing && !canCorrect(user)) {
       return send(res, 403, { error: "Apenas administrador ou encarregada podem corrigir resumo já enviado." });
     }
@@ -499,7 +607,7 @@ async function api(req, res, url) {
       existing ? user.id : null,
       existing ? nowIso() : null,
     ];
-    execute(
+    await execute(
       `
       INSERT INTO operational_summaries (
         date, losses_value, consumption_value, bottles_count, bottles_details, receipts_count,
@@ -530,11 +638,11 @@ async function api(req, res, url) {
     const start = url.searchParams.get("startDate") || fallback;
     const end = url.searchParams.get("endDate") || start;
     const currentMonth = periodInfo(start, end);
-    const totalsByDay = query(
+    const totalsByDay = await query(
       "SELECT date, COUNT(*) AS total FROM checklists WHERE date BETWEEN ? AND ? GROUP BY date ORDER BY date",
       [start, end]
     );
-    const summary = query(
+    const summary = (await query(
       `
       SELECT
         COALESCE(SUM(losses_value),0) AS losses,
@@ -546,10 +654,10 @@ async function api(req, res, url) {
       FROM operational_summaries WHERE date BETWEEN ? AND ?
       `,
       [start, end, start, end, start, end]
-    )[0];
-    const doneToday = query("SELECT COUNT(*) AS total FROM checklists WHERE date = ?", [today()])[0].total;
+    ))[0];
+    const doneToday = (await query("SELECT COUNT(*) AS total FROM checklists WHERE date = ?", [today()]))[0].total;
     const pendingToday = Math.max(activities.length - doneToday, 0);
-    const byCollaborator = query(
+    const byCollaborator = await query(
       `
       SELECT col.name, COUNT(*) AS total
       FROM checklists c JOIN collaborators col ON col.id = c.collaborator_id
@@ -558,8 +666,8 @@ async function api(req, res, url) {
       `,
       [start, end]
     );
-    const activeCollaborators = query("SELECT id, name FROM collaborators WHERE status = 'ativo' ORDER BY name");
-    const collaboratorCounts = query(
+    const activeCollaborators = await query("SELECT id, name FROM collaborators WHERE status = 'ativo' ORDER BY name");
+    const collaboratorCounts = await query(
       `
       SELECT col.id, col.name, COUNT(c.id) AS total
       FROM collaborators col
@@ -578,7 +686,7 @@ async function api(req, res, url) {
       expected: totalMonthlyChecklists,
       percent: totalMonthlyChecklists ? Math.round((row.total / totalMonthlyChecklists) * 100) : 0,
     }));
-    const activityCounts = query(
+    const activityCounts = await query(
       `
       SELECT activity, COUNT(DISTINCT date) AS total
       FROM checklists
@@ -611,7 +719,7 @@ async function api(req, res, url) {
 
   if (method === "GET" && url.pathname === "/api/pendencies") {
     return send(res, 200, {
-      rows: query(
+      rows: await query(
         `
         SELECT p.*, c.name AS responsible
         FROM pendencies p JOIN collaborators c ON c.id = p.responsible_id
@@ -624,7 +732,7 @@ async function api(req, res, url) {
   if (method === "POST" && url.pathname === "/api/pendencies") {
     const body = await readBody(req);
     const attachmentPath = saveDataUrl(body.attachmentData, body.attachmentName);
-    execute(
+    await execute(
       "INSERT INTO pendencies (description, responsible_id, opened_at, status, attachment_path, solution_observation, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)",
       [body.description, body.responsibleId, body.openedAt || today(), body.status || "Aberto", attachmentPath, body.solutionObservation || "", user.id]
     );
@@ -635,7 +743,7 @@ async function api(req, res, url) {
     const id = Number(url.pathname.split("/").pop());
     const body = await readBody(req);
     const attachmentPath = body.attachmentData ? saveDataUrl(body.attachmentData, body.attachmentName) : body.attachmentPath || null;
-    execute(
+    await execute(
       "UPDATE pendencies SET description=?, responsible_id=?, opened_at=?, status=?, attachment_path=?, solution_observation=?, updated_at=? WHERE id=?",
       [body.description, body.responsibleId, body.openedAt, body.status, attachmentPath, body.solutionObservation || "", nowIso(), id]
     );
@@ -644,7 +752,7 @@ async function api(req, res, url) {
 
   if (method === "GET" && url.pathname === "/api/reports/export") {
     const format = url.searchParams.get("format") || "excel";
-    const rows = rowsForReports(Object.fromEntries(url.searchParams.entries()));
+    const rows = await rowsForReports(Object.fromEntries(url.searchParams.entries()));
     if (format === "pdf") {
       return send(res, 200, makePdf(rows), {
         "Content-Type": "application/pdf",
@@ -680,8 +788,6 @@ function serveStatic(req, res, url) {
   send(res, 200, fs.readFileSync(filePath), { "Content-Type": types[ext] || "application/octet-stream" });
 }
 
-runDb({ action: "query", sql: "SELECT 1 AS ok" });
-
 function localNetworkUrls() {
   return Object.values(os.networkInterfaces())
     .flat()
@@ -689,20 +795,28 @@ function localNetworkUrls() {
     .map((item) => `http://${item.address}:${PORT}`);
 }
 
-http
-  .createServer((req, res) => {
-    const url = new URL(req.url, `http://${req.headers.host}`);
-    if (url.pathname.startsWith("/api/")) {
-      api(req, res, url).catch((error) => send(res, 500, { error: error.message }));
-    } else {
-      serveStatic(req, res, url);
-    }
-  })
-  .listen(PORT, HOST, () => {
-    console.log(`Sistema rodando em http://localhost:${PORT}`);
-    const urls = localNetworkUrls();
-    if (urls.length) {
-      console.log("Acesse pelo celular na mesma rede:");
-      urls.forEach((url) => console.log(`- ${url}`));
-    }
-  });
+async function start() {
+  await runDb({ action: "query", sql: "SELECT 1 AS ok" });
+  http
+    .createServer((req, res) => {
+      const url = new URL(req.url, `http://${req.headers.host}`);
+      if (url.pathname.startsWith("/api/")) {
+        api(req, res, url).catch((error) => send(res, 500, { error: error.message }));
+      } else {
+        serveStatic(req, res, url);
+      }
+    })
+    .listen(PORT, HOST, () => {
+      console.log(`Sistema rodando em http://localhost:${PORT}`);
+      const urls = localNetworkUrls();
+      if (urls.length) {
+        console.log("Acesse pelo celular na mesma rede:");
+        urls.forEach((url) => console.log(`- ${url}`));
+      }
+    });
+}
+
+start().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});
