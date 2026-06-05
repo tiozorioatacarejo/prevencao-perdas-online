@@ -116,7 +116,7 @@ async function bootstrap() {
     state.user = me.user;
     state.activities = me.activities;
     state.tab = defaultTab();
-    await Promise.all([loadCollaborators(), state.user.role === "administrador" ? loadDashboard() : Promise.resolve()]);
+    await Promise.all([loadCollaborators(), loadDashboard()]);
     renderShell();
   } catch {
     logout();
@@ -189,6 +189,7 @@ function renderView() {
 function allowedTabs() {
   if (state.user?.role !== "administrador") {
     return [
+      ["dashboard", "Painel"],
       ["checklist", "Checklist"],
       ["summary", "Resumo"],
       ["pendencies", "Pendências"],
@@ -207,7 +208,7 @@ function allowedTabs() {
 }
 
 function defaultTab() {
-  return state.user?.role === "administrador" ? "dashboard" : "checklist";
+  return "dashboard";
 }
 
 async function loadCollaborators() {
@@ -250,7 +251,7 @@ function renderDashboard() {
     ["Checklists pendentes", data.pendingToday || 0],
     ["Perdas lançadas", fmtMoney(summary.losses)],
     ["Consumos internos", fmtMoney(summary.consumptions)],
-    ["Vasilhames conferidos", summary.bottles || 0],
+    ["Contagem de vasilhames", summary.bottles || 0],
     ["Recebimentos", summary.receipts || 0],
     ["Produtos vencidos", summary.expired || 0],
     ["Divergências de preço", summary.divergences || 0],
@@ -412,16 +413,18 @@ function renderSummary() {
       <div class="grid four">
         <label>Valor das perdas lançadas <input name="lossesValue" type="number" step="0.01" min="0"></label>
         <label>Valor dos consumos lançados <input name="consumptionValue" type="number" step="0.01" min="0"></label>
-        <label>Vasilhames conferidos <input name="bottlesCount" type="number" min="0"></label>
+        <label>Contagem de vasilhames do dia <input name="bottlesCount" type="number" min="0"></label>
         <label>Recebimentos acompanhados <input name="receiptsCount" type="number" min="0"></label>
       </div>
+      <label>Qual vasilhame
+        <textarea name="bottlesDetails" placeholder="Ex.: garrafa 1L, garrafa 2L, caixas, engradados"></textarea>
+      </label>
       <div class="grid two">
         <label>Produtos com divergência de preços <textarea name="priceDivergenceProducts"></textarea></label>
         <label>Produtos vencidos encontrados <textarea name="expiredProducts"></textarea></label>
         <label>Ocorrências identificadas <textarea name="occurrences"></textarea></label>
         <label>Ações corretivas realizadas <textarea name="correctiveActions"></textarea></label>
       </div>
-      <label>Pendências <textarea name="pendingItems"></textarea></label>
       <button class="btn primary" type="submit">Salvar resumo</button>
     </form>
   `;

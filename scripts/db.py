@@ -24,6 +24,8 @@ ACTIVITIES = [
     "Acompanhamento da vitrine",
 ]
 
+SEED_EXAMPLE_DATA = False
+
 
 def connect():
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
@@ -80,6 +82,7 @@ def init_db():
             losses_value REAL NOT NULL DEFAULT 0,
             consumption_value REAL NOT NULL DEFAULT 0,
             bottles_count INTEGER NOT NULL DEFAULT 0,
+            bottles_details TEXT,
             receipts_count INTEGER NOT NULL DEFAULT 0,
             price_divergence_products TEXT,
             expired_products TEXT,
@@ -116,17 +119,19 @@ def init_db():
     if "status" not in user_columns:
         conn.execute("ALTER TABLE users ADD COLUMN status TEXT NOT NULL DEFAULT 'ativo'")
 
+    summary_columns = [row["name"] for row in conn.execute("PRAGMA table_info(operational_summaries)").fetchall()]
+    if "bottles_details" not in summary_columns:
+        conn.execute("ALTER TABLE operational_summaries ADD COLUMN bottles_details TEXT")
+
     if not db_exists and conn.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0:
         conn.executemany(
             "INSERT INTO users (username, password, role, display_name) VALUES (?, ?, ?, ?)",
             [
                 ("admin", "adm123", "administrador", "Administrador"),
-                ("prevencao", "prev123", "prevencao", "Prevencao"),
-                ("encarregada", "enc123", "encarregada", "Encarregada"),
             ],
         )
 
-    if not db_exists and conn.execute("SELECT COUNT(*) FROM collaborators").fetchone()[0] == 0:
+    if SEED_EXAMPLE_DATA and not db_exists and conn.execute("SELECT COUNT(*) FROM collaborators").fetchone()[0] == 0:
         conn.executemany(
             "INSERT INTO collaborators (name, role, status) VALUES (?, ?, ?)",
             [
@@ -137,7 +142,7 @@ def init_db():
             ],
         )
 
-    if not db_exists and conn.execute("SELECT COUNT(*) FROM checklists").fetchone()[0] == 0:
+    if SEED_EXAMPLE_DATA and not db_exists and conn.execute("SELECT COUNT(*) FROM checklists").fetchone()[0] == 0:
         collabs = conn.execute("SELECT id FROM collaborators WHERE status='ativo' ORDER BY id").fetchall()
         user_id = conn.execute("SELECT id FROM users WHERE username='prevencao'").fetchone()[0]
         sample = []
@@ -161,21 +166,22 @@ def init_db():
             sample,
         )
 
-    if not db_exists and conn.execute("SELECT COUNT(*) FROM operational_summaries").fetchone()[0] == 0:
+    if SEED_EXAMPLE_DATA and not db_exists and conn.execute("SELECT COUNT(*) FROM operational_summaries").fetchone()[0] == 0:
         user_id = conn.execute("SELECT id FROM users WHERE username='encarregada'").fetchone()[0]
         conn.execute(
             """
             INSERT INTO operational_summaries (
-                date, losses_value, consumption_value, bottles_count, receipts_count,
+                date, losses_value, consumption_value, bottles_count, bottles_details, receipts_count,
                 price_divergence_products, expired_products, occurrences, corrective_actions,
                 pending_items, created_by
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 "2026-06-03",
                 418.75,
                 129.9,
                 84,
+                "Garrafas retornáveis 1L e 2L",
                 6,
                 "Arroz tipo 1 5kg; Cafe 250g",
                 "Iogurte natural lote 225; Biscoito wafer",
@@ -186,7 +192,7 @@ def init_db():
             ),
         )
 
-    if not db_exists and conn.execute("SELECT COUNT(*) FROM pendencies").fetchone()[0] == 0:
+    if SEED_EXAMPLE_DATA and not db_exists and conn.execute("SELECT COUNT(*) FROM pendencies").fetchone()[0] == 0:
         collab_id = conn.execute("SELECT id FROM collaborators WHERE status='ativo' ORDER BY id LIMIT 1").fetchone()[0]
         user_id = conn.execute("SELECT id FROM users WHERE username='admin'").fetchone()[0]
         conn.execute(

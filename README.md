@@ -94,13 +94,14 @@ Somente o administrador ve todos os menus do sistema.
 - Cadastro de colaboradores ativos/inativos.
 - Checklist diario com data, hora, atividade, sim/nao, observacao e foto opcional.
 - Usuario vinculado a colaborador entra direto no checklist.
-- Usuarios dos perfis prevencao, encarregada e colaborador veem checklist, resumo e pendencias.
-- Apenas administrador ve painel, relatorios, colaboradores e acessos.
+- Usuarios dos perfis prevencao, encarregada e colaborador veem painel, checklist, resumo e pendencias.
+- Apenas administrador ve relatorios, colaboradores e acessos.
 - Colaborador pode editar preenchimento enviado por ele em caso de erro.
 - Administrador pode excluir preenchimentos.
 - Administrador e encarregada podem corrigir registros.
 - Resumo operacional diario.
 - Dashboard gerencial com indicadores e ocorrencias por colaborador.
+- Painel liberado para visualizacao por colaboradores/prevenção.
 - Engajamento mensal por colaborador no dashboard, com base na participacao nos preenchimentos realizados.
 - Percentual mensal de realizacao por atividade no dashboard.
 - Relatorios com filtros por data, periodo, colaborador e atividade.

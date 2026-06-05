@@ -462,12 +462,13 @@ async function api(req, res, url) {
       Number(body.lossesValue || 0),
       Number(body.consumptionValue || 0),
       Number(body.bottlesCount || 0),
+      body.bottlesDetails || "",
       Number(body.receiptsCount || 0),
       body.priceDivergenceProducts || "",
       body.expiredProducts || "",
       body.occurrences || "",
       body.correctiveActions || "",
-      body.pendingItems || "",
+      "",
       user.id,
       existing ? user.id : null,
       existing ? nowIso() : null,
@@ -475,14 +476,15 @@ async function api(req, res, url) {
     execute(
       `
       INSERT INTO operational_summaries (
-        date, losses_value, consumption_value, bottles_count, receipts_count,
+        date, losses_value, consumption_value, bottles_count, bottles_details, receipts_count,
         price_divergence_products, expired_products, occurrences, corrective_actions,
         pending_items, created_by, corrected_by, corrected_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(date) DO UPDATE SET
         losses_value=excluded.losses_value,
         consumption_value=excluded.consumption_value,
         bottles_count=excluded.bottles_count,
+        bottles_details=excluded.bottles_details,
         receipts_count=excluded.receipts_count,
         price_divergence_products=excluded.price_divergence_products,
         expired_products=excluded.expired_products,
