@@ -2,6 +2,10 @@ const state = {
   token: localStorage.getItem("token") || "",
   user: JSON.parse(localStorage.getItem("user") || "null"),
   tab: "dashboard",
+  dashboardFilters: {
+    startDate: new Date().toISOString().slice(0, 10),
+    endDate: new Date().toISOString().slice(0, 10),
+  },
   collaborators: [],
   activities: [],
   checklists: [],
@@ -51,6 +55,10 @@ function canDeleteChecklist() {
 
 function isLinkedCollaborator() {
   return state.user?.role === "colaborador" && state.user?.collaborator_id;
+}
+
+function canAccessSummary() {
+  return ["administrador", "encarregada"].includes(state.user?.role);
 }
 
 function toast(message) {
@@ -188,12 +196,13 @@ function renderView() {
 
 function allowedTabs() {
   if (state.user?.role !== "administrador") {
-    return [
+    const tabs = [
       ["dashboard", "Painel"],
       ["checklist", "Checklist"],
-      ["summary", "Resumo"],
       ["pendencies", "Pendências"],
     ];
+    if (canAccessSummary()) tabs.splice(2, 0, ["summary", "Resumo"]);
+    return tabs;
   }
   const tabs = [
     ["dashboard", "Painel"],
@@ -217,7 +226,8 @@ async function loadCollaborators() {
 }
 
 async function loadDashboard() {
-  const data = await api("/api/dashboard");
+  const qs = new URLSearchParams(state.dashboardFilters);
+  const data = await api(`/api/dashboard?${qs.toString()}`);
   state.dashboard = data;
 }
 
@@ -264,8 +274,19 @@ function renderDashboard() {
         <h2>Dashboard gerencial</h2>
         <div class="muted">Indicadores operacionais do período registrado e percentuais de ${escapeHtml(monthLabel)}</div>
       </div>
-      <button class="btn" id="refreshDashboard">Atualizar</button>
+      <div class="toolbar">
+        <button class="btn" id="exportDashboardPdf">PDF</button>
+        <button class="btn" id="exportDashboardExcel">Excel</button>
+        <button class="btn" id="refreshDashboard">Atualizar</button>
+      </div>
     </div>
+    <form class="panel grid" id="dashboardFilterForm" style="margin-bottom:14px">
+      <div class="grid two">
+        <label>Data inicial <input name="startDate" type="date" value="${escapeHtml(state.dashboardFilters.startDate)}"></label>
+        <label>Data final <input name="endDate" type="date" value="${escapeHtml(state.dashboardFilters.endDate)}"></label>
+      </div>
+      <button class="btn primary" type="submit">Aplicar período</button>
+    </form>
     <div class="metrics">${metrics.map(([label, value]) => `<div class="metric"><span class="muted">${label}</span><strong>${value}</strong></div>`).join("")}</div>
     <div class="grid two" style="margin-top:14px">
       <section class="panel">
@@ -322,6 +343,14 @@ function renderDashboard() {
     await loadDashboard();
     renderDashboard();
   });
+  document.getElementById("dashboardFilterForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    state.dashboardFilters = Object.fromEntries(new FormData(event.currentTarget).entries());
+    await loadDashboard();
+    renderDashboard();
+  });
+  document.getElementById("exportDashboardPdf").addEventListener("click", printDashboardReport);
+  document.getElementById("exportDashboardExcel").addEventListener("click", exportDashboardCsv);
 }
 
 function percentBar(percent) {
@@ -332,6 +361,40 @@ function percentBar(percent) {
       <strong>${value}%</strong>
     </div>
   `;
+}
+
+function exportDashboardCsv() {
+  const data = state.dashboard || {};
+  const lines = [
+    ["Relatório do painel", data.month?.label || ""],
+    [],
+    ["Indicador", "Valor"],
+    ["Checklists pendentes", data.pendingToday || 0],
+    ["Perdas lançadas", data.summary?.losses || 0],
+    ["Consumos internos", data.summary?.consumptions || 0],
+    ["Contagem de vasilhames", data.summary?.bottles || 0],
+    ["Recebimentos", data.summary?.receipts || 0],
+    [],
+    ["Engajamento por colaborador"],
+    ["Colaborador", "Preenchimentos", "Percentual"],
+    ...(data.collaboratorCompletion || []).map((row) => [row.name, row.total, `${row.percent}%`]),
+    [],
+    ["Realização das atividades"],
+    ["Atividade", "Realizado", "Meta", "Percentual"],
+    ...(data.activityCompletion || []).map((row) => [row.activity, row.total, row.expected, `${row.percent}%`]),
+  ];
+  const csv = lines.map((line) => line.map((cell) => `"${String(cell ?? "").replaceAll('"', '""')}"`).join(";")).join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "relatorio-painel.csv";
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function printDashboardReport() {
+  window.print();
 }
 
 function collaboratorOptions(activeOnly = true) {
@@ -375,10 +438,9 @@ function renderChecklist() {
         <label>Sim / Não
           <select name="answer" required><option>Sim</option><option>Não</option></select>
         </label>
-        <label>Anexo de foto opcional
-          <input name="photo" type="file" accept="image/*">
-        </label>
+        <label>Produtos com divergência de preços <textarea name="priceDivergenceProducts"></textarea></label>
       </div>
+      <label>Produtos vencidos encontrados <textarea name="expiredProducts"></textarea></label>
       <label>Observação
         <textarea name="observation"></textarea>
       </label>
@@ -389,12 +451,6 @@ function renderChecklist() {
     event.preventDefault();
     const form = event.currentTarget;
     const body = Object.fromEntries(new FormData(form).entries());
-    const file = form.photo.files[0];
-    if (file) {
-      body.photoName = file.name;
-      body.photoData = await fileToDataUrl(file);
-    }
-    delete body.photo;
     await api("/api/checklists", { method: "POST", body: JSON.stringify(body) });
     form.reset();
     toast("Checklist enviado com data e hora registradas.");
@@ -420,8 +476,6 @@ function renderSummary() {
         <textarea name="bottlesDetails" placeholder="Ex.: garrafa 1L, garrafa 2L, caixas, engradados"></textarea>
       </label>
       <div class="grid two">
-        <label>Produtos com divergência de preços <textarea name="priceDivergenceProducts"></textarea></label>
-        <label>Produtos vencidos encontrados <textarea name="expiredProducts"></textarea></label>
         <label>Ocorrências identificadas <textarea name="occurrences"></textarea></label>
         <label>Ações corretivas realizadas <textarea name="correctiveActions"></textarea></label>
       </div>
@@ -482,13 +536,15 @@ function renderReports() {
 function drawReportTable() {
   const showActions = state.checklists.some((row) => canEditChecklist(row) || canDeleteChecklist());
   document.getElementById("reportTable").innerHTML = `
-    <table><thead><tr><th>Data</th><th>Colaborador</th><th>Atividade</th><th>Resposta</th><th>Observação</th><th>Enviado em</th>${showActions ? "<th>Ações</th>" : ""}</tr></thead><tbody>
+    <table><thead><tr><th>Data</th><th>Colaborador</th><th>Atividade</th><th>Resposta</th><th>Divergências</th><th>Vencidos</th><th>Observação</th><th>Enviado em</th>${showActions ? "<th>Ações</th>" : ""}</tr></thead><tbody>
       ${state.checklists.map((row) => `
         <tr>
           <td data-label="Data">${fmtDate(row.date)}</td>
           <td data-label="Colaborador">${escapeHtml(row.collaborator)}</td>
           <td data-label="Atividade">${escapeHtml(row.activity)}</td>
           <td data-label="Resposta"><span class="status ${row.answer === "Sim" ? "ok" : "danger"}">${row.answer}</span></td>
+          <td data-label="Divergências">${escapeHtml(row.price_divergence_products || "")}</td>
+          <td data-label="Vencidos">${escapeHtml(row.expired_products || "")}</td>
           <td data-label="Observação">${escapeHtml(row.observation || "")}</td>
           <td data-label="Enviado em">${new Date(row.sent_at).toLocaleString("pt-BR")}</td>
           ${showActions ? `
@@ -500,7 +556,7 @@ function drawReportTable() {
             </td>
           ` : ""}
         </tr>
-      `).join("") || `<tr><td colspan="${showActions ? 7 : 6}">Nenhum registro encontrado.</td></tr>`}
+      `).join("") || `<tr><td colspan="${showActions ? 9 : 8}">Nenhum registro encontrado.</td></tr>`}
     </tbody></table>
   `;
   document.querySelectorAll("[data-edit-checklist]").forEach((button) => {
@@ -531,6 +587,8 @@ function editChecklist(id) {
   const answer = prompt("Resposta corrigida: Sim ou Não", row.answer);
   if (!answer) return;
   const observation = prompt("Observação corrigida", row.observation || "") || "";
+  const priceDivergenceProducts = prompt("Produtos com divergência de preços", row.price_divergence_products || "") || "";
+  const expiredProducts = prompt("Produtos vencidos encontrados", row.expired_products || "") || "";
   api(`/api/checklists/${id}`, {
     method: "PUT",
     body: JSON.stringify({
@@ -538,7 +596,8 @@ function editChecklist(id) {
       activity: row.activity,
       answer,
       observation,
-      photoPath: row.photo_path || null,
+      priceDivergenceProducts,
+      expiredProducts,
     }),
   }).then(async () => {
     await loadChecklists();
@@ -574,10 +633,7 @@ function renderPendencies() {
         <label>Status <select name="status"><option>Aberto</option><option>Em andamento</option><option>Resolvido</option></select></label>
       </div>
       <label>Descrição <textarea name="description" required></textarea></label>
-      <div class="grid two">
-        <label>Foto/anexo <input name="attachment" type="file" accept="image/*,application/pdf"></label>
-        <label>Observação da solução <textarea name="solutionObservation"></textarea></label>
-      </div>
+      <label>Observação da solução <textarea name="solutionObservation"></textarea></label>
       <button class="btn primary" type="submit">Salvar pendência</button>
     </form>
     <div class="table-wrap" style="margin-top:14px" id="pendenciesTable"></div>
@@ -587,12 +643,6 @@ function renderPendencies() {
     event.preventDefault();
     const form = event.currentTarget;
     const body = Object.fromEntries(new FormData(form).entries());
-    const file = form.attachment.files[0];
-    if (file) {
-      body.attachmentName = file.name;
-      body.attachmentData = await fileToDataUrl(file);
-    }
-    delete body.attachment;
     await api("/api/pendencies", { method: "POST", body: JSON.stringify(body) });
     await loadPendencies();
     form.reset();

@@ -9,8 +9,8 @@ const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || "0.0.0.0";
 const BUNDLED_PYTHON = "C:\\Users\\tiozo\\.cache\\codex-runtimes\\codex-primary-runtime\\dependencies\\python\\python.exe";
 const PYTHON = process.env.PYTHON_EXE || (fs.existsSync(BUNDLED_PYTHON) ? BUNDLED_PYTHON : "python");
-const DATA_DIR = process.env.APP_DATA_DIR || path.join(ROOT, "data");
-const UPLOAD_DIR = process.env.APP_UPLOAD_DIR || path.join(ROOT, "uploads");
+const DATA_DIR = path.join(ROOT, "data");
+const UPLOAD_DIR = path.join(ROOT, "uploads");
 
 const sessions = new Map();
 
@@ -29,30 +29,19 @@ const activities = [
   "Verificação de validades",
   "Verificação de água do bebedouro",
   "Acompanhamento da vitrine",
+  "Portas e acessos conferidos",
+  "Cancelamentos e estornos verificados",
+  "Passagem de itens de forma correta no caixa",
+  "Devolução de produtos acompanhadas",
 ];
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
-function resolvePython() {
-  const candidates = [PYTHON, "python3", "python"];
-  for (const candidate of candidates) {
-    const result = spawnSync(candidate, ["--version"], { encoding: "utf8" });
-    if (result.status === 0) return candidate;
-  }
-  return PYTHON;
-}
-
-const PYTHON_CMD = resolvePython();
-
 function runDb(payload) {
-  const result = spawnSync(PYTHON_CMD, [path.join(ROOT, "scripts", "db.py")], {
+  const result = spawnSync(PYTHON, [path.join(ROOT, "scripts", "db.py")], {
     input: JSON.stringify(payload),
     encoding: "utf8",
-    env: {
-      ...process.env,
-      APP_DATA_DIR: DATA_DIR,
-    },
   });
   if (result.status !== 0) {
     throw new Error(result.stderr || result.stdout || "Falha ao acessar SQLite");
@@ -145,6 +134,18 @@ function monthBounds(date = new Date()) {
   };
 }
 
+function periodInfo(start, end) {
+  const startDate = new Date(`${start}T00:00:00`);
+  const endDate = new Date(`${end}T00:00:00`);
+  const days = Math.max(1, Math.round((endDate - startDate) / 86400000) + 1);
+  return {
+    start,
+    end,
+    days,
+    label: start === end ? startDate.toLocaleDateString("pt-BR") : `${startDate.toLocaleDateString("pt-BR")} a ${endDate.toLocaleDateString("pt-BR")}`,
+  };
+}
+
 function nowIso() {
   return new Date().toISOString();
 }
@@ -199,6 +200,7 @@ function rowsForReports(filters) {
   return query(
     `
     SELECT c.id, c.date, c.sent_at, c.collaborator_id, c.created_by, c.photo_path,
+           c.price_divergence_products, c.expired_products,
            col.name AS collaborator, c.activity, c.answer, c.observation,
            u.display_name AS sent_by
     FROM checklists c
@@ -212,13 +214,15 @@ function rowsForReports(filters) {
 }
 
 function makeExcel(rows) {
-  const header = ["Data", "Hora de envio", "Colaborador", "Atividade", "Sim/Nao", "Observacao", "Enviado por"];
+  const header = ["Data", "Hora de envio", "Colaborador", "Atividade", "Sim/Nao", "Divergencias de preco", "Produtos vencidos", "Observacao", "Enviado por"];
   const xmlRows = [header, ...rows.map((row) => [
     row.date,
     row.sent_at,
     row.collaborator,
     row.activity,
     row.answer,
+    row.price_divergence_products || "",
+    row.expired_products || "",
     row.observation || "",
     row.sent_by,
   ])]
@@ -235,7 +239,8 @@ function makePdf(rows) {
     "",
     ...rows.flatMap((row) => [
       `${row.date} | ${row.collaborator} | ${row.activity}`,
-      `Resposta: ${row.answer} | Observação: ${row.observation || "-"}`,
+      `Resposta: ${row.answer} | Divergencias: ${row.price_divergence_products || "-"} | Vencidos: ${row.expired_products || "-"}`,
+      `Observacao: ${row.observation || "-"}`,
       "",
     ]),
   ];
@@ -411,12 +416,21 @@ async function api(req, res, url) {
   if (method === "POST" && url.pathname === "/api/checklists") {
     const body = await readBody(req);
     const date = today();
-    const photoPath = saveDataUrl(body.photoData, body.photoName);
     const collaboratorId = user.collaborator_id || body.collaboratorId;
     if (!collaboratorId) return send(res, 400, { error: "Selecione um colaborador." });
     execute(
-      "INSERT INTO checklists (date, collaborator_id, activity, answer, observation, photo_path, sent_at, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-      [date, collaboratorId, body.activity, body.answer, body.observation || "", photoPath, nowIso(), user.id]
+      "INSERT INTO checklists (date, collaborator_id, activity, answer, observation, price_divergence_products, expired_products, sent_at, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      [
+        date,
+        collaboratorId,
+        body.activity,
+        body.answer,
+        body.observation || "",
+        body.priceDivergenceProducts || "",
+        body.expiredProducts || "",
+        nowIso(),
+        user.id,
+      ]
     );
     return send(res, 201, { ok: true });
   }
@@ -429,11 +443,20 @@ async function api(req, res, url) {
       return send(res, 403, { error: "Você só pode corrigir preenchimentos enviados por você." });
     }
     const body = await readBody(req);
-    const photoPath = body.photoData ? saveDataUrl(body.photoData, body.photoName) : body.photoPath || null;
     const collaboratorId = canCorrect(user) ? body.collaboratorId : user.collaborator_id || body.collaboratorId;
     execute(
-      "UPDATE checklists SET collaborator_id = ?, activity = ?, answer = ?, observation = ?, photo_path = ?, corrected_by = ?, corrected_at = ? WHERE id = ?",
-      [collaboratorId, body.activity, body.answer, body.observation || "", photoPath, user.id, nowIso(), id]
+      "UPDATE checklists SET collaborator_id = ?, activity = ?, answer = ?, observation = ?, price_divergence_products = ?, expired_products = ?, corrected_by = ?, corrected_at = ? WHERE id = ?",
+      [
+        collaboratorId,
+        body.activity,
+        body.answer,
+        body.observation || "",
+        body.priceDivergenceProducts || "",
+        body.expiredProducts || "",
+        user.id,
+        nowIso(),
+        id,
+      ]
     );
     return send(res, 200, { ok: true });
   }
@@ -452,6 +475,9 @@ async function api(req, res, url) {
   }
 
   if (method === "POST" && url.pathname === "/api/summary") {
+    if (!canCorrect(user)) {
+      return send(res, 403, { error: "Apenas administrador ou encarregada podem salvar o resumo." });
+    }
     const body = await readBody(req);
     const existing = query("SELECT id FROM operational_summaries WHERE date = ?", [body.date || today()])[0];
     if (existing && !canCorrect(user)) {
@@ -464,8 +490,8 @@ async function api(req, res, url) {
       Number(body.bottlesCount || 0),
       body.bottlesDetails || "",
       Number(body.receiptsCount || 0),
-      body.priceDivergenceProducts || "",
-      body.expiredProducts || "",
+      "",
+      "",
       body.occurrences || "",
       body.correctiveActions || "",
       "",
@@ -500,9 +526,10 @@ async function api(req, res, url) {
   }
 
   if (method === "GET" && url.pathname === "/api/dashboard") {
-    const start = url.searchParams.get("startDate") || "1900-01-01";
-    const end = url.searchParams.get("endDate") || "2999-12-31";
-    const currentMonth = monthBounds();
+    const fallback = today();
+    const start = url.searchParams.get("startDate") || fallback;
+    const end = url.searchParams.get("endDate") || start;
+    const currentMonth = periodInfo(start, end);
     const totalsByDay = query(
       "SELECT date, COUNT(*) AS total FROM checklists WHERE date BETWEEN ? AND ? GROUP BY date ORDER BY date",
       [start, end]
@@ -514,11 +541,11 @@ async function api(req, res, url) {
         COALESCE(SUM(consumption_value),0) AS consumptions,
         COALESCE(SUM(bottles_count),0) AS bottles,
         COALESCE(SUM(receipts_count),0) AS receipts,
-        COALESCE(SUM(CASE WHEN expired_products <> '' THEN 1 ELSE 0 END),0) AS expired,
-        COALESCE(SUM(CASE WHEN price_divergence_products <> '' THEN 1 ELSE 0 END),0) AS divergences
+        (SELECT COUNT(*) FROM checklists WHERE date BETWEEN ? AND ? AND expired_products <> '') AS expired,
+        (SELECT COUNT(*) FROM checklists WHERE date BETWEEN ? AND ? AND price_divergence_products <> '') AS divergences
       FROM operational_summaries WHERE date BETWEEN ? AND ?
       `,
-      [start, end]
+      [start, end, start, end, start, end]
     )[0];
     const doneToday = query("SELECT COUNT(*) AS total FROM checklists WHERE date = ?", [today()])[0].total;
     const pendingToday = Math.max(activities.length - doneToday, 0);

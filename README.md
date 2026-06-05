@@ -92,9 +92,12 @@ Somente o administrador ve todos os menus do sistema.
 - Login por perfil.
 - Cadastro de acessos com usuario/senha definidos pelo administrador.
 - Cadastro de colaboradores ativos/inativos.
-- Checklist diario com data, hora, atividade, sim/nao, observacao e foto opcional.
+- Checklist diario com data, hora, atividade, sim/nao e observacao.
+- Checklist inclui produtos com divergencia de precos e produtos vencidos encontrados.
+- Checklist inclui portas/acessos, cancelamentos/estornos, passagem correta no caixa e devolucoes acompanhadas.
 - Usuario vinculado a colaborador entra direto no checklist.
-- Usuarios dos perfis prevencao, encarregada e colaborador veem painel, checklist, resumo e pendencias.
+- Usuarios dos perfis prevencao e colaborador veem painel, checklist e pendencias.
+- Encarregada ve painel, checklist, resumo e pendencias.
 - Apenas administrador ve relatorios, colaboradores e acessos.
 - Colaborador pode editar preenchimento enviado por ele em caso de erro.
 - Administrador pode excluir preenchimentos.
@@ -102,11 +105,12 @@ Somente o administrador ve todos os menus do sistema.
 - Resumo operacional diario.
 - Dashboard gerencial com indicadores e ocorrencias por colaborador.
 - Painel liberado para visualizacao por colaboradores/prevenção.
+- Painel permite filtrar por periodo e exportar relatorio.
 - Engajamento mensal por colaborador no dashboard, com base na participacao nos preenchimentos realizados.
 - Percentual mensal de realizacao por atividade no dashboard.
 - Relatorios com filtros por data, periodo, colaborador e atividade.
 - Exportacao em PDF e Excel.
-- Controle de pendencias com responsavel, status, foto/anexo e solucao.
+- Controle de pendencias com responsavel, status e solucao.
 - Banco SQLite local em `data/app.sqlite`.
 - Dados de exemplo criados automaticamente na primeira execucao.
 

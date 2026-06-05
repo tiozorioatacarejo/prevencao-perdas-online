@@ -22,6 +22,10 @@ ACTIVITIES = [
     "Verificacao de validades",
     "Verificacao de agua do bebedouro",
     "Acompanhamento da vitrine",
+    "Portas e acessos conferidos",
+    "Cancelamentos e estornos verificados",
+    "Passagem de itens de forma correta no caixa",
+    "Devolucao de produtos acompanhadas",
 ]
 
 SEED_EXAMPLE_DATA = False
@@ -66,6 +70,8 @@ def init_db():
             activity TEXT NOT NULL,
             answer TEXT NOT NULL,
             observation TEXT,
+            price_divergence_products TEXT,
+            expired_products TEXT,
             photo_path TEXT,
             sent_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             created_by INTEGER NOT NULL,
@@ -122,6 +128,12 @@ def init_db():
     summary_columns = [row["name"] for row in conn.execute("PRAGMA table_info(operational_summaries)").fetchall()]
     if "bottles_details" not in summary_columns:
         conn.execute("ALTER TABLE operational_summaries ADD COLUMN bottles_details TEXT")
+
+    checklist_columns = [row["name"] for row in conn.execute("PRAGMA table_info(checklists)").fetchall()]
+    if "price_divergence_products" not in checklist_columns:
+        conn.execute("ALTER TABLE checklists ADD COLUMN price_divergence_products TEXT")
+    if "expired_products" not in checklist_columns:
+        conn.execute("ALTER TABLE checklists ADD COLUMN expired_products TEXT")
 
     if not db_exists and conn.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0:
         conn.executemany(
