@@ -15,6 +15,8 @@ const DATABASE_URL = process.env.DATABASE_URL || "";
 let pgPool = null;
 
 const sessions = new Map();
+const PRICE_DIVERGENCE_ACTIVITY = "Conferência de precificação";
+const EXPIRED_PRODUCTS_ACTIVITY = "Verificação de validades";
 
 const activities = [
   "Temperatura 07h",
@@ -322,15 +324,13 @@ async function rowsForReports(filters) {
 }
 
 function makeExcel(rows) {
-  const header = ["Data", "Hora de envio", "Colaborador", "Atividade", "Sim/Nao", "Divergencias de preco", "Produtos vencidos", "Observacao", "Enviado por"];
+  const header = ["Data", "Hora de envio", "Colaborador", "Atividade", "Sim/Nao", "Observacao", "Enviado por"];
   const xmlRows = [header, ...rows.map((row) => [
     row.date,
     row.sent_at,
     row.collaborator,
     row.activity,
     row.answer,
-    row.price_divergence_products || "",
-    row.expired_products || "",
     row.observation || "",
     row.sent_by,
   ])]
@@ -347,7 +347,7 @@ function makePdf(rows) {
     "",
     ...rows.flatMap((row) => [
       `${row.date} | ${row.collaborator} | ${row.activity}`,
-      `Resposta: ${row.answer} | Divergencias: ${row.price_divergence_products || "-"} | Vencidos: ${row.expired_products || "-"}`,
+      `Resposta: ${row.answer}`,
       `Observacao: ${row.observation || "-"}`,
       "",
     ]),
@@ -377,6 +377,13 @@ function makePdf(rows) {
   }
   pdf += `trailer << /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
   return Buffer.from(pdf, "latin1");
+}
+
+function checklistSpecificFields(activity, body) {
+  return {
+    priceDivergenceProducts: activity === PRICE_DIVERGENCE_ACTIVITY ? body.priceDivergenceProducts || "" : "",
+    expiredProducts: activity === EXPIRED_PRODUCTS_ACTIVITY ? body.expiredProducts || "" : "",
+  };
 }
 
 function pdfEscape(value) {
@@ -526,6 +533,7 @@ async function api(req, res, url) {
     const date = today();
     const collaboratorId = user.collaborator_id || body.collaboratorId;
     if (!collaboratorId) return send(res, 400, { error: "Selecione um colaborador." });
+    const specificFields = checklistSpecificFields(body.activity, body);
     await execute(
       "INSERT INTO checklists (date, collaborator_id, activity, answer, observation, price_divergence_products, expired_products, sent_at, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
       [
@@ -534,8 +542,8 @@ async function api(req, res, url) {
         body.activity,
         body.answer,
         body.observation || "",
-        body.priceDivergenceProducts || "",
-        body.expiredProducts || "",
+        specificFields.priceDivergenceProducts,
+        specificFields.expiredProducts,
         nowIso(),
         user.id,
       ]
@@ -552,6 +560,7 @@ async function api(req, res, url) {
     }
     const body = await readBody(req);
     const collaboratorId = canCorrect(user) ? body.collaboratorId : user.collaborator_id || body.collaboratorId;
+    const specificFields = checklistSpecificFields(body.activity, body);
     await execute(
       "UPDATE checklists SET collaborator_id = ?, activity = ?, answer = ?, observation = ?, price_divergence_products = ?, expired_products = ?, corrected_by = ?, corrected_at = ? WHERE id = ?",
       [
@@ -559,8 +568,8 @@ async function api(req, res, url) {
         body.activity,
         body.answer,
         body.observation || "",
-        body.priceDivergenceProducts || "",
-        body.expiredProducts || "",
+        specificFields.priceDivergenceProducts,
+        specificFields.expiredProducts,
         user.id,
         nowIso(),
         id,
@@ -649,11 +658,11 @@ async function api(req, res, url) {
         COALESCE(SUM(consumption_value),0) AS consumptions,
         COALESCE(SUM(bottles_count),0) AS bottles,
         COALESCE(SUM(receipts_count),0) AS receipts,
-        (SELECT COUNT(*) FROM checklists WHERE date BETWEEN ? AND ? AND expired_products <> '') AS expired,
-        (SELECT COUNT(*) FROM checklists WHERE date BETWEEN ? AND ? AND price_divergence_products <> '') AS divergences
+        (SELECT COUNT(*) FROM checklists WHERE date BETWEEN ? AND ? AND activity = ? AND expired_products <> '') AS expired,
+        (SELECT COUNT(*) FROM checklists WHERE date BETWEEN ? AND ? AND activity = ? AND price_divergence_products <> '') AS divergences
       FROM operational_summaries WHERE date BETWEEN ? AND ?
       `,
-      [start, end, start, end, start, end]
+      [start, end, EXPIRED_PRODUCTS_ACTIVITY, start, end, PRICE_DIVERGENCE_ACTIVITY, start, end]
     ))[0];
     const doneToday = (await query("SELECT COUNT(*) AS total FROM checklists WHERE date = ?", [today()]))[0].total;
     const pendingToday = Math.max(activities.length - doneToday, 0);

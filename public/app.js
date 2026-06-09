@@ -15,6 +15,8 @@ const state = {
 };
 
 const app = document.getElementById("app");
+const PRICE_DIVERGENCE_ACTIVITY = "Conferência de precificação";
+const EXPIRED_PRODUCTS_ACTIVITY = "Verificação de validades";
 
 function api(path, options = {}) {
   return fetch(path, {
@@ -438,21 +440,37 @@ function renderChecklist() {
         <label>Sim / Não
           <select name="answer" required><option>Sim</option><option>Não</option></select>
         </label>
-        <label>Produtos com divergência de preços <textarea name="priceDivergenceProducts"></textarea></label>
+        <label data-price-divergence-field>Produtos com divergência de preços <textarea name="priceDivergenceProducts"></textarea></label>
       </div>
-      <label>Produtos vencidos encontrados <textarea name="expiredProducts"></textarea></label>
+      <label data-expired-products-field>Produtos vencidos encontrados <textarea name="expiredProducts"></textarea></label>
       <label>Observação
         <textarea name="observation"></textarea>
       </label>
       <button class="btn primary" type="submit">Enviar checklist</button>
     </form>
   `;
-  document.getElementById("checklistForm").addEventListener("submit", async (event) => {
+  const checklistForm = document.getElementById("checklistForm");
+  const activitySelect = checklistForm.elements.activity;
+  const priceField = checklistForm.querySelector("[data-price-divergence-field]");
+  const expiredField = checklistForm.querySelector("[data-expired-products-field]");
+  const syncChecklistSpecificFields = () => {
+    const activity = activitySelect.value;
+    const showPrice = activity === PRICE_DIVERGENCE_ACTIVITY;
+    const showExpired = activity === EXPIRED_PRODUCTS_ACTIVITY;
+    priceField.hidden = !showPrice;
+    expiredField.hidden = !showExpired;
+    if (!showPrice) checklistForm.elements.priceDivergenceProducts.value = "";
+    if (!showExpired) checklistForm.elements.expiredProducts.value = "";
+  };
+  activitySelect.addEventListener("change", syncChecklistSpecificFields);
+  syncChecklistSpecificFields();
+  checklistForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = event.currentTarget;
     const body = Object.fromEntries(new FormData(form).entries());
     await api("/api/checklists", { method: "POST", body: JSON.stringify(body) });
     form.reset();
+    syncChecklistSpecificFields();
     toast("Checklist enviado com data e hora registradas.");
   });
 }
@@ -536,15 +554,13 @@ function renderReports() {
 function drawReportTable() {
   const showActions = state.checklists.some((row) => canEditChecklist(row) || canDeleteChecklist());
   document.getElementById("reportTable").innerHTML = `
-    <table><thead><tr><th>Data</th><th>Colaborador</th><th>Atividade</th><th>Resposta</th><th>Divergências</th><th>Vencidos</th><th>Observação</th><th>Enviado em</th>${showActions ? "<th>Ações</th>" : ""}</tr></thead><tbody>
+    <table><thead><tr><th>Data</th><th>Colaborador</th><th>Atividade</th><th>Resposta</th><th>Observação</th><th>Enviado em</th>${showActions ? "<th>Ações</th>" : ""}</tr></thead><tbody>
       ${state.checklists.map((row) => `
         <tr>
           <td data-label="Data">${fmtDate(row.date)}</td>
           <td data-label="Colaborador">${escapeHtml(row.collaborator)}</td>
           <td data-label="Atividade">${escapeHtml(row.activity)}</td>
           <td data-label="Resposta"><span class="status ${row.answer === "Sim" ? "ok" : "danger"}">${row.answer}</span></td>
-          <td data-label="Divergências">${escapeHtml(row.price_divergence_products || "")}</td>
-          <td data-label="Vencidos">${escapeHtml(row.expired_products || "")}</td>
           <td data-label="Observação">${escapeHtml(row.observation || "")}</td>
           <td data-label="Enviado em">${new Date(row.sent_at).toLocaleString("pt-BR")}</td>
           ${showActions ? `
@@ -556,7 +572,7 @@ function drawReportTable() {
             </td>
           ` : ""}
         </tr>
-      `).join("") || `<tr><td colspan="${showActions ? 9 : 8}">Nenhum registro encontrado.</td></tr>`}
+      `).join("") || `<tr><td colspan="${showActions ? 7 : 6}">Nenhum registro encontrado.</td></tr>`}
     </tbody></table>
   `;
   document.querySelectorAll("[data-edit-checklist]").forEach((button) => {
@@ -587,8 +603,12 @@ function editChecklist(id) {
   const answer = prompt("Resposta corrigida: Sim ou Não", row.answer);
   if (!answer) return;
   const observation = prompt("Observação corrigida", row.observation || "") || "";
-  const priceDivergenceProducts = prompt("Produtos com divergência de preços", row.price_divergence_products || "") || "";
-  const expiredProducts = prompt("Produtos vencidos encontrados", row.expired_products || "") || "";
+  const priceDivergenceProducts = row.activity === PRICE_DIVERGENCE_ACTIVITY
+    ? prompt("Produtos com divergência de preços", row.price_divergence_products || "") || ""
+    : "";
+  const expiredProducts = row.activity === EXPIRED_PRODUCTS_ACTIVITY
+    ? prompt("Produtos vencidos encontrados", row.expired_products || "") || ""
+    : "";
   api(`/api/checklists/${id}`, {
     method: "PUT",
     body: JSON.stringify({
