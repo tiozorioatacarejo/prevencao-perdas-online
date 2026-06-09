@@ -459,6 +459,8 @@ function renderChecklist() {
     const showExpired = activity === EXPIRED_PRODUCTS_ACTIVITY;
     priceField.hidden = !showPrice;
     expiredField.hidden = !showExpired;
+    priceField.classList.toggle("hidden", !showPrice);
+    expiredField.classList.toggle("hidden", !showExpired);
     if (!showPrice) checklistForm.elements.priceDivergenceProducts.value = "";
     if (!showExpired) checklistForm.elements.expiredProducts.value = "";
   };
