@@ -17,6 +17,11 @@ const state = {
 const app = document.getElementById("app");
 const PRICE_DIVERGENCE_ACTIVITY = "Conferência de precificação";
 const EXPIRED_PRODUCTS_ACTIVITY = "Verificação de validades";
+const ENCARREGADA_ONLY_ACTIVITIES = [
+  "Lançamento de perdas no sistema",
+  "Lançamento de consumo interno",
+  "Contagem e acompanhamento de vasilhames",
+];
 
 function api(path, options = {}) {
   return fetch(path, {
@@ -43,6 +48,10 @@ function fmtDate(value) {
   return new Date(`${value}T00:00:00`).toLocaleDateString("pt-BR");
 }
 
+function todayInputValue() {
+  return new Date().toISOString().slice(0, 10);
+}
+
 function canCorrect() {
   return ["administrador", "encarregada"].includes(state.user?.role);
 }
@@ -61,6 +70,16 @@ function isLinkedCollaborator() {
 
 function canAccessSummary() {
   return ["administrador", "encarregada"].includes(state.user?.role);
+}
+
+function canFillEncarregadaOnly() {
+  return state.user?.role === "encarregada";
+}
+
+function checklistActivitiesForUser() {
+  return state.activities.filter((activity) => (
+    canFillEncarregadaOnly() || !ENCARREGADA_ONLY_ACTIVITIES.includes(activity)
+  ));
 }
 
 function toast(message) {
@@ -311,7 +330,7 @@ function renderDashboard() {
     <div class="grid two" style="margin-top:14px">
       <section class="panel">
         <h3>Engajamento por colaborador</h3>
-        <div class="muted" style="margin-top:4px">Participação nos preenchimentos realizados no mês</div>
+        <div class="muted" style="margin-top:4px">Participação nos preenchimentos do mês, sem considerar perdas, consumos e vasilhames</div>
         <div class="table-wrap" style="margin-top:12px">
           <table><thead><tr><th>Colaborador</th><th>Preenchimentos</th><th>Engajamento</th></tr></thead><tbody>
             ${data.collaboratorCompletion.map((row) => `
@@ -407,6 +426,7 @@ function collaboratorOptions(activeOnly = true) {
 }
 
 function renderChecklist() {
+  const availableActivities = checklistActivitiesForUser();
   const linkedCollaborator = state.user?.collaborator_id
     ? state.collaborators.find((item) => Number(item.id) === Number(state.user.collaborator_id))
     : null;
@@ -433,7 +453,7 @@ function renderChecklist() {
       <div class="grid two">
         ${collaboratorField}
         <label>Atividade
-          <select name="activity" required>${state.activities.map((item) => `<option>${escapeHtml(item)}</option>`).join("")}</select>
+          <select name="activity" required>${availableActivities.map((item) => `<option>${escapeHtml(item)}</option>`).join("")}</select>
         </label>
       </div>
       <div class="grid two">
@@ -478,6 +498,7 @@ function renderChecklist() {
 }
 
 function renderSummary() {
+  const summaryLocked = !canFillEncarregadaOnly();
   view.innerHTML = `
     <div class="topbar">
       <div>
@@ -485,10 +506,14 @@ function renderSummary() {
         <div class="muted">Consolidação do dia para acompanhamento gerencial</div>
       </div>
     </div>
+    ${summaryLocked ? `<div class="panel muted" style="margin-bottom:14px">Somente a encarregada pode preencher, alterar ou excluir perdas, consumos e vasilhames.</div>` : ""}
     <form class="panel grid" id="summaryForm">
-      <div class="grid four">
+      <div class="grid three">
+        <label>Data do resumo <input name="date" type="date" required value="${todayInputValue()}"></label>
         <label>Valor das perdas lançadas <input name="lossesValue" type="number" step="0.01" min="0"></label>
         <label>Valor dos consumos lançados <input name="consumptionValue" type="number" step="0.01" min="0"></label>
+      </div>
+      <div class="grid four">
         <label>Contagem de vasilhames do dia <input name="bottlesCount" type="number" min="0"></label>
         <label>Recebimentos acompanhados <input name="receiptsCount" type="number" min="0"></label>
       </div>
@@ -499,15 +524,122 @@ function renderSummary() {
         <label>Ocorrências identificadas <textarea name="occurrences"></textarea></label>
         <label>Ações corretivas realizadas <textarea name="correctiveActions"></textarea></label>
       </div>
-      <button class="btn primary" type="submit">Salvar resumo</button>
+      <div class="toolbar">
+        <button class="btn primary" type="submit" ${summaryLocked ? "disabled" : ""}>Salvar / corrigir resumo</button>
+        <button class="btn" type="button" id="loadSummary">Carregar data</button>
+        <button class="btn danger" type="button" id="deleteSummary" ${summaryLocked ? "disabled" : ""}>Excluir resumo da data</button>
+      </div>
     </form>
+    <div class="table-wrap" style="margin-top:14px" id="summaryTable"></div>
   `;
-  document.getElementById("summaryForm").addEventListener("submit", async (event) => {
+  const form = document.getElementById("summaryForm");
+  if (summaryLocked) {
+    ["lossesValue", "consumptionValue", "bottlesCount", "receiptsCount", "bottlesDetails", "occurrences", "correctiveActions"].forEach((name) => {
+      form.elements[name].disabled = true;
+    });
+  }
+  const clearSummaryFields = () => {
+    form.lossesValue.value = "";
+    form.consumptionValue.value = "";
+    form.bottlesCount.value = "";
+    form.receiptsCount.value = "";
+    form.bottlesDetails.value = "";
+    form.occurrences.value = "";
+    form.correctiveActions.value = "";
+  };
+  const fillSummaryForm = (row) => {
+    clearSummaryFields();
+    if (!row) return;
+    form.date.value = row.date || form.date.value;
+    form.lossesValue.value = row.losses_value ?? "";
+    form.consumptionValue.value = row.consumption_value ?? "";
+    form.bottlesCount.value = row.bottles_count ?? "";
+    form.receiptsCount.value = row.receipts_count ?? "";
+    form.bottlesDetails.value = row.bottles_details || "";
+    form.occurrences.value = row.occurrences || "";
+    form.correctiveActions.value = row.corrective_actions || "";
+  };
+  const loadSummaryForDate = async () => {
+    const data = await api(`/api/summary?date=${encodeURIComponent(form.date.value)}`);
+    fillSummaryForm(data.row);
+    toast(data.row ? "Resumo carregado para edição." : "Nenhum resumo encontrado para essa data.");
+  };
+  const refreshSummaryTable = async () => {
+    const data = await api("/api/summaries");
+    document.getElementById("summaryTable").innerHTML = `
+      <table>
+        <thead>
+          <tr>
+            <th>Data</th>
+            <th>Perdas</th>
+            <th>Consumos</th>
+            <th>Vasilhames</th>
+            <th>Qual vasilhame</th>
+            <th>Recebimentos</th>
+            <th>Ações</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${data.rows.map((row) => `
+            <tr>
+              <td data-label="Data">${fmtDate(row.date)}</td>
+              <td data-label="Perdas">${fmtMoney(row.losses_value)}</td>
+              <td data-label="Consumos">${fmtMoney(row.consumption_value)}</td>
+              <td data-label="Vasilhames">${row.bottles_count || 0}</td>
+              <td data-label="Qual vasilhame">${escapeHtml(row.bottles_details || "")}</td>
+              <td data-label="Recebimentos">${row.receipts_count || 0}</td>
+              <td data-label="Ações">
+                <div class="toolbar">
+                  <button class="btn" type="button" data-edit-summary="${row.date}">Editar</button>
+                  ${canFillEncarregadaOnly() ? `<button class="btn danger" type="button" data-delete-summary="${row.date}">Excluir</button>` : ""}
+                </div>
+              </td>
+            </tr>
+          `).join("") || `<tr><td colspan="7">Nenhum resumo lançado.</td></tr>`}
+        </tbody>
+      </table>
+    `;
+    document.querySelectorAll("[data-edit-summary]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        form.date.value = button.dataset.editSummary;
+        await loadSummaryForDate();
+        form.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    });
+    document.querySelectorAll("[data-delete-summary]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        const date = button.dataset.deleteSummary;
+        const confirmed = confirm(`Excluir o resumo operacional de ${fmtDate(date)}?`);
+        if (!confirmed) return;
+        const result = await api(`/api/summary?date=${encodeURIComponent(date)}`, { method: "DELETE" });
+        if (form.date.value === date) clearSummaryFields();
+        await loadDashboard();
+        await refreshSummaryTable();
+        toast(result.message || "Resumo excluído.");
+      });
+    });
+  };
+  form.date.addEventListener("change", loadSummaryForDate);
+  document.getElementById("loadSummary").addEventListener("click", loadSummaryForDate);
+  document.getElementById("deleteSummary").addEventListener("click", async () => {
+    const confirmed = confirm(`Excluir o resumo operacional de ${fmtDate(form.date.value)}?`);
+    if (!confirmed) return;
+    const result = await api(`/api/summary?date=${encodeURIComponent(form.date.value)}`, { method: "DELETE" });
+    clearSummaryFields();
+    await loadDashboard();
+    await refreshSummaryTable();
+    toast(result.message || "Resumo excluído.");
+  });
+  form.addEventListener("submit", async (event) => {
     event.preventDefault();
     const body = Object.fromEntries(new FormData(event.currentTarget).entries());
     await api("/api/summary", { method: "POST", body: JSON.stringify(body) });
+    await loadDashboard();
+    await refreshSummaryTable();
     toast("Resumo operacional salvo.");
   });
+  loadSummaryForDate();
+  refreshSummaryTable();
 }
 
 function reportFiltersHtml() {

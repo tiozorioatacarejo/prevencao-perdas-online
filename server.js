@@ -17,6 +17,11 @@ let pgPool = null;
 const sessions = new Map();
 const PRICE_DIVERGENCE_ACTIVITY = "Conferência de precificação";
 const EXPIRED_PRODUCTS_ACTIVITY = "Verificação de validades";
+const ENGAGEMENT_EXCLUDED_ACTIVITIES = [
+  "Lançamento de perdas no sistema",
+  "Lançamento de consumo interno",
+  "Contagem e acompanhamento de vasilhames",
+];
 
 const activities = [
   "Temperatura 07h",
@@ -224,6 +229,14 @@ function canDeleteRecords(user) {
 
 function isAdmin(user) {
   return user.role === "administrador";
+}
+
+function canFillEncarregadaOnly(user) {
+  return user.role === "encarregada";
+}
+
+function isEncarregadaOnlyActivity(activity) {
+  return ENGAGEMENT_EXCLUDED_ACTIVITIES.includes(activity);
 }
 
 function today() {
@@ -533,6 +546,9 @@ async function api(req, res, url) {
     const date = today();
     const collaboratorId = user.collaborator_id || body.collaboratorId;
     if (!collaboratorId) return send(res, 400, { error: "Selecione um colaborador." });
+    if (isEncarregadaOnlyActivity(body.activity) && !canFillEncarregadaOnly(user)) {
+      return send(res, 403, { error: "Apenas a encarregada pode preencher perdas, consumos e vasilhames." });
+    }
     const specificFields = checklistSpecificFields(body.activity, body);
     await execute(
       "INSERT INTO checklists (date, collaborator_id, activity, answer, observation, price_divergence_products, expired_products, sent_at, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -559,6 +575,9 @@ async function api(req, res, url) {
       return send(res, 403, { error: "Você só pode corrigir preenchimentos enviados por você." });
     }
     const body = await readBody(req);
+    if (isEncarregadaOnlyActivity(body.activity) && !canFillEncarregadaOnly(user)) {
+      return send(res, 403, { error: "Apenas a encarregada pode corrigir perdas, consumos e vasilhames." });
+    }
     const collaboratorId = canCorrect(user) ? body.collaboratorId : user.collaborator_id || body.collaboratorId;
     const specificFields = checklistSpecificFields(body.activity, body);
     await execute(
@@ -585,15 +604,34 @@ async function api(req, res, url) {
     return send(res, 200, { ok: true, message: "Preenchimento excluído." });
   }
 
+  if (method === "GET" && url.pathname === "/api/summaries") {
+    if (!canCorrect(user)) {
+      return send(res, 403, { error: "Apenas administrador ou encarregada podem visualizar resumos." });
+    }
+    const rows = await query(
+      "SELECT * FROM operational_summaries ORDER BY date DESC LIMIT 60"
+    );
+    return send(res, 200, { rows });
+  }
+
   if (method === "GET" && url.pathname === "/api/summary") {
     const date = url.searchParams.get("date") || today();
     const rows = await query("SELECT * FROM operational_summaries WHERE date = ?", [date]);
     return send(res, 200, { row: rows[0] || null });
   }
 
+  if (method === "DELETE" && url.pathname === "/api/summary") {
+    if (!canFillEncarregadaOnly(user)) {
+      return send(res, 403, { error: "Apenas a encarregada pode excluir o resumo." });
+    }
+    const date = url.searchParams.get("date") || today();
+    await execute("DELETE FROM operational_summaries WHERE date = ?", [date]);
+    return send(res, 200, { ok: true, message: "Resumo operacional excluído." });
+  }
+
   if (method === "POST" && url.pathname === "/api/summary") {
-    if (!canCorrect(user)) {
-      return send(res, 403, { error: "Apenas administrador ou encarregada podem salvar o resumo." });
+    if (!canFillEncarregadaOnly(user)) {
+      return send(res, 403, { error: "Apenas a encarregada pode salvar o resumo." });
     }
     const body = await readBody(req);
     const existing = (await query("SELECT id FROM operational_summaries WHERE date = ?", [body.date || today()]))[0];
@@ -680,12 +718,14 @@ async function api(req, res, url) {
       `
       SELECT col.id, col.name, COUNT(c.id) AS total
       FROM collaborators col
-      LEFT JOIN checklists c ON c.collaborator_id = col.id AND c.date BETWEEN ? AND ?
+      LEFT JOIN checklists c ON c.collaborator_id = col.id
+        AND c.date BETWEEN ? AND ?
+        AND c.activity NOT IN (?, ?, ?)
       WHERE col.status = 'ativo'
       GROUP BY col.id, col.name
       ORDER BY col.name
       `,
-      [currentMonth.start, currentMonth.end]
+      [currentMonth.start, currentMonth.end, ...ENGAGEMENT_EXCLUDED_ACTIVITIES]
     );
     const totalMonthlyChecklists = collaboratorCounts.reduce((sum, row) => sum + Number(row.total || 0), 0);
     const collaboratorCompletion = collaboratorCounts.map((row) => ({

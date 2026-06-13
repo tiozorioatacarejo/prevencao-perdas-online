@@ -391,6 +391,10 @@ th {
   display: none !important;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 @media (max-width: 900px) {
   .app-shell {
     grid-template-columns: 1fr;
