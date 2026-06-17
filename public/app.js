@@ -3,7 +3,11 @@ const state = {
   user: JSON.parse(localStorage.getItem("user") || "null"),
   tab: "dashboard",
   dashboardFilters: {
+    mode: "day",
     date: new Date().toISOString().slice(0, 10),
+    startDate: new Date().toISOString().slice(0, 10),
+    endDate: new Date().toISOString().slice(0, 10),
+    month: new Date().toISOString().slice(0, 7),
   },
   collaborators: [],
   activities: [],
@@ -49,6 +53,16 @@ function fmtDate(value) {
 
 function todayInputValue() {
   return new Date().toISOString().slice(0, 10);
+}
+
+function monthRange(month) {
+  const [year, monthIndex] = String(month || new Date().toISOString().slice(0, 7)).split("-").map(Number);
+  const start = new Date(year, monthIndex - 1, 1);
+  const end = new Date(year, monthIndex, 0);
+  return {
+    startDate: start.toISOString().slice(0, 10),
+    endDate: end.toISOString().slice(0, 10),
+  };
 }
 
 function canCorrect() {
@@ -246,8 +260,20 @@ async function loadCollaborators() {
 }
 
 async function loadDashboard() {
-  const date = state.dashboardFilters.date || new Date().toISOString().slice(0, 10);
-  const qs = new URLSearchParams({ startDate: date, endDate: date });
+  const filters = state.dashboardFilters;
+  let range;
+  if (filters.mode === "month") {
+    range = monthRange(filters.month);
+  } else if (filters.mode === "period") {
+    range = {
+      startDate: filters.startDate || filters.date || todayInputValue(),
+      endDate: filters.endDate || filters.startDate || filters.date || todayInputValue(),
+    };
+  } else {
+    const date = filters.date || todayInputValue();
+    range = { startDate: date, endDate: date };
+  }
+  const qs = new URLSearchParams(range);
   const data = await api(`/api/dashboard?${qs.toString()}`);
   state.dashboard = data;
 }
@@ -302,8 +328,20 @@ function renderDashboard() {
       </div>
     </div>
     <form class="panel grid" id="dashboardFilterForm" style="margin-bottom:14px">
-      <label>Data do painel <input name="date" type="date" value="${escapeHtml(state.dashboardFilters.date)}"></label>
-      <button class="btn primary" type="submit">Aplicar data</button>
+      <div class="grid four">
+        <label>Visualizar
+          <select name="mode">
+            <option value="day" ${state.dashboardFilters.mode === "day" ? "selected" : ""}>Dia</option>
+            <option value="period" ${state.dashboardFilters.mode === "period" ? "selected" : ""}>Período</option>
+            <option value="month" ${state.dashboardFilters.mode === "month" ? "selected" : ""}>Mês</option>
+          </select>
+        </label>
+        <label data-dashboard-day>Data <input name="date" type="date" value="${escapeHtml(state.dashboardFilters.date)}"></label>
+        <label data-dashboard-period>Início <input name="startDate" type="date" value="${escapeHtml(state.dashboardFilters.startDate)}"></label>
+        <label data-dashboard-period>Fim <input name="endDate" type="date" value="${escapeHtml(state.dashboardFilters.endDate)}"></label>
+        <label data-dashboard-month>Mês <input name="month" type="month" value="${escapeHtml(state.dashboardFilters.month)}"></label>
+      </div>
+      <button class="btn primary" type="submit">Aplicar filtro</button>
     </form>
     <div class="metrics">${metrics.map(([label, value]) => `<div class="metric"><span class="muted">${label}</span><strong>${value}</strong></div>`).join("")}</div>
     <div class="grid two" style="margin-top:14px">
@@ -362,6 +400,14 @@ function renderDashboard() {
     renderDashboard();
   });
   const dashboardFilterForm = document.getElementById("dashboardFilterForm");
+  const syncDashboardMode = () => {
+    const mode = dashboardFilterForm.mode.value;
+    dashboardFilterForm.querySelectorAll("[data-dashboard-day]").forEach((item) => item.classList.toggle("hidden", mode !== "day"));
+    dashboardFilterForm.querySelectorAll("[data-dashboard-period]").forEach((item) => item.classList.toggle("hidden", mode !== "period"));
+    dashboardFilterForm.querySelectorAll("[data-dashboard-month]").forEach((item) => item.classList.toggle("hidden", mode !== "month"));
+  };
+  dashboardFilterForm.mode.addEventListener("change", syncDashboardMode);
+  syncDashboardMode();
   dashboardFilterForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     state.dashboardFilters = Object.fromEntries(new FormData(event.currentTarget).entries());
