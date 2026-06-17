@@ -17,6 +17,7 @@ let pgPool = null;
 const sessions = new Map();
 const PRICE_DIVERGENCE_ACTIVITY = "Conferência de precificação";
 const EXPIRED_PRODUCTS_ACTIVITY = "Verificação de validades";
+const RECEIPTS_ACTIVITY = "Acompanhamento de recebimentos";
 const ENGAGEMENT_EXCLUDED_ACTIVITIES = [
   "Lançamento de perdas no sistema",
   "Lançamento de consumo interno",
@@ -695,15 +696,23 @@ async function api(req, res, url) {
         COALESCE(SUM(losses_value),0) AS losses,
         COALESCE(SUM(consumption_value),0) AS consumptions,
         COALESCE(SUM(bottles_count),0) AS bottles,
-        COALESCE(SUM(receipts_count),0) AS receipts,
-        (SELECT COUNT(*) FROM checklists WHERE date BETWEEN ? AND ? AND activity = ? AND expired_products <> '') AS expired,
-        (SELECT COUNT(*) FROM checklists WHERE date BETWEEN ? AND ? AND activity = ? AND price_divergence_products <> '') AS divergences
+        (SELECT COUNT(*) FROM checklists WHERE date BETWEEN ? AND ? AND activity = ?) AS receipts,
+        (SELECT COUNT(*) FROM checklists WHERE date BETWEEN ? AND ? AND activity = ?) AS expired,
+        (SELECT COUNT(*) FROM checklists WHERE date BETWEEN ? AND ? AND activity = ?) AS divergences
       FROM operational_summaries WHERE date BETWEEN ? AND ?
       `,
-      [start, end, EXPIRED_PRODUCTS_ACTIVITY, start, end, PRICE_DIVERGENCE_ACTIVITY, start, end]
+      [start, end, RECEIPTS_ACTIVITY, start, end, EXPIRED_PRODUCTS_ACTIVITY, start, end, PRICE_DIVERGENCE_ACTIVITY, start, end]
     ))[0];
-    const doneToday = (await query("SELECT COUNT(*) AS total FROM checklists WHERE date = ?", [today()]))[0].total;
-    const pendingToday = Math.max(activities.length - doneToday, 0);
+    const completedActivityRows = await query(
+      "SELECT DISTINCT date, activity FROM checklists WHERE date BETWEEN ? AND ?",
+      [start, end]
+    );
+    const completedActivityKeys = new Set(
+      completedActivityRows
+        .filter((row) => activities.includes(row.activity))
+        .map((row) => `${row.date}|${row.activity}`)
+    );
+    const pendingToday = Math.max((activities.length * currentMonth.days) - completedActivityKeys.size, 0);
     const byCollaborator = await query(
       `
       SELECT col.name, COUNT(*) AS total

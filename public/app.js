@@ -3,8 +3,7 @@ const state = {
   user: JSON.parse(localStorage.getItem("user") || "null"),
   tab: "dashboard",
   dashboardFilters: {
-    startDate: new Date().toISOString().slice(0, 10),
-    endDate: new Date().toISOString().slice(0, 10),
+    date: new Date().toISOString().slice(0, 10),
   },
   collaborators: [],
   activities: [],
@@ -247,7 +246,8 @@ async function loadCollaborators() {
 }
 
 async function loadDashboard() {
-  const qs = new URLSearchParams(state.dashboardFilters);
+  const date = state.dashboardFilters.date || new Date().toISOString().slice(0, 10);
+  const qs = new URLSearchParams({ startDate: date, endDate: date });
   const data = await api(`/api/dashboard?${qs.toString()}`);
   state.dashboard = data;
 }
@@ -302,11 +302,8 @@ function renderDashboard() {
       </div>
     </div>
     <form class="panel grid" id="dashboardFilterForm" style="margin-bottom:14px">
-      <div class="grid two">
-        <label>Data inicial <input name="startDate" type="date" value="${escapeHtml(state.dashboardFilters.startDate)}"></label>
-        <label>Data final <input name="endDate" type="date" value="${escapeHtml(state.dashboardFilters.endDate)}"></label>
-      </div>
-      <button class="btn primary" type="submit">Aplicar período</button>
+      <label>Data do painel <input name="date" type="date" value="${escapeHtml(state.dashboardFilters.date)}"></label>
+      <button class="btn primary" type="submit">Aplicar data</button>
     </form>
     <div class="metrics">${metrics.map(([label, value]) => `<div class="metric"><span class="muted">${label}</span><strong>${value}</strong></div>`).join("")}</div>
     <div class="grid two" style="margin-top:14px">
@@ -364,7 +361,8 @@ function renderDashboard() {
     await loadDashboard();
     renderDashboard();
   });
-  document.getElementById("dashboardFilterForm").addEventListener("submit", async (event) => {
+  const dashboardFilterForm = document.getElementById("dashboardFilterForm");
+  dashboardFilterForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     state.dashboardFilters = Object.fromEntries(new FormData(event.currentTarget).entries());
     await loadDashboard();
