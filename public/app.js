@@ -1080,13 +1080,14 @@ function renderCommercial() {
     renderCommercial();
   });
   bindRepoCommercialButtons();
+  fixVisibleText(view);
 }
 
 function renderRepoDashboard() {
   const data = state.repo.dashboard || { summary: {}, bySector: [] };
   const summary = data.summary || {};
   const metrics = [
-    ["Atividades", summary.taskTotal || 0],
+    ["Atividades previstas", summary.taskTotal || 0],
     ["Realizadas", summary.completed || 0],
     ["Pendentes", summary.pending || 0],
     ["Rupturas", summary.ruptures || 0],
@@ -1109,6 +1110,7 @@ function renderRepoDashboard() {
       <button class="btn primary" type="submit">Aplicar período</button>
     </form>
     <div class="metrics">${metrics.map(([label, value]) => `<div class="metric"><span class="muted">${label}</span><strong>${value}</strong></div>`).join("")}</div>
+    <div class="muted" style="margin-top:10px">${summary.completed || 0} de ${summary.taskTotal || 0} atividades realizadas no período.</div>
     <div class="grid two" style="margin-top:14px">
       <section class="panel">
         <h3>Indicadores por setor</h3>
@@ -1136,6 +1138,7 @@ function renderRepoDashboard() {
     await loadReposition();
     renderRepoDashboard();
   });
+  fixVisibleText(view);
 }
 
 function renderCommercialDashboard() {
@@ -1186,12 +1189,13 @@ function renderCommercialDashboard() {
     renderCommercialDashboard();
   });
   bindRepoCommercialButtons();
+  fixVisibleText(view);
 }
 function renderReposition() {
   const data = state.repo.dashboard || { summary: {}, bySector: [] };
   const summary = data.summary || {};
   const metrics = [
-    ["Atividades", summary.taskTotal || 0],
+    ["Atividades previstas", summary.taskTotal || 0],
     ["Realizadas", summary.completed || 0],
     ["Pendentes", summary.pending || 0],
     ["Rupturas", summary.ruptures || 0],
@@ -1216,6 +1220,7 @@ function renderReposition() {
       <button class="btn primary" type="submit">Aplicar perÃ­odo</button>
     </form>
     <div class="metrics">${metrics.map(([label, value]) => `<div class="metric"><span class="muted">${label}</span><strong>${value}</strong></div>`).join("")}</div>
+    <div class="muted" style="margin-top:10px">${summary.completed || 0} de ${summary.taskTotal || 0} atividades realizadas no período.</div>
     <div class="grid two" style="margin-top:14px">
       <section class="panel">${repoTaskForm()}</section>
       <section class="panel">${repoIssueForm("ruptures", "Rupturas", "Produto em falta", [["type", "Tipo", ["Ruptura total", "Proximo de ruptura"]], ["quantity", "Quantidade"]])}</section>
@@ -1250,6 +1255,7 @@ function renderReposition() {
     renderReposition();
   });
   bindRepoForms();
+  fixVisibleText(view);
 }
 
 function repoTaskForm() {

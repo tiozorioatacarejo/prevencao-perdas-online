@@ -606,7 +606,19 @@ async function api(req, res, url) {
     const start = url.searchParams.get("startDate") || today();
     const end = url.searchParams.get("endDate") || start;
     const commercialFilter = await commercialSectorFilter(user);
+    const period = periodInfo(start, end);
+    const repoScopeSectors = user.role === "reposicao" ? await sectorsForUser(user) : repoSectors;
+    const repoScopeClause = user.role === "reposicao"
+      ? (repoScopeSectors.length ? ` AND sector IN (${repoScopeSectors.map(() => "?").join(", ")})` : " AND 1 = 0")
+      : "";
+    const repoScopeParams = user.role === "reposicao" ? repoScopeSectors : [];
     const taskRows = await query("SELECT status, COUNT(*) AS total FROM repo_tasks WHERE date BETWEEN ? AND ? GROUP BY status", [start, end]);
+    const completedTaskRows = await query(
+      `SELECT COUNT(DISTINCT date || '|' || sector || '|' || activity) AS total
+       FROM repo_tasks
+       WHERE date BETWEEN ? AND ? AND status = 'Realizado'${repoScopeClause}`,
+      [start, end, ...repoScopeParams]
+    );
     const ruptureRows = await query(`SELECT status, commercial_status, COUNT(*) AS total FROM repo_ruptures WHERE date BETWEEN ? AND ?${commercialFilter.clause} GROUP BY status, commercial_status`, [start, end, ...commercialFilter.params]);
     const expirationRows = await query(`SELECT status, commercial_status, COUNT(*) AS total FROM repo_expirations WHERE date BETWEEN ? AND ?${commercialFilter.clause} GROUP BY status, commercial_status`, [start, end, ...commercialFilter.params]);
     const damageRows = await query("SELECT COUNT(*) AS total FROM repo_damages WHERE date BETWEEN ? AND ?", [start, end]);
@@ -631,11 +643,11 @@ async function api(req, res, url) {
       `,
       [start, end, start, end, start, end, start, end]
     );
-    const taskTotal = taskRows.reduce((sum, row) => sum + Number(row.total || 0), 0);
-    const completed = taskRows.filter((row) => row.status === "Realizado").reduce((sum, row) => sum + Number(row.total || 0), 0);
+    const submittedTaskTotal = taskRows.reduce((sum, row) => sum + Number(row.total || 0), 0);
+    const expectedTaskTotal = Math.max(0, repoActivities.length * period.days * repoScopeSectors.length);
+    const completed = Math.min(Number(completedTaskRows[0]?.total || 0), expectedTaskTotal || Number(completedTaskRows[0]?.total || 0));
     const ruptures = ruptureRows.reduce((sum, row) => sum + Number(row.total || 0), 0);
     const expirations = expirationRows.reduce((sum, row) => sum + Number(row.total || 0), 0);
-    const period = periodInfo(start, end);
     const repoUserCounts = await query(
       `
       SELECT u.id, u.display_name AS name, COUNT(t.id) AS total
@@ -649,12 +661,12 @@ async function api(req, res, url) {
     );
     const repoActivityCounts = await query(
       `
-      SELECT activity, COUNT(DISTINCT date) AS total
+      SELECT activity, COUNT(DISTINCT date || '|' || sector) AS total
       FROM repo_tasks
-      WHERE date BETWEEN ? AND ? AND status = 'Realizado'
+      WHERE date BETWEEN ? AND ? AND status = 'Realizado'${repoScopeClause}
       GROUP BY activity
       `,
-      [start, end]
+      [start, end, ...repoScopeParams]
     );
     const repoActivityMap = new Map(repoActivityCounts.map((row) => [row.activity, Number(row.total || 0)]));
     const commercialUserCounts = await query(
@@ -676,9 +688,10 @@ async function api(req, res, url) {
     const commercialTotalByUsers = commercialUserCounts.reduce((sum, row) => sum + Number(row.total || 0), 0);
     return send(res, 200, {
       summary: {
-        taskTotal,
+        taskTotal: expectedTaskTotal,
+        submittedTasks: submittedTaskTotal,
         completed,
-        pending: taskTotal - completed,
+        pending: Math.max(expectedTaskTotal - completed, 0),
         ruptures,
         rupturesPurchased: ruptureRows.filter((row) => row.commercial_status === "Pedido realizado").reduce((sum, row) => sum + Number(row.total || 0), 0),
         expirations,
@@ -697,8 +710,8 @@ async function api(req, res, url) {
         return {
           activity,
           total,
-          expected: period.days,
-          percent: period.days ? Math.min(100, Math.round((total / period.days) * 100)) : 0,
+          expected: period.days * repoScopeSectors.length,
+          percent: period.days && repoScopeSectors.length ? Math.min(100, Math.round((total / (period.days * repoScopeSectors.length)) * 100)) : 0,
         };
       }),
       commercialUserEngagement: commercialUserCounts.map((row) => ({
