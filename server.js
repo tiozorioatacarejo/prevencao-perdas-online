@@ -25,7 +25,7 @@ const ENGAGEMENT_EXCLUDED_ACTIVITIES = [
 ];
 
 const repoSectors = [
-  "AÃ§ougue",
+  "A\u00e7ougue",
   "Bazar",
   "Bebidas",
   "FLV e Granjeiro",
@@ -34,23 +34,23 @@ const repoSectors = [
   "Mercearia salgada",
   "Mercearia seca",
   "Padaria",
-  "PerecÃ­veis",
+  "Perec\u00edveis",
   "Perfumaria",
 ];
 
 const repoActivities = [
   "Limpeza do setor",
-  "OrganizaÃ§Ã£o de gÃ´ndolas",
+  "Organiza\u00e7\u00e3o de g\u00f4ndolas",
   "Abastecimento de produtos",
-  "PrecificaÃ§Ã£o - placas de ofertas",
-  "PrecificaÃ§Ã£o - etiqueta de preÃ§o normal",
-  "VerificaÃ§Ã£o de validades",
+  "Precifica\u00e7\u00e3o - placas de ofertas",
+  "Precifica\u00e7\u00e3o - etiqueta de pre\u00e7o normal",
+  "Verifica\u00e7\u00e3o de validades",
   "Ruptura de produto em loja",
   "Ruptura para direcionar ao comercial",
   "Controle de avarias",
-  "Ponta de gÃ´ndola e ilhas organizadas",
-  "ConferÃªncia de estoque no depÃ³sito",
-  "DevoluÃ§Ã£o de produtos ao setor correto",
+  "Ponta de g\u00f4ndola e ilhas organizadas",
+  "Confer\u00eancia de estoque no dep\u00f3sito",
+  "Devolu\u00e7\u00e3o de produtos ao setor correto",
 ];
 
 const activities = [
@@ -185,6 +185,7 @@ async function initPostgres(pool) {
       status TEXT NOT NULL DEFAULT 'Aberto',
       commercial_status TEXT NOT NULL DEFAULT 'Pendente',
       commercial_observation TEXT,
+      commercial_updated_by INTEGER REFERENCES users(id),
       sent_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP,
       created_by INTEGER NOT NULL REFERENCES users(id)
@@ -201,6 +202,7 @@ async function initPostgres(pool) {
       status TEXT NOT NULL DEFAULT 'Aberto',
       commercial_status TEXT NOT NULL DEFAULT 'Pendente',
       commercial_observation TEXT,
+      commercial_updated_by INTEGER REFERENCES users(id),
       sent_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP,
       created_by INTEGER NOT NULL REFERENCES users(id)
@@ -218,6 +220,8 @@ async function initPostgres(pool) {
       created_by INTEGER NOT NULL REFERENCES users(id)
     );
   `);
+  await pool.query("ALTER TABLE repo_ruptures ADD COLUMN IF NOT EXISTS commercial_updated_by INTEGER REFERENCES users(id)");
+  await pool.query("ALTER TABLE repo_expirations ADD COLUMN IF NOT EXISTS commercial_updated_by INTEGER REFERENCES users(id)");
   const existing = await pool.query("SELECT COUNT(*) AS total FROM users");
   if (Number(existing.rows[0].total) === 0) {
     await pool.query(
@@ -531,7 +535,19 @@ async function api(req, res, url) {
 
   if (method === "GET" && url.pathname === "/api/reposition/options") {
     if (!canAccessReposition(user)) return send(res, 403, { error: "Acesso restrito ao módulo de reposição." });
-    return send(res, 200, { sectors: repoSectors, activities: repoActivities });
+    const repoUsers = await query(
+      "SELECT id, display_name, collaborator_id FROM users WHERE role = 'reposicao' AND status = 'ativo' ORDER BY display_name"
+    );
+    const commercialUsers = await query(
+      "SELECT id, display_name FROM users WHERE role = 'comercial' AND status = 'ativo' ORDER BY display_name"
+    );
+    return send(res, 200, {
+      sectors: repoSectors,
+      activities: repoActivities,
+      repoCollaboratorIds: repoUsers.map((row) => row.collaborator_id).filter(Boolean),
+      repoUsers,
+      commercialUsers,
+    });
   }
 
   if (method === "GET" && url.pathname === "/api/reposition/dashboard") {
@@ -567,6 +583,45 @@ async function api(req, res, url) {
     const completed = taskRows.filter((row) => row.status === "Realizado").reduce((sum, row) => sum + Number(row.total || 0), 0);
     const ruptures = ruptureRows.reduce((sum, row) => sum + Number(row.total || 0), 0);
     const expirations = expirationRows.reduce((sum, row) => sum + Number(row.total || 0), 0);
+    const period = periodInfo(start, end);
+    const repoUserCounts = await query(
+      `
+      SELECT u.id, u.display_name AS name, COUNT(t.id) AS total
+      FROM users u
+      LEFT JOIN repo_tasks t ON t.created_by = u.id AND t.date BETWEEN ? AND ?
+      WHERE u.role = 'reposicao' AND u.status = 'ativo'
+      GROUP BY u.id, u.display_name
+      ORDER BY u.display_name
+      `,
+      [start, end]
+    );
+    const repoActivityCounts = await query(
+      `
+      SELECT activity, COUNT(DISTINCT date) AS total
+      FROM repo_tasks
+      WHERE date BETWEEN ? AND ? AND status = 'Realizado'
+      GROUP BY activity
+      `,
+      [start, end]
+    );
+    const repoActivityMap = new Map(repoActivityCounts.map((row) => [row.activity, Number(row.total || 0)]));
+    const commercialUserCounts = await query(
+      `
+      SELECT u.id, u.display_name AS name, COUNT(x.id) AS total
+      FROM users u
+      LEFT JOIN (
+        SELECT id, commercial_updated_by, date FROM repo_ruptures WHERE commercial_updated_by IS NOT NULL
+        UNION ALL
+        SELECT id, commercial_updated_by, date FROM repo_expirations WHERE commercial_updated_by IS NOT NULL
+      ) x ON x.commercial_updated_by = u.id AND x.date BETWEEN ? AND ?
+      WHERE u.role = 'comercial' AND u.status = 'ativo'
+      GROUP BY u.id, u.display_name
+      ORDER BY u.display_name
+      `,
+      [start, end]
+    );
+    const repoTotalByUsers = repoUserCounts.reduce((sum, row) => sum + Number(row.total || 0), 0);
+    const commercialTotalByUsers = commercialUserCounts.reduce((sum, row) => sum + Number(row.total || 0), 0);
     return send(res, 200, {
       summary: {
         taskTotal,
@@ -579,6 +634,27 @@ async function api(req, res, url) {
         damages: Number(damageRows[0]?.total || 0),
       },
       bySector,
+      repoUserEngagement: repoUserCounts.map((row) => ({
+        id: row.id,
+        name: row.name,
+        total: Number(row.total || 0),
+        percent: repoTotalByUsers ? Math.round((Number(row.total || 0) / repoTotalByUsers) * 100) : 0,
+      })),
+      repoActivityCompletion: repoActivities.map((activity) => {
+        const total = repoActivityMap.get(activity) || 0;
+        return {
+          activity,
+          total,
+          expected: period.days,
+          percent: period.days ? Math.min(100, Math.round((total / period.days) * 100)) : 0,
+        };
+      }),
+      commercialUserEngagement: commercialUserCounts.map((row) => ({
+        id: row.id,
+        name: row.name,
+        total: Number(row.total || 0),
+        percent: commercialTotalByUsers ? Math.round((Number(row.total || 0) / commercialTotalByUsers) * 100) : 0,
+      })),
     });
   }
 
@@ -634,8 +710,8 @@ async function api(req, res, url) {
     const body = await readBody(req);
     const commercialStatus = ["Pedido realizado", "Pedido nÃ£o realizado", "Pedido nao realizado"].includes(body.commercialStatus) ? body.commercialStatus : "Pendente";
     await execute(
-      "UPDATE repo_ruptures SET commercial_status = ?, commercial_observation = ?, status = ?, updated_at = ? WHERE id = ?",
-      [commercialStatus, body.commercialObservation || "", commercialStatus === "Pendente" ? "Aberto" : "Resolvido", nowIso(), id]
+      "UPDATE repo_ruptures SET commercial_status = ?, commercial_observation = ?, commercial_updated_by = ?, status = ?, updated_at = ? WHERE id = ?",
+      [commercialStatus, body.commercialObservation || "", user.id, commercialStatus === "Pendente" ? "Aberto" : "Resolvido", nowIso(), id]
     );
     return send(res, 200, { ok: true });
   }
@@ -662,8 +738,8 @@ async function api(req, res, url) {
     const body = await readBody(req);
     const commercialStatus = ["AÃ§Ã£o ou rebaixa realizada", "AÃ§Ã£o nÃ£o realizada", "Acao ou rebaixa realizada", "Acao nao realizada"].includes(body.commercialStatus) ? body.commercialStatus : "Pendente";
     await execute(
-      "UPDATE repo_expirations SET commercial_status = ?, commercial_observation = ?, status = ?, updated_at = ? WHERE id = ?",
-      [commercialStatus, body.commercialObservation || "", commercialStatus === "Pendente" ? "Aberto" : "Resolvido", nowIso(), id]
+      "UPDATE repo_expirations SET commercial_status = ?, commercial_observation = ?, commercial_updated_by = ?, status = ?, updated_at = ? WHERE id = ?",
+      [commercialStatus, body.commercialObservation || "", user.id, commercialStatus === "Pendente" ? "Aberto" : "Resolvido", nowIso(), id]
     );
     return send(res, 200, { ok: true });
   }
@@ -1145,4 +1221,5 @@ start().catch((error) => {
   console.error(error);
   process.exit(1);
 });
+
 

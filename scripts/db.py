@@ -142,9 +142,11 @@ def init_db():
             status TEXT NOT NULL DEFAULT 'Aberto',
             commercial_status TEXT NOT NULL DEFAULT 'Pendente',
             commercial_observation TEXT,
+            commercial_updated_by INTEGER,
             sent_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT,
             created_by INTEGER NOT NULL,
+            FOREIGN KEY (commercial_updated_by) REFERENCES users(id),
             FOREIGN KEY (created_by) REFERENCES users(id)
         );
 
@@ -159,9 +161,11 @@ def init_db():
             status TEXT NOT NULL DEFAULT 'Aberto',
             commercial_status TEXT NOT NULL DEFAULT 'Pendente',
             commercial_observation TEXT,
+            commercial_updated_by INTEGER,
             sent_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT,
             created_by INTEGER NOT NULL,
+            FOREIGN KEY (commercial_updated_by) REFERENCES users(id),
             FOREIGN KEY (created_by) REFERENCES users(id)
         );
 
@@ -195,6 +199,14 @@ def init_db():
         conn.execute("ALTER TABLE checklists ADD COLUMN price_divergence_products TEXT")
     if "expired_products" not in checklist_columns:
         conn.execute("ALTER TABLE checklists ADD COLUMN expired_products TEXT")
+
+    rupture_columns = [row["name"] for row in conn.execute("PRAGMA table_info(repo_ruptures)").fetchall()]
+    if "commercial_updated_by" not in rupture_columns:
+        conn.execute("ALTER TABLE repo_ruptures ADD COLUMN commercial_updated_by INTEGER")
+
+    expiration_columns = [row["name"] for row in conn.execute("PRAGMA table_info(repo_expirations)").fetchall()]
+    if "commercial_updated_by" not in expiration_columns:
+        conn.execute("ALTER TABLE repo_expirations ADD COLUMN commercial_updated_by INTEGER")
 
     if not db_exists and conn.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0:
         conn.executemany(

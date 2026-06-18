@@ -18,6 +18,9 @@ const state = {
   repo: {
     sectors: [],
     activities: [],
+    repoCollaboratorIds: [],
+    repoUsers: [],
+    commercialUsers: [],
     dashboard: null,
     tasks: [],
     ruptures: [],
@@ -214,6 +217,9 @@ async function bootstrap() {
       const repoOptions = await api("/api/reposition/options");
       state.repo.sectors = repoOptions.sectors;
       state.repo.activities = repoOptions.activities;
+      state.repo.repoCollaboratorIds = repoOptions.repoCollaboratorIds || [];
+      state.repo.repoUsers = repoOptions.repoUsers || [];
+      state.repo.commercialUsers = repoOptions.commercialUsers || [];
     }
     state.tab = defaultTab();
     await loadCollaborators();
@@ -554,6 +560,15 @@ function printDashboardReport() {
 function collaboratorOptions(activeOnly = true) {
   return state.collaborators
     .filter((item) => !activeOnly || item.status === "ativo")
+    .map((item) => `<option value="${item.id}">${escapeHtml(item.name)} - ${escapeHtml(item.role)}</option>`)
+    .join("");
+}
+
+function repoCollaboratorOptions() {
+  const allowed = new Set((state.repo.repoCollaboratorIds || []).map((id) => Number(id)));
+  const rows = state.collaborators.filter((item) => item.status === "ativo" && allowed.has(Number(item.id)));
+  if (!rows.length) return `<option value="">Cadastre e vincule usuários de reposição</option>`;
+  return rows
     .map((item) => `<option value="${item.id}">${escapeHtml(item.name)} - ${escapeHtml(item.role)}</option>`)
     .join("");
 }
@@ -969,6 +984,23 @@ function renderRepoDashboard() {
         <div class="table-wrap" style="margin-top:12px">${repoCommercialTable()}</div>
       </section>
     </div>
+    <div class="grid two" style="margin-top:14px">
+      <section class="panel">
+        <h3>Engajamento da reposição</h3>
+        <div class="muted" style="margin-top:4px">Participação dos usuários de reposição nos checklists do período</div>
+        <div class="table-wrap" style="margin-top:12px">${repoUserEngagementTable(data.repoUserEngagement || [])}</div>
+      </section>
+      <section class="panel">
+        <h3>Engajamento comercial</h3>
+        <div class="muted" style="margin-top:4px">Participação dos usuários comerciais nos retornos registrados</div>
+        <div class="table-wrap" style="margin-top:12px">${repoUserEngagementTable(data.commercialUserEngagement || [])}</div>
+      </section>
+    </div>
+    <section class="panel" style="margin-top:14px">
+      <h3>Percentual de realização das atividades da reposição</h3>
+      <div class="muted" style="margin-top:4px">Conta o dia quando a atividade foi marcada como Sim ao menos uma vez</div>
+      <div class="table-wrap" style="margin-top:12px">${repoActivityCompletionTable(data.repoActivityCompletion || [])}</div>
+    </section>
   `;
   document.getElementById("refreshRepoDashboard").addEventListener("click", async () => {
     await loadReposition();
@@ -1055,7 +1087,7 @@ function repoTaskForm() {
     <div class="muted" style="margin-top:4px">${linked ? "Acesso vinculado ao seu cadastro" : "Data e horário são registrados automaticamente no envio"}</div>
     <form class="grid" id="repoTaskForm" style="margin-top:12px">
       <div class="grid two">
-        <label>Colaborador ${linked ? `<input value="${escapeHtml(linked.name)}" disabled><input type="hidden" name="collaboratorId" value="${linked.id}">` : `<select name="collaboratorId" required>${collaboratorOptions()}</select>`}</label>
+        <label>Colaborador ${linked ? `<input value="${escapeHtml(linked.name)}" disabled><input type="hidden" name="collaboratorId" value="${linked.id}">` : `<select name="collaboratorId" required>${repoCollaboratorOptions()}</select>`}</label>
         <label>Setor <select name="sector">${repoOptions(state.repo.sectors)}</select></label>
       </div>
       <div class="grid two">
@@ -1150,6 +1182,30 @@ function repoSectorTable(rows) {
   return `
     <table><thead><tr><th>Setor</th><th>Atividades</th><th>Rupturas</th><th>Validades</th><th>Avarias</th></tr></thead><tbody>
       ${rows.map((row) => `<tr><td data-label="Setor">${escapeHtml(row.sector)}</td><td data-label="Atividades">${row.tasks || 0}</td><td data-label="Rupturas">${row.ruptures || 0}</td><td data-label="Validades">${row.expirations || 0}</td><td data-label="Avarias">${row.damages || 0}</td></tr>`).join("") || `<tr><td colspan="5">Sem registros.</td></tr>`}
+    </tbody></table>
+  `;
+}
+
+function repoUserEngagementTable(rows) {
+  return `
+    <table><thead><tr><th>Usuário</th><th>Registros</th><th>Engajamento</th></tr></thead><tbody>
+      ${rows.map((row) => `<tr>
+        <td data-label="Usuário">${escapeHtml(row.name)}</td>
+        <td data-label="Registros">${row.total || 0}</td>
+        <td data-label="Engajamento">${percentBar(row.percent || 0)}</td>
+      </tr>`).join("") || `<tr><td colspan="3">Nenhum usuário cadastrado para este perfil.</td></tr>`}
+    </tbody></table>
+  `;
+}
+
+function repoActivityCompletionTable(rows) {
+  return `
+    <table><thead><tr><th>Atividade</th><th>Realizado</th><th>Percentual</th></tr></thead><tbody>
+      ${rows.map((row) => `<tr>
+        <td data-label="Atividade">${escapeHtml(row.activity)}</td>
+        <td data-label="Realizado">${row.total || 0}/${row.expected || 0}</td>
+        <td data-label="Percentual">${percentBar(row.percent || 0)}</td>
+      </tr>`).join("") || `<tr><td colspan="3">Sem atividades cadastradas.</td></tr>`}
     </tbody></table>
   `;
 }
