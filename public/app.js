@@ -599,10 +599,42 @@ function repoCollaboratorOptions() {
     .join("");
 }
 
-function collaboratorSectorOptions(selected = "") {
+function collaboratorSectors(collaborator) {
+  const value = collaborator?.sector || "";
+  if (!value) return [];
+  if (Array.isArray(value)) return value.filter(Boolean);
+  try {
+    const parsed = JSON.parse(value);
+    if (Array.isArray(parsed)) return parsed.filter(Boolean);
+  } catch (error) {
+    // Mantem compatibilidade com cadastros antigos que tinham apenas um setor em texto.
+  }
+  return String(value).split("||").map((item) => item.trim()).filter(Boolean);
+}
+
+function displayCollaboratorSectors(collaborator) {
+  const sectors = collaboratorSectors(collaborator);
+  return sectors.length ? sectors.join(", ") : "-";
+}
+
+function collaboratorSectorOptions(selected = []) {
+  const selectedSet = new Set(Array.isArray(selected) ? selected : [selected].filter(Boolean));
   const options = [`<option value="">Sem setor de reposiÃ§Ã£o</option>`];
-  options.push(...(state.repo.sectors || []).map((sector) => `<option value="${escapeHtml(sector)}" ${sector === selected ? "selected" : ""}>${escapeHtml(sector)}</option>`));
+  options.push(...(state.repo.sectors || []).map((sector) => `<option value="${escapeHtml(sector)}" ${selectedSet.has(sector) ? "selected" : ""}>${escapeHtml(sector)}</option>`));
   return options.join("");
+}
+
+function repoTaskSectorOptions(collaborator) {
+  const assigned = collaboratorSectors(collaborator);
+  const sectors = assigned.length ? assigned : state.repo.sectors;
+  return repoOptions(sectors || []);
+}
+
+function repoSectorsForCurrentUser() {
+  if (state.user?.role !== "reposicao" || !state.user?.collaborator_id) return state.repo.sectors || [];
+  const collaborator = state.collaborators.find((item) => Number(item.id) === Number(state.user.collaborator_id));
+  const assigned = collaboratorSectors(collaborator);
+  return assigned.length ? assigned : state.repo.sectors || [];
 }
 
 function renderChecklist() {
@@ -1149,13 +1181,13 @@ function renderReposition() {
 
 function repoTaskForm() {
   const linked = state.user?.collaborator_id ? state.collaborators.find((item) => Number(item.id) === Number(state.user.collaborator_id)) : null;
-  const linkedSector = linked?.sector || "";
+  const linkedSectors = collaboratorSectors(linked);
   const collaboratorField = linked
     ? `<input value="${escapeHtml(linked.name)}" disabled><input type="hidden" name="collaboratorId" value="${linked.id}">`
     : `<select name="collaboratorId" required>${repoCollaboratorOptions()}</select>`;
-  const sectorField = linked && linkedSector
-    ? `<input value="${escapeHtml(linkedSector)}" disabled><input type="hidden" name="sector" value="${escapeHtml(linkedSector)}">`
-    : `<select name="sector" required>${repoOptions(state.repo.sectors, linkedSector)}</select>`;
+  const sectorField = linked && linkedSectors.length === 1
+    ? `<input value="${escapeHtml(linkedSectors[0])}" disabled><input type="hidden" name="sector" value="${escapeHtml(linkedSectors[0])}">`
+    : `<select name="sector" required>${repoTaskSectorOptions(linked)}</select>`;
   return `
     <h3>Checklist diÃ¡rio da reposiÃ§Ã£o</h3>
     <div class="muted" style="margin-top:4px">${linked ? "Acesso vinculado ao seu cadastro" : "Data e horÃ¡rio sÃ£o registrados automaticamente no envio"}</div>
@@ -1182,7 +1214,7 @@ function repoIssueForm(kind, title, productLabel, fields) {
     <form class="grid" id="repo-${kind}-form" data-repo-kind="${kind}" style="margin-top:12px">
       <div class="grid two">
         <label>Data <input name="date" type="date" value="${todayInputValue()}"></label>
-        <label>Setor <select name="sector">${repoOptions(state.repo.sectors)}</select></label>
+        <label>Setor <select name="sector">${repoOptions(repoSectorsForCurrentUser())}</select></label>
       </div>
       <label>${productLabel} <input name="product" required></label>
       <div class="grid two">
@@ -1202,7 +1234,7 @@ function repoDamageForm() {
     <form class="grid" id="repo-damages-form" data-repo-kind="damages" style="margin-top:12px">
       <div class="grid two">
         <label>Data <input name="date" type="date" value="${todayInputValue()}"></label>
-        <label>Setor <select name="sector">${repoOptions(state.repo.sectors)}</select></label>
+        <label>Setor <select name="sector">${repoOptions(repoSectorsForCurrentUser())}</select></label>
       </div>
       <label>Produto <input name="product" required></label>
       <div class="grid two">
@@ -1221,7 +1253,9 @@ function bindRepoForms() {
     const collaboratorId = taskForm.elements.collaboratorId?.value;
     const sectorField = taskForm.elements.sector;
     const collaborator = state.collaborators.find((item) => Number(item.id) === Number(collaboratorId));
-    if (collaborator?.sector && sectorField) sectorField.value = collaborator.sector;
+    const assigned = collaboratorSectors(collaborator);
+    if (!sectorField || sectorField.tagName !== "SELECT") return;
+    sectorField.innerHTML = repoOptions(assigned.length ? assigned : state.repo.sectors);
   };
   taskForm.elements.collaboratorId?.addEventListener("change", syncRepoTaskSector);
   syncRepoTaskSector();
@@ -1391,7 +1425,7 @@ function renderCollaborators() {
       <div class="grid four">
         <label>Nome <input name="name" required></label>
         <label>Cargo <input name="role" required></label>
-        <label>Setor da reposiÃ§Ã£o <select name="sector">${collaboratorSectorOptions()}</select></label>
+        <label>Setores da reposiÃ§Ã£o <select name="sector" multiple size="5">${collaboratorSectorOptions()}</select></label>
         <label>Status <select name="status"><option value="ativo">Ativo</option><option value="inativo">Inativo</option></select></label>
       </div>
       <div class="toolbar">
@@ -1400,12 +1434,12 @@ function renderCollaborators() {
       </div>
     </form>
     <div class="table-wrap" style="margin-top:14px">
-      <table><thead><tr><th>Nome</th><th>Cargo</th><th>Setor reposiÃ§Ã£o</th><th>Status</th><th>AÃ§Ãµes</th></tr></thead><tbody>
+      <table><thead><tr><th>Nome</th><th>Cargo</th><th>Setores reposiÃ§Ã£o</th><th>Status</th><th>AÃ§Ãµes</th></tr></thead><tbody>
         ${state.collaborators.map((row) => `
           <tr>
             <td data-label="Nome">${escapeHtml(row.name)}</td>
             <td data-label="Cargo">${escapeHtml(row.role)}</td>
-            <td data-label="Setor reposiÃ§Ã£o">${escapeHtml(row.sector || "-")}</td>
+            <td data-label="Setores reposiÃ§Ã£o">${escapeHtml(displayCollaboratorSectors(row))}</td>
             <td data-label="Status"><span class="status ${row.status === "ativo" ? "ok" : ""}">${row.status}</span></td>
             <td data-label="AÃ§Ãµes">
               <div class="toolbar">
@@ -1432,6 +1466,8 @@ function renderCollaborators() {
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     const body = Object.fromEntries(new FormData(form).entries());
+    const selectedSectors = Array.from(form.sector.selectedOptions).map((option) => option.value).filter(Boolean);
+    body.sector = selectedSectors.length ? JSON.stringify(selectedSectors) : "";
     const id = body.id;
     delete body.id;
     await api(id ? `/api/collaborators/${id}` : "/api/collaborators", {
@@ -1452,7 +1488,10 @@ function renderCollaborators() {
       form.id.value = collaborator.id;
       form.name.value = collaborator.name;
       form.role.value = collaborator.role;
-      form.sector.value = collaborator.sector || "";
+      const selectedSectors = new Set(collaboratorSectors(collaborator));
+      Array.from(form.sector.options).forEach((option) => {
+        option.selected = selectedSectors.has(option.value);
+      });
       form.status.value = collaborator.status;
       submitButton.textContent = "Salvar alteraÃ§Ãµes";
       cancelButton.classList.remove("hidden");

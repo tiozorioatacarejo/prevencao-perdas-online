@@ -335,6 +335,26 @@ function canUpdateRepoCommercial(user) {
   return ["administrador", "comercial"].includes(user.role);
 }
 
+function parseCollaboratorSectors(value) {
+  if (!value) return [];
+  if (Array.isArray(value)) return value.filter(Boolean);
+  try {
+    const parsed = JSON.parse(value);
+    if (Array.isArray(parsed)) return parsed.filter(Boolean);
+  } catch (error) {
+    // Compatibilidade com cadastros antigos que guardavam um setor em texto.
+  }
+  return String(value).split("||").map((item) => item.trim()).filter(Boolean);
+}
+
+async function validateRepoSectorForUser(user, sector) {
+  if (user.role !== "reposicao" || !user.collaborator_id) return null;
+  const rows = await query("SELECT sector FROM collaborators WHERE id = ?", [user.collaborator_id]);
+  const assigned = parseCollaboratorSectors(rows[0]?.sector);
+  if (!assigned.length || assigned.includes(sector)) return null;
+  return "Este setor n\u00e3o est\u00e1 direcionado para o seu acesso.";
+}
+
 function canFillEncarregadaOnly(user) {
   return user.role === "encarregada";
 }
@@ -682,6 +702,8 @@ async function api(req, res, url) {
     const body = await readBody(req);
     const collaboratorId = user.collaborator_id || body.collaboratorId;
     if (!collaboratorId) return send(res, 400, { error: "Selecione um colaborador." });
+    const sectorError = await validateRepoSectorForUser(user, body.sector);
+    if (sectorError) return send(res, 403, { error: sectorError });
     const status = body.answer === "NÃ£o" || body.answer === "Nao" ? "Pendente" : "Realizado";
     await execute(
       "INSERT INTO repo_tasks (date, collaborator_id, sector, activity, status, observation, sent_at, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
@@ -698,6 +720,8 @@ async function api(req, res, url) {
   if (method === "POST" && url.pathname === "/api/reposition/ruptures") {
     if (!canAccessReposition(user)) return send(res, 403, { error: "Acesso restrito ao módulo de reposição." });
     const body = await readBody(req);
+    const sectorError = await validateRepoSectorForUser(user, body.sector);
+    if (sectorError) return send(res, 403, { error: sectorError });
     await execute(
       "INSERT INTO repo_ruptures (date, product, sector, type, quantity, observation, sent_at, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
       [body.date || today(), body.product, body.sector, body.type || "Ruptura total", body.quantity || "", body.observation || "", nowIso(), user.id]
@@ -726,6 +750,8 @@ async function api(req, res, url) {
   if (method === "POST" && url.pathname === "/api/reposition/expirations") {
     if (!canAccessReposition(user)) return send(res, 403, { error: "Acesso restrito ao módulo de reposição." });
     const body = await readBody(req);
+    const sectorError = await validateRepoSectorForUser(user, body.sector);
+    if (sectorError) return send(res, 403, { error: sectorError });
     await execute(
       "INSERT INTO repo_expirations (date, product, sector, expiration_date, quantity, observation, sent_at, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
       [body.date || today(), body.product, body.sector, body.expirationDate, body.quantity || "", body.observation || "", nowIso(), user.id]
@@ -754,6 +780,8 @@ async function api(req, res, url) {
   if (method === "POST" && url.pathname === "/api/reposition/damages") {
     if (!canAccessReposition(user)) return send(res, 403, { error: "Acesso restrito ao módulo de reposição." });
     const body = await readBody(req);
+    const sectorError = await validateRepoSectorForUser(user, body.sector);
+    if (sectorError) return send(res, 403, { error: sectorError });
     await execute(
       "INSERT INTO repo_damages (date, product, sector, quantity, reason, action, sent_at, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
       [body.date || today(), body.product, body.sector, body.quantity || "", body.reason || "", body.action || "", nowIso(), user.id]
