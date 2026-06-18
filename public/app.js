@@ -128,11 +128,33 @@ function toast(message) {
 }
 
 function escapeHtml(value) {
-  return String(value ?? "")
+  return normalizeText(value)
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;");
+}
+
+function normalizeText(value) {
+  const text = String(value ?? "");
+  if (!/[ÃÂ]/.test(text)) return text;
+  try {
+    return decodeURIComponent(escape(text));
+  } catch {
+    return text;
+  }
+}
+
+function fixVisibleText(root = app) {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const nodes = [];
+  while (walker.nextNode()) nodes.push(walker.currentNode);
+  nodes.forEach((node) => {
+    node.nodeValue = normalizeText(node.nodeValue);
+  });
+  root.querySelectorAll("input[placeholder], textarea[placeholder]").forEach((field) => {
+    field.placeholder = normalizeText(field.placeholder);
+  });
 }
 
 function loginAreaMatches(area, role) {
@@ -205,6 +227,7 @@ function renderLogin(error = "") {
       renderLogin(err.message);
     }
   });
+  fixVisibleText(app);
 }
 
 async function bootstrap() {
@@ -297,6 +320,7 @@ function renderView() {
     users: renderUsers,
   };
   map[state.tab]();
+  fixVisibleText(app);
 }
 
 function allowedTabs() {
