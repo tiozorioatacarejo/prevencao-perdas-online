@@ -298,23 +298,69 @@ function logout() {
   renderLogin();
 }
 
+function tabIcon(id) {
+  const icons = {
+    dashboard: "&#128200;",
+    repoDashboard: "&#9673;",
+    commercialDashboard: "&#128188;",
+    checklist: "&#9745;",
+    summary: "&#128221;",
+    reports: "&#128202;",
+    reposition: "&#128230;",
+    commercial: "&#128179;",
+    pendencies: "&#9888;",
+    collaborators: "&#128101;",
+    users: "&#9881;",
+  };
+  return icons[id] || "&#8226;";
+}
+
+function roleLabel(role) {
+  const labels = {
+    administrador: "Administrador",
+    prevencao: "Prevenção",
+    colaborador: "Colaborador",
+    encarregada: "Encarregada",
+    reposicao: "Reposição",
+    comercial: "Comercial",
+  };
+  return labels[role] || role || "";
+}
+
+function userInitial(name) {
+  return normalizeText(name || "A").trim().charAt(0).toUpperCase() || "A";
+}
+
 function renderShell() {
   const tabs = allowedTabs();
   if (!tabs.some(([id]) => id === state.tab)) state.tab = tabs[0][0];
   app.innerHTML = `
     <section class="app-shell">
       <aside class="sidebar">
-        <div class="brand">
+        <div class="sidebar-brand">
           <div class="brand-mark">CA</div>
           <div>
             <h3>Controle Atacarejo</h3>
-            <div class="muted">${escapeHtml(state.user.display_name)} Â· ${escapeHtml(state.user.role)}</div>
+            <div class="muted">Gestão operacional</div>
           </div>
         </div>
+        <div class="nav-title">Menu principal</div>
         <nav class="nav">
-          ${tabs.map(([id, label]) => `<button class="${state.tab === id ? "active" : ""}" data-tab="${id}">${label}</button>`).join("")}
+          ${tabs.map(([id, label]) => `
+            <button class="${state.tab === id ? "active" : ""}" data-tab="${id}">
+              <span class="nav-icon" aria-hidden="true">${tabIcon(id)}</span>
+              <span class="nav-label">${label}</span>
+            </button>
+          `).join("")}
         </nav>
-        <button class="btn danger" id="logoutBtn">Sair</button>
+        <div class="sidebar-user">
+          <div class="user-avatar">${escapeHtml(userInitial(state.user.display_name))}</div>
+          <div class="user-info">
+            <strong>${escapeHtml(state.user.display_name)}</strong>
+            <span>${escapeHtml(roleLabel(state.user.role))}</span>
+          </div>
+        </div>
+        <button class="btn danger logout-btn" id="logoutBtn">Sair</button>
       </aside>
       <section class="main">
         <div id="view"></div>
