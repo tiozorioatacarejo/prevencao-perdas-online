@@ -116,6 +116,67 @@ def init_db():
             FOREIGN KEY (responsible_id) REFERENCES collaborators(id),
             FOREIGN KEY (created_by) REFERENCES users(id)
         );
+
+        CREATE TABLE IF NOT EXISTS repo_tasks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            date TEXT NOT NULL,
+            collaborator_id INTEGER NOT NULL,
+            sector TEXT NOT NULL,
+            activity TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'Realizado',
+            observation TEXT,
+            sent_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            created_by INTEGER NOT NULL,
+            FOREIGN KEY (collaborator_id) REFERENCES collaborators(id),
+            FOREIGN KEY (created_by) REFERENCES users(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS repo_ruptures (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            date TEXT NOT NULL,
+            product TEXT NOT NULL,
+            sector TEXT NOT NULL,
+            type TEXT NOT NULL,
+            quantity TEXT,
+            observation TEXT,
+            status TEXT NOT NULL DEFAULT 'Aberto',
+            commercial_status TEXT NOT NULL DEFAULT 'Pendente',
+            commercial_observation TEXT,
+            sent_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT,
+            created_by INTEGER NOT NULL,
+            FOREIGN KEY (created_by) REFERENCES users(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS repo_expirations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            date TEXT NOT NULL,
+            product TEXT NOT NULL,
+            sector TEXT NOT NULL,
+            expiration_date TEXT NOT NULL,
+            quantity TEXT,
+            observation TEXT,
+            status TEXT NOT NULL DEFAULT 'Aberto',
+            commercial_status TEXT NOT NULL DEFAULT 'Pendente',
+            commercial_observation TEXT,
+            sent_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT,
+            created_by INTEGER NOT NULL,
+            FOREIGN KEY (created_by) REFERENCES users(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS repo_damages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            date TEXT NOT NULL,
+            product TEXT NOT NULL,
+            sector TEXT NOT NULL,
+            quantity TEXT,
+            reason TEXT,
+            action TEXT,
+            sent_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            created_by INTEGER NOT NULL,
+            FOREIGN KEY (created_by) REFERENCES users(id)
+        );
         """
     )
 

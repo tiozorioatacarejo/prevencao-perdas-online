@@ -84,6 +84,8 @@ O servidor ja esta preparado para usar `process.env.PORT`.
 
 Usuarios dos perfis prevencao e colaborador veem **Painel**, **Checklist** e **Pendencias**.
 Usuario encarregada ve **Painel**, **Checklist**, **Resumo** e **Pendencias**.
+Usuarios de reposicao veem apenas o modulo **Reposicao**.
+Usuarios comerciais veem apenas o modulo **Reposicao**, com foco no retorno comercial.
 Somente o administrador ve todos os menus do sistema.
 
 ## Recursos entregues
@@ -110,6 +112,10 @@ Somente o administrador ve todos os menus do sistema.
 - Relatorios com filtros por data, periodo, colaborador e atividade.
 - Exportacao em PDF e Excel.
 - Controle de pendencias com responsavel, status e solucao.
+- Modulo de reposicao da loja no mesmo sistema.
+- Registro de atividades de reposicao por colaborador e setor.
+- Controle de rupturas, validades curtas, avarias e retorno comercial.
+- Painel de reposicao com indicadores por periodo e setor.
 - Banco SQLite local em `data/app.sqlite`.
 - Na versao online, use PostgreSQL configurando `DATABASE_URL` no Render.
 - A primeira execucao cria apenas o acesso administrador inicial.
