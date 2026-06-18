@@ -247,7 +247,7 @@ async function bootstrap() {
     state.tab = defaultTab();
     await loadCollaborators();
     if (state.tab === "dashboard") await loadDashboard();
-    if (state.tab === "reposition" || state.tab === "repoDashboard" || state.tab === "commercial") await loadReposition();
+    if (state.tab === "reposition" || state.tab === "repoDashboard" || state.tab === "commercial" || state.tab === "commercialDashboard") await loadReposition();
     renderShell();
   } catch {
     logout();
@@ -298,7 +298,7 @@ function renderShell() {
 
 async function refreshForTab() {
   if (state.tab === "dashboard") await loadDashboard();
-  if (state.tab === "repoDashboard") await Promise.all([loadCollaborators(), loadReposition()]);
+  if (state.tab === "repoDashboard" || state.tab === "commercialDashboard") await Promise.all([loadCollaborators(), loadReposition()]);
   if (state.tab === "collaborators" || state.tab === "checklist" || state.tab === "pendencies") await loadCollaborators();
   if (state.tab === "reposition" || state.tab === "commercial") await Promise.all([loadCollaborators(), loadReposition()]);
   if (state.tab === "reports") await loadChecklists();
@@ -310,6 +310,7 @@ function renderView() {
   const map = {
     dashboard: renderDashboard,
     repoDashboard: renderRepoDashboard,
+    commercialDashboard: renderCommercialDashboard,
     checklist: renderChecklist,
     summary: renderSummary,
     reports: renderReports,
@@ -324,8 +325,8 @@ function renderView() {
 }
 
 function allowedTabs() {
-  if (state.user?.role === "reposicao") return [["repoDashboard", "Painel ReposiÃ§Ã£o / Comercial"], ["reposition", "ReposiÃ§Ã£o"]];
-  if (state.user?.role === "comercial") return [["repoDashboard", "Painel ReposiÃ§Ã£o / Comercial"], ["commercial", "Comercial"]];
+  if (state.user?.role === "reposicao") return [["repoDashboard", "Painel Reposi\u00e7\u00e3o"], ["reposition", "Reposi\u00e7\u00e3o"]];
+  if (state.user?.role === "comercial") return [["commercialDashboard", "Painel Comercial"], ["commercial", "Comercial"]];
   if (state.user?.role !== "administrador") {
     const tabs = [
       ["dashboard", "Painel PrevenÃ§Ã£o"],
@@ -338,7 +339,8 @@ function allowedTabs() {
   }
   const tabs = [
     ["dashboard", "Painel PrevenÃ§Ã£o"],
-    ["repoDashboard", "Painel ReposiÃ§Ã£o / Comercial"],
+    ["repoDashboard", "Painel Reposi\u00e7\u00e3o"],
+    ["commercialDashboard", "Painel Comercial"],
     ["checklist", "Checklist"],
     ["reposition", "ReposiÃ§Ã£o"],
     ["commercial", "Comercial"],
@@ -353,7 +355,7 @@ function allowedTabs() {
 
 function defaultTab() {
   if (state.user?.role === "reposicao") return "repoDashboard";
-  if (state.user?.role === "comercial") return "repoDashboard";
+  if (state.user?.role === "comercial") return "commercialDashboard";
   return "dashboard";
 }
 
@@ -977,25 +979,23 @@ function renderRepoDashboard() {
     ["Realizadas", summary.completed || 0],
     ["Pendentes", summary.pending || 0],
     ["Rupturas", summary.ruptures || 0],
-    ["Pedidos confirmados", summary.rupturesPurchased || 0],
     ["Validades", summary.expirations || 0],
-    ["Validades com aÃ§Ã£o", summary.expirationsActioned || 0],
     ["Avarias", summary.damages || 0],
   ];
   view.innerHTML = `
     <div class="topbar">
       <div>
-        <h2>Painel ReposiÃ§Ã£o / Comercial</h2>
-        <div class="muted">Indicadores de reposiÃ§Ã£o, rupturas, validades, avarias e retorno comercial</div>
+        <h2>Painel Reposição</h2>
+        <div class="muted">Indicadores de checklists, setores e realização das atividades da reposição</div>
       </div>
       <button class="btn" id="refreshRepoDashboard">Atualizar</button>
     </div>
     <form class="panel grid" id="repoDashboardFilterForm" style="margin-bottom:14px">
       <div class="grid two">
-        <label>InÃ­cio <input name="startDate" type="date" value="${escapeHtml(state.repo.filters.startDate)}"></label>
+        <label>Início <input name="startDate" type="date" value="${escapeHtml(state.repo.filters.startDate)}"></label>
         <label>Fim <input name="endDate" type="date" value="${escapeHtml(state.repo.filters.endDate)}"></label>
       </div>
-      <button class="btn primary" type="submit">Aplicar perÃ­odo</button>
+      <button class="btn primary" type="submit">Aplicar período</button>
     </form>
     <div class="metrics">${metrics.map(([label, value]) => `<div class="metric"><span class="muted">${label}</span><strong>${value}</strong></div>`).join("")}</div>
     <div class="grid two" style="margin-top:14px">
@@ -1004,24 +1004,13 @@ function renderRepoDashboard() {
         <div class="table-wrap" style="margin-top:12px">${repoSectorTable(data.bySector || [])}</div>
       </section>
       <section class="panel">
-        <h3>Retorno comercial</h3>
-        <div class="table-wrap" style="margin-top:12px">${repoCommercialTable()}</div>
-      </section>
-    </div>
-    <div class="grid two" style="margin-top:14px">
-      <section class="panel">
-        <h3>Engajamento da reposiÃ§Ã£o</h3>
-        <div class="muted" style="margin-top:4px">ParticipaÃ§Ã£o dos usuÃ¡rios de reposiÃ§Ã£o nos checklists do perÃ­odo</div>
+        <h3>Engajamento da reposição</h3>
+        <div class="muted" style="margin-top:4px">Participação dos usuários de reposição nos checklists do período</div>
         <div class="table-wrap" style="margin-top:12px">${repoUserEngagementTable(data.repoUserEngagement || [])}</div>
-      </section>
-      <section class="panel">
-        <h3>Engajamento comercial</h3>
-        <div class="muted" style="margin-top:4px">ParticipaÃ§Ã£o dos usuÃ¡rios comerciais nos retornos registrados</div>
-        <div class="table-wrap" style="margin-top:12px">${repoUserEngagementTable(data.commercialUserEngagement || [])}</div>
       </section>
     </div>
     <section class="panel" style="margin-top:14px">
-      <h3>Percentual de realizaÃ§Ã£o das atividades da reposiÃ§Ã£o</h3>
+      <h3>Percentual de realização das atividades da reposição</h3>
       <div class="muted" style="margin-top:4px">Conta o dia quando a atividade foi marcada como Sim ao menos uma vez</div>
       <div class="table-wrap" style="margin-top:12px">${repoActivityCompletionTable(data.repoActivityCompletion || [])}</div>
     </section>
@@ -1036,9 +1025,57 @@ function renderRepoDashboard() {
     await loadReposition();
     renderRepoDashboard();
   });
-  bindRepoCommercialButtons();
 }
 
+function renderCommercialDashboard() {
+  const data = state.repo.dashboard || { summary: {} };
+  const summary = data.summary || {};
+  const metrics = [
+    ["Rupturas", summary.ruptures || 0],
+    ["Pedidos confirmados", summary.rupturesPurchased || 0],
+    ["Validades", summary.expirations || 0],
+    ["Validades com ação", summary.expirationsActioned || 0],
+  ];
+  view.innerHTML = `
+    <div class="topbar">
+      <div>
+        <h2>Painel Comercial</h2>
+        <div class="muted">Engajamento dos compradores e retornos comerciais registrados</div>
+      </div>
+      <button class="btn" id="refreshCommercialDashboard">Atualizar</button>
+    </div>
+    <form class="panel grid" id="commercialDashboardFilterForm" style="margin-bottom:14px">
+      <div class="grid two">
+        <label>Início <input name="startDate" type="date" value="${escapeHtml(state.repo.filters.startDate)}"></label>
+        <label>Fim <input name="endDate" type="date" value="${escapeHtml(state.repo.filters.endDate)}"></label>
+      </div>
+      <button class="btn primary" type="submit">Aplicar período</button>
+    </form>
+    <div class="metrics">${metrics.map(([label, value]) => `<div class="metric"><span class="muted">${label}</span><strong>${value}</strong></div>`).join("")}</div>
+    <div class="grid two" style="margin-top:14px">
+      <section class="panel">
+        <h3>Engajamento dos compradores</h3>
+        <div class="muted" style="margin-top:4px">Participação dos usuários comerciais nos retornos do período</div>
+        <div class="table-wrap" style="margin-top:12px">${repoUserEngagementTable(data.commercialUserEngagement || [])}</div>
+      </section>
+      <section class="panel">
+        <h3>Retorno comercial</h3>
+        <div class="table-wrap" style="margin-top:12px">${repoCommercialTable()}</div>
+      </section>
+    </div>
+  `;
+  document.getElementById("refreshCommercialDashboard").addEventListener("click", async () => {
+    await loadReposition();
+    renderCommercialDashboard();
+  });
+  document.getElementById("commercialDashboardFilterForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    state.repo.filters = Object.fromEntries(new FormData(event.currentTarget).entries());
+    await loadReposition();
+    renderCommercialDashboard();
+  });
+  bindRepoCommercialButtons();
+}
 function renderReposition() {
   const data = state.repo.dashboard || { summary: {}, bySector: [] };
   const summary = data.summary || {};
@@ -1542,4 +1579,5 @@ function fileToDataUrl(file) {
 }
 
 bootstrap();
+
 

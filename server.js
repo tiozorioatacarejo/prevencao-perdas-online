@@ -1061,15 +1061,17 @@ async function api(req, res, url) {
       `,
       [start, end]
     );
-    const activeCollaborators = await query("SELECT id, name FROM collaborators WHERE status = 'ativo' ORDER BY name");
     const collaboratorCounts = await query(
       `
       SELECT col.id, col.name, COUNT(c.id) AS total
-      FROM collaborators col
+      FROM users u
+      JOIN collaborators col ON col.id = u.collaborator_id
       LEFT JOIN checklists c ON c.collaborator_id = col.id
         AND c.date BETWEEN ? AND ?
         AND c.activity NOT IN (?, ?, ?)
       WHERE col.status = 'ativo'
+        AND u.status = 'ativo'
+        AND u.role IN ('prevencao', 'colaborador', 'encarregada')
       GROUP BY col.id, col.name
       ORDER BY col.name
       `,
