@@ -599,6 +599,12 @@ function repoCollaboratorOptions() {
     .join("");
 }
 
+function collaboratorSectorOptions(selected = "") {
+  const options = [`<option value="">Sem setor de reposiÃ§Ã£o</option>`];
+  options.push(...(state.repo.sectors || []).map((sector) => `<option value="${escapeHtml(sector)}" ${sector === selected ? "selected" : ""}>${escapeHtml(sector)}</option>`));
+  return options.join("");
+}
+
 function renderChecklist() {
   const availableActivities = checklistActivitiesForUser();
   const linkedCollaborator = state.user?.collaborator_id
@@ -1143,13 +1149,20 @@ function renderReposition() {
 
 function repoTaskForm() {
   const linked = state.user?.collaborator_id ? state.collaborators.find((item) => Number(item.id) === Number(state.user.collaborator_id)) : null;
+  const linkedSector = linked?.sector || "";
+  const collaboratorField = linked
+    ? `<input value="${escapeHtml(linked.name)}" disabled><input type="hidden" name="collaboratorId" value="${linked.id}">`
+    : `<select name="collaboratorId" required>${repoCollaboratorOptions()}</select>`;
+  const sectorField = linked && linkedSector
+    ? `<input value="${escapeHtml(linkedSector)}" disabled><input type="hidden" name="sector" value="${escapeHtml(linkedSector)}">`
+    : `<select name="sector" required>${repoOptions(state.repo.sectors, linkedSector)}</select>`;
   return `
     <h3>Checklist diÃ¡rio da reposiÃ§Ã£o</h3>
     <div class="muted" style="margin-top:4px">${linked ? "Acesso vinculado ao seu cadastro" : "Data e horÃ¡rio sÃ£o registrados automaticamente no envio"}</div>
     <form class="grid" id="repoTaskForm" style="margin-top:12px">
       <div class="grid two">
-        <label>Colaborador ${linked ? `<input value="${escapeHtml(linked.name)}" disabled><input type="hidden" name="collaboratorId" value="${linked.id}">` : `<select name="collaboratorId" required>${repoCollaboratorOptions()}</select>`}</label>
-        <label>Setor <select name="sector">${repoOptions(state.repo.sectors)}</select></label>
+        <label>Colaborador ${collaboratorField}</label>
+        <label>Setor ${sectorField}</label>
       </div>
       <div class="grid two">
         <label>Atividade <select name="activity">${repoOptions(state.repo.activities)}</select></label>
@@ -1203,7 +1216,17 @@ function repoDamageForm() {
 }
 
 function bindRepoForms() {
-  document.getElementById("repoTaskForm").addEventListener("submit", async (event) => {
+  const taskForm = document.getElementById("repoTaskForm");
+  const syncRepoTaskSector = () => {
+    const collaboratorId = taskForm.elements.collaboratorId?.value;
+    const sectorField = taskForm.elements.sector;
+    const collaborator = state.collaborators.find((item) => Number(item.id) === Number(collaboratorId));
+    if (collaborator?.sector && sectorField) sectorField.value = collaborator.sector;
+  };
+  taskForm.elements.collaboratorId?.addEventListener("change", syncRepoTaskSector);
+  syncRepoTaskSector();
+
+  taskForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     await api("/api/reposition/tasks", { method: "POST", body: JSON.stringify(Object.fromEntries(new FormData(event.currentTarget).entries())) });
     await loadReposition();
@@ -1365,9 +1388,10 @@ function renderCollaborators() {
     </div>
     <form class="panel grid" id="collaboratorForm">
       <input type="hidden" name="id">
-      <div class="grid three">
+      <div class="grid four">
         <label>Nome <input name="name" required></label>
         <label>Cargo <input name="role" required></label>
+        <label>Setor da reposiÃ§Ã£o <select name="sector">${collaboratorSectorOptions()}</select></label>
         <label>Status <select name="status"><option value="ativo">Ativo</option><option value="inativo">Inativo</option></select></label>
       </div>
       <div class="toolbar">
@@ -1376,11 +1400,12 @@ function renderCollaborators() {
       </div>
     </form>
     <div class="table-wrap" style="margin-top:14px">
-      <table><thead><tr><th>Nome</th><th>Cargo</th><th>Status</th><th>AÃ§Ãµes</th></tr></thead><tbody>
+      <table><thead><tr><th>Nome</th><th>Cargo</th><th>Setor reposiÃ§Ã£o</th><th>Status</th><th>AÃ§Ãµes</th></tr></thead><tbody>
         ${state.collaborators.map((row) => `
           <tr>
             <td data-label="Nome">${escapeHtml(row.name)}</td>
             <td data-label="Cargo">${escapeHtml(row.role)}</td>
+            <td data-label="Setor reposiÃ§Ã£o">${escapeHtml(row.sector || "-")}</td>
             <td data-label="Status"><span class="status ${row.status === "ativo" ? "ok" : ""}">${row.status}</span></td>
             <td data-label="AÃ§Ãµes">
               <div class="toolbar">
@@ -1427,6 +1452,7 @@ function renderCollaborators() {
       form.id.value = collaborator.id;
       form.name.value = collaborator.name;
       form.role.value = collaborator.role;
+      form.sector.value = collaborator.sector || "";
       form.status.value = collaborator.status;
       submitButton.textContent = "Salvar alteraÃ§Ãµes";
       cancelButton.classList.remove("hidden");

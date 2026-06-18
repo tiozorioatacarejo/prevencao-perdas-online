@@ -111,6 +111,7 @@ async function initPostgres(pool) {
       id SERIAL PRIMARY KEY,
       name TEXT NOT NULL,
       role TEXT NOT NULL,
+      sector TEXT,
       status TEXT NOT NULL DEFAULT 'ativo',
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
@@ -220,6 +221,7 @@ async function initPostgres(pool) {
       created_by INTEGER NOT NULL REFERENCES users(id)
     );
   `);
+  await pool.query("ALTER TABLE collaborators ADD COLUMN IF NOT EXISTS sector TEXT");
   await pool.query("ALTER TABLE repo_ruptures ADD COLUMN IF NOT EXISTS commercial_updated_by INTEGER REFERENCES users(id)");
   await pool.query("ALTER TABLE repo_expirations ADD COLUMN IF NOT EXISTS commercial_updated_by INTEGER REFERENCES users(id)");
   const existing = await pool.query("SELECT COUNT(*) AS total FROM users");
@@ -829,9 +831,10 @@ async function api(req, res, url) {
   if (method === "POST" && url.pathname === "/api/collaborators") {
     if (!isAdmin(user)) return send(res, 403, { error: "Apenas administrador pode cadastrar colaboradores." });
     const body = await readBody(req);
-    await execute("INSERT INTO collaborators (name, role, status) VALUES (?, ?, ?)", [
+    await execute("INSERT INTO collaborators (name, role, sector, status) VALUES (?, ?, ?, ?)", [
       body.name,
       body.role,
+      body.sector || "",
       body.status || "ativo",
     ]);
     return send(res, 201, { ok: true });
@@ -841,9 +844,10 @@ async function api(req, res, url) {
     if (!isAdmin(user)) return send(res, 403, { error: "Apenas administrador pode editar colaboradores." });
     const id = Number(url.pathname.split("/").pop());
     const body = await readBody(req);
-    await execute("UPDATE collaborators SET name = ?, role = ?, status = ? WHERE id = ?", [
+    await execute("UPDATE collaborators SET name = ?, role = ?, sector = ?, status = ? WHERE id = ?", [
       body.name,
       body.role,
+      body.sector || "",
       body.status,
       id,
     ]);

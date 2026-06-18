@@ -22,6 +22,7 @@ async function initPostgres() {
       id SERIAL PRIMARY KEY,
       name TEXT NOT NULL,
       role TEXT NOT NULL,
+      sector TEXT,
       status TEXT NOT NULL DEFAULT 'ativo',
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
@@ -73,6 +74,7 @@ async function initPostgres() {
       updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
   `);
+  await pool.query("ALTER TABLE collaborators ADD COLUMN IF NOT EXISTS sector TEXT");
   const existing = await pool.query("SELECT COUNT(*) AS total FROM users");
   if (Number(existing.rows[0].total) === 0) {
     await pool.query(
