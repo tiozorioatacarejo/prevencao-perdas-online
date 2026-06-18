@@ -592,7 +592,9 @@ function collaboratorOptions(activeOnly = true) {
 
 function repoCollaboratorOptions() {
   const allowed = new Set((state.repo.repoCollaboratorIds || []).map((id) => Number(id)));
-  const rows = state.collaborators.filter((item) => item.status === "ativo" && allowed.has(Number(item.id)));
+  const rows = state.collaborators.filter((item) => (
+    item.status === "ativo" && (allowed.has(Number(item.id)) || collaboratorSectors(item).length > 0)
+  ));
   if (!rows.length) return `<option value="">Cadastre e vincule usuÃ¡rios de reposiÃ§Ã£o</option>`;
   return rows
     .map((item) => `<option value="${item.id}">${escapeHtml(item.name)} - ${escapeHtml(item.role)}</option>`)
@@ -602,14 +604,14 @@ function repoCollaboratorOptions() {
 function collaboratorSectors(collaborator) {
   const value = collaborator?.sector || "";
   if (!value) return [];
-  if (Array.isArray(value)) return value.filter(Boolean);
+  if (Array.isArray(value)) return value.map((item) => normalizeText(item).trim()).filter(Boolean);
   try {
     const parsed = JSON.parse(value);
-    if (Array.isArray(parsed)) return parsed.filter(Boolean);
+    if (Array.isArray(parsed)) return parsed.map((item) => normalizeText(item).trim()).filter(Boolean);
   } catch (error) {
     // Mantem compatibilidade com cadastros antigos que tinham apenas um setor em texto.
   }
-  return String(value).split("||").map((item) => item.trim()).filter(Boolean);
+  return String(value).split("||").map((item) => normalizeText(item).trim()).filter(Boolean);
 }
 
 function displayCollaboratorSectors(collaborator) {
@@ -629,6 +631,13 @@ function collaboratorSectorCheckboxes(selected = []) {
 
 function repoTaskSectorOptions(collaborator) {
   const assigned = collaboratorSectors(collaborator);
+  if (
+    state.user?.role === "reposicao"
+    && collaborator
+    && Number(collaborator.id) === Number(state.user.collaborator_id)
+  ) {
+    return assigned.length ? repoOptions(assigned) : `<option value="">Nenhum setor atribuido</option>`;
+  }
   const sectors = assigned.length ? assigned : state.repo.sectors;
   return repoOptions(sectors || []);
 }
@@ -637,7 +646,13 @@ function repoSectorsForCurrentUser() {
   if (state.user?.role !== "reposicao" || !state.user?.collaborator_id) return state.repo.sectors || [];
   const collaborator = state.collaborators.find((item) => Number(item.id) === Number(state.user.collaborator_id));
   const assigned = collaboratorSectors(collaborator);
-  return assigned.length ? assigned : state.repo.sectors || [];
+  return assigned;
+}
+
+function repoSectorOptionsForCurrentUser() {
+  const sectors = repoSectorsForCurrentUser();
+  if (state.user?.role === "reposicao" && !sectors.length) return `<option value="">Nenhum setor atribuido</option>`;
+  return repoOptions(sectors);
 }
 
 function renderChecklist() {
@@ -1217,7 +1232,7 @@ function repoIssueForm(kind, title, productLabel, fields) {
     <form class="grid" id="repo-${kind}-form" data-repo-kind="${kind}" style="margin-top:12px">
       <div class="grid two">
         <label>Data <input name="date" type="date" value="${todayInputValue()}"></label>
-        <label>Setor <select name="sector">${repoOptions(repoSectorsForCurrentUser())}</select></label>
+        <label>Setor <select name="sector">${repoSectorOptionsForCurrentUser()}</select></label>
       </div>
       <label>${productLabel} <input name="product" required></label>
       <div class="grid two">
@@ -1237,7 +1252,7 @@ function repoDamageForm() {
     <form class="grid" id="repo-damages-form" data-repo-kind="damages" style="margin-top:12px">
       <div class="grid two">
         <label>Data <input name="date" type="date" value="${todayInputValue()}"></label>
-        <label>Setor <select name="sector">${repoOptions(repoSectorsForCurrentUser())}</select></label>
+        <label>Setor <select name="sector">${repoSectorOptionsForCurrentUser()}</select></label>
       </div>
       <label>Produto <input name="product" required></label>
       <div class="grid two">

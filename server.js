@@ -337,22 +337,50 @@ function canUpdateRepoCommercial(user) {
 
 function parseCollaboratorSectors(value) {
   if (!value) return [];
-  if (Array.isArray(value)) return value.filter(Boolean);
+  const clean = (item) => String(item ?? "").trim();
+  if (Array.isArray(value)) return value.map(clean).filter(Boolean);
   try {
     const parsed = JSON.parse(value);
-    if (Array.isArray(parsed)) return parsed.filter(Boolean);
+    if (Array.isArray(parsed)) return parsed.map(clean).filter(Boolean);
   } catch (error) {
     // Compatibilidade com cadastros antigos que guardavam um setor em texto.
   }
-  return String(value).split("||").map((item) => item.trim()).filter(Boolean);
+  return String(value).split("||").map(clean).filter(Boolean);
 }
 
 async function validateRepoSectorForUser(user, sector) {
   if (user.role !== "reposicao" || !user.collaborator_id) return null;
   const rows = await query("SELECT sector FROM collaborators WHERE id = ?", [user.collaborator_id]);
   const assigned = parseCollaboratorSectors(rows[0]?.sector);
-  if (!assigned.length || assigned.includes(sector)) return null;
+  if (!assigned.length) return "Nenhum setor est\u00e1 direcionado para o seu acesso.";
+  if (assigned.includes(sector)) return null;
   return "Este setor n\u00e3o est\u00e1 direcionado para o seu acesso.";
+}
+
+async function sectorsForUser(user) {
+  if (!user.collaborator_id) return [];
+  const rows = await query("SELECT sector FROM collaborators WHERE id = ?", [user.collaborator_id]);
+  return parseCollaboratorSectors(rows[0]?.sector);
+}
+
+async function commercialSectorFilter(user, column = "sector") {
+  if (user.role !== "comercial") return { clause: "", params: [] };
+  const sectors = await sectorsForUser(user);
+  if (!sectors.length) return { clause: " AND 1 = 0", params: [] };
+  return {
+    clause: ` AND ${column} IN (${sectors.map(() => "?").join(", ")})`,
+    params: sectors,
+  };
+}
+
+async function validateCommercialRecordSector(user, table, id) {
+  if (user.role !== "comercial") return null;
+  const sectors = await sectorsForUser(user);
+  if (!sectors.length) return "Nenhum setor est\u00e1 direcionado para o seu acesso comercial.";
+  const rows = await query(`SELECT sector FROM ${table} WHERE id = ?`, [id]);
+  if (!rows[0]) return "Registro n\u00e3o encontrado.";
+  if (sectors.includes(rows[0].sector)) return null;
+  return "Este registro pertence a um setor que n\u00e3o est\u00e1 direcionado para o seu acesso comercial.";
 }
 
 function canFillEncarregadaOnly(user) {
@@ -576,9 +604,10 @@ async function api(req, res, url) {
     if (!canAccessReposition(user)) return send(res, 403, { error: "Acesso restrito ao módulo de reposição." });
     const start = url.searchParams.get("startDate") || today();
     const end = url.searchParams.get("endDate") || start;
+    const commercialFilter = await commercialSectorFilter(user);
     const taskRows = await query("SELECT status, COUNT(*) AS total FROM repo_tasks WHERE date BETWEEN ? AND ? GROUP BY status", [start, end]);
-    const ruptureRows = await query("SELECT status, commercial_status, COUNT(*) AS total FROM repo_ruptures WHERE date BETWEEN ? AND ? GROUP BY status, commercial_status", [start, end]);
-    const expirationRows = await query("SELECT status, commercial_status, COUNT(*) AS total FROM repo_expirations WHERE date BETWEEN ? AND ? GROUP BY status, commercial_status", [start, end]);
+    const ruptureRows = await query(`SELECT status, commercial_status, COUNT(*) AS total FROM repo_ruptures WHERE date BETWEEN ? AND ?${commercialFilter.clause} GROUP BY status, commercial_status`, [start, end, ...commercialFilter.params]);
+    const expirationRows = await query(`SELECT status, commercial_status, COUNT(*) AS total FROM repo_expirations WHERE date BETWEEN ? AND ?${commercialFilter.clause} GROUP BY status, commercial_status`, [start, end, ...commercialFilter.params]);
     const damageRows = await query("SELECT COUNT(*) AS total FROM repo_damages WHERE date BETWEEN ? AND ?", [start, end]);
     const bySector = await query(
       `
@@ -636,11 +665,11 @@ async function api(req, res, url) {
         UNION ALL
         SELECT id, commercial_updated_by, date FROM repo_expirations WHERE commercial_updated_by IS NOT NULL
       ) x ON x.commercial_updated_by = u.id AND x.date BETWEEN ? AND ?
-      WHERE u.role = 'comercial' AND u.status = 'ativo'
+      WHERE u.role = 'comercial' AND u.status = 'ativo' ${user.role === "comercial" ? "AND u.id = ?" : ""}
       GROUP BY u.id, u.display_name
       ORDER BY u.display_name
       `,
-      [start, end]
+      user.role === "comercial" ? [start, end, user.id] : [start, end]
     );
     const repoTotalByUsers = repoUserCounts.reduce((sum, row) => sum + Number(row.total || 0), 0);
     const commercialTotalByUsers = commercialUserCounts.reduce((sum, row) => sum + Number(row.total || 0), 0);
@@ -714,7 +743,8 @@ async function api(req, res, url) {
 
   if (method === "GET" && url.pathname === "/api/reposition/ruptures") {
     if (!canAccessReposition(user)) return send(res, 403, { error: "Acesso restrito ao módulo de reposição." });
-    return send(res, 200, { rows: await query("SELECT * FROM repo_ruptures ORDER BY date DESC, id DESC") });
+    const filter = await commercialSectorFilter(user);
+    return send(res, 200, { rows: await query(`SELECT * FROM repo_ruptures WHERE 1 = 1${filter.clause} ORDER BY date DESC, id DESC`, filter.params) });
   }
 
   if (method === "POST" && url.pathname === "/api/reposition/ruptures") {
@@ -734,6 +764,8 @@ async function api(req, res, url) {
     if (!canUpdateRepoCommercial(user)) return send(res, 403, { error: "Apenas liderança ou comercial pode atualizar o retorno." });
     const id = Number(url.pathname.split("/").pop());
     const body = await readBody(req);
+    const sectorError = await validateCommercialRecordSector(user, "repo_ruptures", id);
+    if (sectorError) return send(res, 403, { error: sectorError });
     const commercialStatus = ["Pedido realizado", "Pedido nÃ£o realizado", "Pedido nao realizado"].includes(body.commercialStatus) ? body.commercialStatus : "Pendente";
     await execute(
       "UPDATE repo_ruptures SET commercial_status = ?, commercial_observation = ?, commercial_updated_by = ?, status = ?, updated_at = ? WHERE id = ?",
@@ -744,7 +776,8 @@ async function api(req, res, url) {
 
   if (method === "GET" && url.pathname === "/api/reposition/expirations") {
     if (!canAccessReposition(user)) return send(res, 403, { error: "Acesso restrito ao módulo de reposição." });
-    return send(res, 200, { rows: await query("SELECT * FROM repo_expirations ORDER BY date DESC, id DESC") });
+    const filter = await commercialSectorFilter(user);
+    return send(res, 200, { rows: await query(`SELECT * FROM repo_expirations WHERE 1 = 1${filter.clause} ORDER BY date DESC, id DESC`, filter.params) });
   }
 
   if (method === "POST" && url.pathname === "/api/reposition/expirations") {
@@ -764,6 +797,8 @@ async function api(req, res, url) {
     if (!canUpdateRepoCommercial(user)) return send(res, 403, { error: "Apenas liderança ou comercial pode atualizar o retorno." });
     const id = Number(url.pathname.split("/").pop());
     const body = await readBody(req);
+    const sectorError = await validateCommercialRecordSector(user, "repo_expirations", id);
+    if (sectorError) return send(res, 403, { error: sectorError });
     const commercialStatus = ["AÃ§Ã£o ou rebaixa realizada", "AÃ§Ã£o nÃ£o realizada", "Acao ou rebaixa realizada", "Acao nao realizada"].includes(body.commercialStatus) ? body.commercialStatus : "Pendente";
     await execute(
       "UPDATE repo_expirations SET commercial_status = ?, commercial_observation = ?, commercial_updated_by = ?, status = ?, updated_at = ? WHERE id = ?",
