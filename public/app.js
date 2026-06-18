@@ -617,11 +617,14 @@ function displayCollaboratorSectors(collaborator) {
   return sectors.length ? sectors.join(", ") : "-";
 }
 
-function collaboratorSectorOptions(selected = []) {
+function collaboratorSectorCheckboxes(selected = []) {
   const selectedSet = new Set(Array.isArray(selected) ? selected : [selected].filter(Boolean));
-  const options = [`<option value="">Sem setor de reposiÃ§Ã£o</option>`];
-  options.push(...(state.repo.sectors || []).map((sector) => `<option value="${escapeHtml(sector)}" ${selectedSet.has(sector) ? "selected" : ""}>${escapeHtml(sector)}</option>`));
-  return options.join("");
+  return (state.repo.sectors || []).map((sector) => `
+    <label class="check-option">
+      <input type="checkbox" name="sector" value="${escapeHtml(sector)}" ${selectedSet.has(sector) ? "checked" : ""}>
+      <span>${escapeHtml(sector)}</span>
+    </label>
+  `).join("");
 }
 
 function repoTaskSectorOptions(collaborator) {
@@ -1425,7 +1428,10 @@ function renderCollaborators() {
       <div class="grid four">
         <label>Nome <input name="name" required></label>
         <label>Cargo <input name="role" required></label>
-        <label>Setores da reposiÃ§Ã£o <select name="sector" multiple size="5">${collaboratorSectorOptions()}</select></label>
+        <div class="field-group">
+          <div class="field-label">Setores da reposiÃ§Ã£o</div>
+          <div class="check-grid sector-picker">${collaboratorSectorCheckboxes()}</div>
+        </div>
         <label>Status <select name="status"><option value="ativo">Ativo</option><option value="inativo">Inativo</option></select></label>
       </div>
       <div class="toolbar">
@@ -1466,7 +1472,7 @@ function renderCollaborators() {
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     const body = Object.fromEntries(new FormData(form).entries());
-    const selectedSectors = Array.from(form.sector.selectedOptions).map((option) => option.value).filter(Boolean);
+    const selectedSectors = Array.from(form.querySelectorAll('input[name="sector"]:checked')).map((option) => option.value).filter(Boolean);
     body.sector = selectedSectors.length ? JSON.stringify(selectedSectors) : "";
     const id = body.id;
     delete body.id;
@@ -1489,8 +1495,8 @@ function renderCollaborators() {
       form.name.value = collaborator.name;
       form.role.value = collaborator.role;
       const selectedSectors = new Set(collaboratorSectors(collaborator));
-      Array.from(form.sector.options).forEach((option) => {
-        option.selected = selectedSectors.has(option.value);
+      form.querySelectorAll('input[name="sector"]').forEach((option) => {
+        option.checked = selectedSectors.has(option.value);
       });
       form.status.value = collaborator.status;
       submitButton.textContent = "Salvar alteraÃ§Ãµes";
@@ -1511,6 +1517,7 @@ function renderCollaborators() {
       toast(result.message || "Colaborador excluÃ­do.");
     });
   });
+  fixVisibleText(view);
 }
 
 function renderUsers() {

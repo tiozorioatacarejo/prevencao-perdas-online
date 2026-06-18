@@ -1220,7 +1220,10 @@ function serveStatic(req, res, url) {
     ".webp": "image/webp",
     ".pdf": "application/pdf",
   };
-  send(res, 200, fs.readFileSync(filePath), { "Content-Type": types[ext] || "application/octet-stream" });
+  send(res, 200, fs.readFileSync(filePath), {
+    "Content-Type": types[ext] || "application/octet-stream",
+    "Cache-Control": "no-store",
+  });
 }
 
 function localNetworkUrls() {
