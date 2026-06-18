@@ -15,12 +15,12 @@ const DATABASE_URL = process.env.DATABASE_URL || "";
 let pgPool = null;
 
 const sessions = new Map();
-const PRICE_DIVERGENCE_ACTIVITY = "ConferÃªncia de precificaÃ§Ã£o";
-const EXPIRED_PRODUCTS_ACTIVITY = "VerificaÃ§Ã£o de validades";
+const PRICE_DIVERGENCE_ACTIVITY = "Confer\u00eancia de precifica\u00e7\u00e3o";
+const EXPIRED_PRODUCTS_ACTIVITY = "Verifica\u00e7\u00e3o de validades";
 const RECEIPTS_ACTIVITY = "Acompanhamento de recebimentos";
 const ENGAGEMENT_EXCLUDED_ACTIVITIES = [
-  "LanÃ§amento de perdas no sistema",
-  "LanÃ§amento de consumo interno",
+  "Lan\u00e7amento de perdas no sistema",
+  "Lan\u00e7amento de consumo interno",
   "Contagem e acompanhamento de vasilhames",
 ];
 
@@ -58,20 +58,20 @@ const activities = [
   "Temperatura 10h",
   "Temperatura 16h",
   "Temperatura 19h",
-  "LanÃ§amento de perdas no sistema",
-  "LanÃ§amento de consumo interno",
+  "Lan\u00e7amento de perdas no sistema",
+  "Lan\u00e7amento de consumo interno",
   "Contagem e acompanhamento de vasilhames",
-  "Acompanhamento de cotaÃ§Ãµes",
+  "Acompanhamento de cota\u00e7\u00f5es",
   "Acompanhamento de recebimentos",
   "Monitoramento loja / App Veesion",
-  "ConferÃªncia de precificaÃ§Ã£o",
-  "VerificaÃ§Ã£o de validades",
-  "VerificaÃ§Ã£o de Ã¡gua do bebedouro",
+  "Confer\u00eancia de precifica\u00e7\u00e3o",
+  "Verifica\u00e7\u00e3o de validades",
+  "Verifica\u00e7\u00e3o de \u00e1gua do bebedouro",
   "Acompanhamento da vitrine",
   "Portas e acessos conferidos",
   "Cancelamentos e estornos verificados",
   "Passagem de itens de forma correta no caixa",
-  "DevoluÃ§Ã£o de produtos acompanhadas",
+  "Devolu\u00e7\u00e3o de produtos acompanhadas",
 ];
 
 fs.mkdirSync(DATA_DIR, { recursive: true });

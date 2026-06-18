@@ -1,4 +1,4 @@
-const state = {
+﻿const state = {
   token: localStorage.getItem("token") || "",
   user: JSON.parse(localStorage.getItem("user") || "null"),
   tab: "dashboard",
@@ -34,11 +34,11 @@ const state = {
 };
 
 const app = document.getElementById("app");
-const PRICE_DIVERGENCE_ACTIVITY = "Conferência de precificação";
-const EXPIRED_PRODUCTS_ACTIVITY = "Verificação de validades";
+const PRICE_DIVERGENCE_ACTIVITY = "Confer\u00eancia de precifica\u00e7\u00e3o";
+const EXPIRED_PRODUCTS_ACTIVITY = "Verifica\u00e7\u00e3o de validades";
 const ENCARREGADA_ONLY_ACTIVITIES = [
-  "Lançamento de perdas no sistema",
-  "Lançamento de consumo interno",
+  "Lan\u00e7amento de perdas no sistema",
+  "Lan\u00e7amento de consumo interno",
   "Contagem e acompanhamento de vasilhames",
 ];
 
@@ -53,7 +53,7 @@ function api(path, options = {}) {
   }).then(async (response) => {
     const contentType = response.headers.get("content-type") || "";
     const data = contentType.includes("json") ? await response.json() : await response.blob();
-    if (!response.ok) throw new Error(data.error || "Falha ao processar solicitação.");
+    if (!response.ok) throw new Error(data.error || "Falha ao processar solicitaÃ§Ã£o.");
     return data;
   });
 }
@@ -153,11 +153,11 @@ function renderLogin(error = "") {
           <div class="brand-mark">CA</div>
           <div>
             <h1>Controle Atacarejo</h1>
-            <div class="muted">Atacarejo Antônio de Ozório</div>
+            <div class="muted">Atacarejo AntÃ´nio de OzÃ³rio</div>
           </div>
         </div>
         <div class="grid">
-          <label>Usuário
+          <label>UsuÃ¡rio
             <input name="username" autocomplete="username" required>
           </label>
           <label>Senha
@@ -171,12 +171,12 @@ function renderLogin(error = "") {
   `;
   const loginForm = document.getElementById("loginForm");
   loginForm.querySelector("h1").textContent = "Controle Atacarejo";
-  loginForm.querySelector(".brand .muted").textContent = "Atacarejo Antônio de Ozório";
+  loginForm.querySelector(".brand .muted").textContent = "Atacarejo AntÃ´nio de OzÃ³rio";
   loginForm.querySelector('input[name="username"]').closest("label").insertAdjacentHTML("beforebegin", `
-    <label>Área de acesso
+    <label>Ãrea de acesso
       <select name="accessArea" required>
-        <option value="prevencao">Prevenção de perdas</option>
-        <option value="reposicao">Reposição da loja</option>
+        <option value="prevencao">PrevenÃ§Ã£o de perdas</option>
+        <option value="reposicao">ReposiÃ§Ã£o da loja</option>
         <option value="comercial">Comercial</option>
         <option value="administrador">Administrador</option>
       </select>
@@ -189,12 +189,12 @@ function renderLogin(error = "") {
       const data = await api("/api/login", { method: "POST", body: JSON.stringify(body) });
       if (!loginAreaMatches(body.accessArea, data.user.role)) {
         const labels = {
-          prevencao: "Prevenção de perdas",
-          reposicao: "Reposição da loja",
+          prevencao: "PrevenÃ§Ã£o de perdas",
+          reposicao: "ReposiÃ§Ã£o da loja",
           comercial: "Comercial",
           administrador: "Administrador",
         };
-        return renderLogin(`Este usuário não pertence ao acesso ${labels[body.accessArea] || "selecionado"}.`);
+        return renderLogin(`Este usuÃ¡rio nÃ£o pertence ao acesso ${labels[body.accessArea] || "selecionado"}.`);
       }
       state.token = data.token;
       state.user = data.user;
@@ -249,7 +249,7 @@ function renderShell() {
           <div class="brand-mark">CA</div>
           <div>
             <h3>Controle Atacarejo</h3>
-            <div class="muted">${escapeHtml(state.user.display_name)} · ${escapeHtml(state.user.role)}</div>
+            <div class="muted">${escapeHtml(state.user.display_name)} Â· ${escapeHtml(state.user.role)}</div>
           </div>
         </div>
         <nav class="nav">
@@ -300,27 +300,27 @@ function renderView() {
 }
 
 function allowedTabs() {
-  if (state.user?.role === "reposicao") return [["repoDashboard", "Painel Reposição / Comercial"], ["reposition", "Reposição"]];
-  if (state.user?.role === "comercial") return [["repoDashboard", "Painel Reposição / Comercial"], ["commercial", "Comercial"]];
+  if (state.user?.role === "reposicao") return [["repoDashboard", "Painel ReposiÃ§Ã£o / Comercial"], ["reposition", "ReposiÃ§Ã£o"]];
+  if (state.user?.role === "comercial") return [["repoDashboard", "Painel ReposiÃ§Ã£o / Comercial"], ["commercial", "Comercial"]];
   if (state.user?.role !== "administrador") {
     const tabs = [
-      ["dashboard", "Painel Prevenção"],
+      ["dashboard", "Painel PrevenÃ§Ã£o"],
       ["checklist", "Checklist"],
-      ["reposition", "Reposição"],
-      ["pendencies", "Pendências"],
+      ["reposition", "ReposiÃ§Ã£o"],
+      ["pendencies", "PendÃªncias"],
     ];
     if (canAccessSummary()) tabs.splice(2, 0, ["summary", "Resumo"]);
     return tabs.filter(([id]) => id !== "reposition");
   }
   const tabs = [
-    ["dashboard", "Painel Prevenção"],
-    ["repoDashboard", "Painel Reposição / Comercial"],
+    ["dashboard", "Painel PrevenÃ§Ã£o"],
+    ["repoDashboard", "Painel ReposiÃ§Ã£o / Comercial"],
     ["checklist", "Checklist"],
-    ["reposition", "Reposição"],
+    ["reposition", "ReposiÃ§Ã£o"],
     ["commercial", "Comercial"],
     ["summary", "Resumo"],
-    ["reports", "Relatórios"],
-    ["pendencies", "Pendências"],
+    ["reports", "RelatÃ³rios"],
+    ["pendencies", "PendÃªncias"],
     ["collaborators", "Colaboradores"],
   ];
   tabs.push(["users", "Acessos"]);
@@ -398,15 +398,15 @@ function renderDashboard() {
     pendingToday: 0,
   };
   const summary = data.summary || {};
-  const monthLabel = data.month?.label || "mês atual";
+  const monthLabel = data.month?.label || "mÃªs atual";
   const metrics = [
     ["Checklists pendentes", data.pendingToday || 0],
-    ["Perdas lançadas", fmtMoney(summary.losses)],
+    ["Perdas lanÃ§adas", fmtMoney(summary.losses)],
     ["Consumos internos", fmtMoney(summary.consumptions)],
     ["Contagem de vasilhames", summary.bottles || 0],
     ["Recebimentos", summary.receipts || 0],
     ["Produtos vencidos", summary.expired || 0],
-    ["Divergências de preço", summary.divergences || 0],
+    ["DivergÃªncias de preÃ§o", summary.divergences || 0],
     ["Dias com checklist", data.totalsByDay.length],
   ];
   const max = Math.max(...data.totalsByDay.map((row) => row.total), 1);
@@ -414,7 +414,7 @@ function renderDashboard() {
     <div class="topbar">
       <div>
         <h2>Dashboard gerencial</h2>
-        <div class="muted">Indicadores operacionais do período registrado e percentuais de ${escapeHtml(monthLabel)}</div>
+        <div class="muted">Indicadores operacionais do perÃ­odo registrado e percentuais de ${escapeHtml(monthLabel)}</div>
       </div>
       <div class="toolbar">
         <button class="btn" id="exportDashboardPdf">PDF</button>
@@ -427,14 +427,14 @@ function renderDashboard() {
         <label>Visualizar
           <select name="mode">
             <option value="day" ${state.dashboardFilters.mode === "day" ? "selected" : ""}>Dia</option>
-            <option value="period" ${state.dashboardFilters.mode === "period" ? "selected" : ""}>Período</option>
-            <option value="month" ${state.dashboardFilters.mode === "month" ? "selected" : ""}>Mês</option>
+            <option value="period" ${state.dashboardFilters.mode === "period" ? "selected" : ""}>PerÃ­odo</option>
+            <option value="month" ${state.dashboardFilters.mode === "month" ? "selected" : ""}>MÃªs</option>
           </select>
         </label>
         <label data-dashboard-day>Data <input name="date" type="date" value="${escapeHtml(state.dashboardFilters.date)}"></label>
-        <label data-dashboard-period>Início <input name="startDate" type="date" value="${escapeHtml(state.dashboardFilters.startDate)}"></label>
+        <label data-dashboard-period>InÃ­cio <input name="startDate" type="date" value="${escapeHtml(state.dashboardFilters.startDate)}"></label>
         <label data-dashboard-period>Fim <input name="endDate" type="date" value="${escapeHtml(state.dashboardFilters.endDate)}"></label>
-        <label data-dashboard-month>Mês <input name="month" type="month" value="${escapeHtml(state.dashboardFilters.month)}"></label>
+        <label data-dashboard-month>MÃªs <input name="month" type="month" value="${escapeHtml(state.dashboardFilters.month)}"></label>
       </div>
       <button class="btn primary" type="submit">Aplicar filtro</button>
     </form>
@@ -449,10 +449,10 @@ function renderDashboard() {
         </div>
       </section>
       <section class="panel">
-        <h3>Ocorrências por colaborador</h3>
+        <h3>OcorrÃªncias por colaborador</h3>
         <div class="table-wrap" style="margin-top:12px">
-          <table><thead><tr><th>Colaborador</th><th>Ocorrências</th></tr></thead><tbody>
-            ${data.byCollaborator.map((row) => `<tr><td data-label="Colaborador">${escapeHtml(row.name)}</td><td data-label="Ocorrências">${row.total}</td></tr>`).join("") || `<tr><td colspan="2">Sem ocorrências.</td></tr>`}
+          <table><thead><tr><th>Colaborador</th><th>OcorrÃªncias</th></tr></thead><tbody>
+            ${data.byCollaborator.map((row) => `<tr><td data-label="Colaborador">${escapeHtml(row.name)}</td><td data-label="OcorrÃªncias">${row.total}</td></tr>`).join("") || `<tr><td colspan="2">Sem ocorrÃªncias.</td></tr>`}
           </tbody></table>
         </div>
       </section>
@@ -460,7 +460,7 @@ function renderDashboard() {
     <div class="grid two" style="margin-top:14px">
       <section class="panel">
         <h3>Engajamento por colaborador</h3>
-        <div class="muted" style="margin-top:4px">Participação nos preenchimentos do mês, sem considerar perdas, consumos e vasilhames</div>
+        <div class="muted" style="margin-top:4px">ParticipaÃ§Ã£o nos preenchimentos do mÃªs, sem considerar perdas, consumos e vasilhames</div>
         <div class="table-wrap" style="margin-top:12px">
           <table><thead><tr><th>Colaborador</th><th>Preenchimentos</th><th>Engajamento</th></tr></thead><tbody>
             ${data.collaboratorCompletion.map((row) => `
@@ -474,8 +474,8 @@ function renderDashboard() {
         </div>
       </section>
       <section class="panel">
-        <h3>Percentual de realização das atividades</h3>
-        <div class="muted" style="margin-top:4px">Meta: dias do mês; conta o dia quando a atividade foi registrada ao menos uma vez</div>
+        <h3>Percentual de realizaÃ§Ã£o das atividades</h3>
+        <div class="muted" style="margin-top:4px">Meta: dias do mÃªs; conta o dia quando a atividade foi registrada ao menos uma vez</div>
         <div class="table-wrap" style="margin-top:12px">
           <table><thead><tr><th>Atividade</th><th>Realizado</th><th>Percentual</th></tr></thead><tbody>
             ${data.activityCompletion.map((row) => `
@@ -526,11 +526,11 @@ function percentBar(percent) {
 function exportDashboardCsv() {
   const data = state.dashboard || {};
   const lines = [
-    ["Relatório do painel", data.month?.label || ""],
+    ["RelatÃ³rio do painel", data.month?.label || ""],
     [],
     ["Indicador", "Valor"],
     ["Checklists pendentes", data.pendingToday || 0],
-    ["Perdas lançadas", data.summary?.losses || 0],
+    ["Perdas lanÃ§adas", data.summary?.losses || 0],
     ["Consumos internos", data.summary?.consumptions || 0],
     ["Contagem de vasilhames", data.summary?.bottles || 0],
     ["Recebimentos", data.summary?.receipts || 0],
@@ -539,7 +539,7 @@ function exportDashboardCsv() {
     ["Colaborador", "Preenchimentos", "Percentual"],
     ...(data.collaboratorCompletion || []).map((row) => [row.name, row.total, `${row.percent}%`]),
     [],
-    ["Realização das atividades"],
+    ["RealizaÃ§Ã£o das atividades"],
     ["Atividade", "Realizado", "Meta", "Percentual"],
     ...(data.activityCompletion || []).map((row) => [row.activity, row.total, row.expected, `${row.percent}%`]),
   ];
@@ -567,7 +567,7 @@ function collaboratorOptions(activeOnly = true) {
 function repoCollaboratorOptions() {
   const allowed = new Set((state.repo.repoCollaboratorIds || []).map((id) => Number(id)));
   const rows = state.collaborators.filter((item) => item.status === "ativo" && allowed.has(Number(item.id)));
-  if (!rows.length) return `<option value="">Cadastre e vincule usuários de reposição</option>`;
+  if (!rows.length) return `<option value="">Cadastre e vincule usuÃ¡rios de reposiÃ§Ã£o</option>`;
   return rows
     .map((item) => `<option value="${item.id}">${escapeHtml(item.name)} - ${escapeHtml(item.role)}</option>`)
     .join("");
@@ -593,8 +593,8 @@ function renderChecklist() {
   view.innerHTML = `
     <div class="topbar">
       <div>
-        <h2>Checklist diário</h2>
-        <div class="muted">${linkedCollaborator ? "Acesso vinculado ao seu cadastro" : "Data e horário são registrados automaticamente no envio"}</div>
+        <h2>Checklist diÃ¡rio</h2>
+        <div class="muted">${linkedCollaborator ? "Acesso vinculado ao seu cadastro" : "Data e horÃ¡rio sÃ£o registrados automaticamente no envio"}</div>
       </div>
     </div>
     <form class="panel grid" id="checklistForm">
@@ -605,13 +605,13 @@ function renderChecklist() {
         </label>
       </div>
       <div class="grid two">
-        <label>Sim / Não
-          <select name="answer" required><option>Sim</option><option>Não</option></select>
+        <label>Sim / NÃ£o
+          <select name="answer" required><option>Sim</option><option>NÃ£o</option></select>
         </label>
-        <label data-price-divergence-field>Produtos com divergência de preços <textarea name="priceDivergenceProducts"></textarea></label>
+        <label data-price-divergence-field>Produtos com divergÃªncia de preÃ§os <textarea name="priceDivergenceProducts"></textarea></label>
       </div>
       <label data-expired-products-field>Produtos vencidos encontrados <textarea name="expiredProducts"></textarea></label>
-      <label>Observação
+      <label>ObservaÃ§Ã£o
         <textarea name="observation"></textarea>
       </label>
       <button class="btn primary" type="submit">Enviar checklist</button>
@@ -650,16 +650,16 @@ function renderSummary() {
   view.innerHTML = `
     <div class="topbar">
       <div>
-        <h2>Resumo operacional diário</h2>
-        <div class="muted">Consolidação do dia para acompanhamento gerencial</div>
+        <h2>Resumo operacional diÃ¡rio</h2>
+        <div class="muted">ConsolidaÃ§Ã£o do dia para acompanhamento gerencial</div>
       </div>
     </div>
     ${summaryLocked ? `<div class="panel muted" style="margin-bottom:14px">Somente a encarregada pode preencher, alterar ou excluir perdas, consumos e vasilhames.</div>` : ""}
     <form class="panel grid" id="summaryForm">
       <div class="grid three">
         <label>Data do resumo <input name="date" type="date" required value="${todayInputValue()}"></label>
-        <label>Valor das perdas lançadas <input name="lossesValue" type="number" step="0.01" min="0"></label>
-        <label>Valor dos consumos lançados <input name="consumptionValue" type="number" step="0.01" min="0"></label>
+        <label>Valor das perdas lanÃ§adas <input name="lossesValue" type="number" step="0.01" min="0"></label>
+        <label>Valor dos consumos lanÃ§ados <input name="consumptionValue" type="number" step="0.01" min="0"></label>
       </div>
       <div class="grid four">
         <label>Contagem de vasilhames do dia <input name="bottlesCount" type="number" min="0"></label>
@@ -669,8 +669,8 @@ function renderSummary() {
         <textarea name="bottlesDetails" placeholder="Ex.: garrafa 1L, garrafa 2L, caixas, engradados"></textarea>
       </label>
       <div class="grid two">
-        <label>Ocorrências identificadas <textarea name="occurrences"></textarea></label>
-        <label>Ações corretivas realizadas <textarea name="correctiveActions"></textarea></label>
+        <label>OcorrÃªncias identificadas <textarea name="occurrences"></textarea></label>
+        <label>AÃ§Ãµes corretivas realizadas <textarea name="correctiveActions"></textarea></label>
       </div>
       <div class="toolbar">
         <button class="btn primary" type="submit" ${summaryLocked ? "disabled" : ""}>Salvar / corrigir resumo</button>
@@ -710,7 +710,7 @@ function renderSummary() {
   const loadSummaryForDate = async () => {
     const data = await api(`/api/summary?date=${encodeURIComponent(form.date.value)}`);
     fillSummaryForm(data.row);
-    toast(data.row ? "Resumo carregado para edição." : "Nenhum resumo encontrado para essa data.");
+    toast(data.row ? "Resumo carregado para ediÃ§Ã£o." : "Nenhum resumo encontrado para essa data.");
   };
   const refreshSummaryTable = async () => {
     const data = await api("/api/summaries");
@@ -724,7 +724,7 @@ function renderSummary() {
             <th>Vasilhames</th>
             <th>Qual vasilhame</th>
             <th>Recebimentos</th>
-            <th>Ações</th>
+            <th>AÃ§Ãµes</th>
           </tr>
         </thead>
         <tbody>
@@ -736,14 +736,14 @@ function renderSummary() {
               <td data-label="Vasilhames">${row.bottles_count || 0}</td>
               <td data-label="Qual vasilhame">${escapeHtml(row.bottles_details || "")}</td>
               <td data-label="Recebimentos">${row.receipts_count || 0}</td>
-              <td data-label="Ações">
+              <td data-label="AÃ§Ãµes">
                 <div class="toolbar">
                   <button class="btn" type="button" data-edit-summary="${row.date}">Editar</button>
                   ${canFillEncarregadaOnly() ? `<button class="btn danger" type="button" data-delete-summary="${row.date}">Excluir</button>` : ""}
                 </div>
               </td>
             </tr>
-          `).join("") || `<tr><td colspan="7">Nenhum resumo lançado.</td></tr>`}
+          `).join("") || `<tr><td colspan="7">Nenhum resumo lanÃ§ado.</td></tr>`}
         </tbody>
       </table>
     `;
@@ -763,7 +763,7 @@ function renderSummary() {
         if (form.date.value === date) clearSummaryFields();
         await loadDashboard();
         await refreshSummaryTable();
-        toast(result.message || "Resumo excluído.");
+        toast(result.message || "Resumo excluÃ­do.");
       });
     });
   };
@@ -776,7 +776,7 @@ function renderSummary() {
     clearSummaryFields();
     await loadDashboard();
     await refreshSummaryTable();
-    toast(result.message || "Resumo excluído.");
+    toast(result.message || "Resumo excluÃ­do.");
   });
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -794,7 +794,7 @@ function reportFiltersHtml() {
   return `
     <div class="grid four">
       <label>Data <input name="date" type="date"></label>
-      <label>Início <input name="startDate" type="date"></label>
+      <label>InÃ­cio <input name="startDate" type="date"></label>
       <label>Fim <input name="endDate" type="date"></label>
       <label>Colaborador <select name="collaboratorId"><option value="">Todos</option>${collaboratorOptions(false)}</select></label>
     </div>
@@ -806,8 +806,8 @@ function renderReports() {
   view.innerHTML = `
     <div class="topbar">
       <div>
-        <h2>Relatórios</h2>
-        <div class="muted">Filtros por data, colaborador, período e atividade</div>
+        <h2>RelatÃ³rios</h2>
+        <div class="muted">Filtros por data, colaborador, perÃ­odo e atividade</div>
       </div>
       <div class="toolbar">
         <button class="btn" id="exportPdf">PDF</button>
@@ -836,17 +836,17 @@ function renderReports() {
 function drawReportTable() {
   const showActions = state.checklists.some((row) => canEditChecklist(row) || canDeleteChecklist());
   document.getElementById("reportTable").innerHTML = `
-    <table><thead><tr><th>Data</th><th>Colaborador</th><th>Atividade</th><th>Resposta</th><th>Observação</th><th>Enviado em</th>${showActions ? "<th>Ações</th>" : ""}</tr></thead><tbody>
+    <table><thead><tr><th>Data</th><th>Colaborador</th><th>Atividade</th><th>Resposta</th><th>ObservaÃ§Ã£o</th><th>Enviado em</th>${showActions ? "<th>AÃ§Ãµes</th>" : ""}</tr></thead><tbody>
       ${state.checklists.map((row) => `
         <tr>
           <td data-label="Data">${fmtDate(row.date)}</td>
           <td data-label="Colaborador">${escapeHtml(row.collaborator)}</td>
           <td data-label="Atividade">${escapeHtml(row.activity)}</td>
           <td data-label="Resposta"><span class="status ${row.answer === "Sim" ? "ok" : "danger"}">${row.answer}</span></td>
-          <td data-label="Observação">${escapeHtml(row.observation || "")}</td>
+          <td data-label="ObservaÃ§Ã£o">${escapeHtml(row.observation || "")}</td>
           <td data-label="Enviado em">${new Date(row.sent_at).toLocaleString("pt-BR")}</td>
           ${showActions ? `
-            <td data-label="Ações">
+            <td data-label="AÃ§Ãµes">
               <div class="toolbar">
                 ${canEditChecklist(row) ? `<button class="btn" type="button" data-edit-checklist="${row.id}">Editar</button>` : ""}
                 ${canDeleteChecklist() ? `<button class="btn danger" type="button" data-delete-checklist="${row.id}">Excluir</button>` : ""}
@@ -882,11 +882,11 @@ async function exportReport(format, form) {
 
 function editChecklist(id) {
   const row = state.checklists.find((item) => item.id === id);
-  const answer = prompt("Resposta corrigida: Sim ou Não", row.answer);
+  const answer = prompt("Resposta corrigida: Sim ou NÃ£o", row.answer);
   if (!answer) return;
-  const observation = prompt("Observação corrigida", row.observation || "") || "";
+  const observation = prompt("ObservaÃ§Ã£o corrigida", row.observation || "") || "";
   const priceDivergenceProducts = row.activity === PRICE_DIVERGENCE_ACTIVITY
-    ? prompt("Produtos com divergência de preços", row.price_divergence_products || "") || ""
+    ? prompt("Produtos com divergÃªncia de preÃ§os", row.price_divergence_products || "") || ""
     : "";
   const expiredProducts = row.activity === EXPIRED_PRODUCTS_ACTIVITY
     ? prompt("Produtos vencidos encontrados", row.expired_products || "") || ""
@@ -917,7 +917,7 @@ async function deleteChecklist(id) {
   await loadChecklists();
   drawReportTable();
   await loadDashboard();
-  toast(result.message || "Preenchimento excluído.");
+  toast(result.message || "Preenchimento excluÃ­do.");
 }
 
 function repoOptions(items, selected = "") {
@@ -955,23 +955,23 @@ function renderRepoDashboard() {
     ["Rupturas", summary.ruptures || 0],
     ["Pedidos confirmados", summary.rupturesPurchased || 0],
     ["Validades", summary.expirations || 0],
-    ["Validades com ação", summary.expirationsActioned || 0],
+    ["Validades com aÃ§Ã£o", summary.expirationsActioned || 0],
     ["Avarias", summary.damages || 0],
   ];
   view.innerHTML = `
     <div class="topbar">
       <div>
-        <h2>Painel Reposição / Comercial</h2>
-        <div class="muted">Indicadores de reposição, rupturas, validades, avarias e retorno comercial</div>
+        <h2>Painel ReposiÃ§Ã£o / Comercial</h2>
+        <div class="muted">Indicadores de reposiÃ§Ã£o, rupturas, validades, avarias e retorno comercial</div>
       </div>
       <button class="btn" id="refreshRepoDashboard">Atualizar</button>
     </div>
     <form class="panel grid" id="repoDashboardFilterForm" style="margin-bottom:14px">
       <div class="grid two">
-        <label>Início <input name="startDate" type="date" value="${escapeHtml(state.repo.filters.startDate)}"></label>
+        <label>InÃ­cio <input name="startDate" type="date" value="${escapeHtml(state.repo.filters.startDate)}"></label>
         <label>Fim <input name="endDate" type="date" value="${escapeHtml(state.repo.filters.endDate)}"></label>
       </div>
-      <button class="btn primary" type="submit">Aplicar período</button>
+      <button class="btn primary" type="submit">Aplicar perÃ­odo</button>
     </form>
     <div class="metrics">${metrics.map(([label, value]) => `<div class="metric"><span class="muted">${label}</span><strong>${value}</strong></div>`).join("")}</div>
     <div class="grid two" style="margin-top:14px">
@@ -986,18 +986,18 @@ function renderRepoDashboard() {
     </div>
     <div class="grid two" style="margin-top:14px">
       <section class="panel">
-        <h3>Engajamento da reposição</h3>
-        <div class="muted" style="margin-top:4px">Participação dos usuários de reposição nos checklists do período</div>
+        <h3>Engajamento da reposiÃ§Ã£o</h3>
+        <div class="muted" style="margin-top:4px">ParticipaÃ§Ã£o dos usuÃ¡rios de reposiÃ§Ã£o nos checklists do perÃ­odo</div>
         <div class="table-wrap" style="margin-top:12px">${repoUserEngagementTable(data.repoUserEngagement || [])}</div>
       </section>
       <section class="panel">
         <h3>Engajamento comercial</h3>
-        <div class="muted" style="margin-top:4px">Participação dos usuários comerciais nos retornos registrados</div>
+        <div class="muted" style="margin-top:4px">ParticipaÃ§Ã£o dos usuÃ¡rios comerciais nos retornos registrados</div>
         <div class="table-wrap" style="margin-top:12px">${repoUserEngagementTable(data.commercialUserEngagement || [])}</div>
       </section>
     </div>
     <section class="panel" style="margin-top:14px">
-      <h3>Percentual de realização das atividades da reposição</h3>
+      <h3>Percentual de realizaÃ§Ã£o das atividades da reposiÃ§Ã£o</h3>
       <div class="muted" style="margin-top:4px">Conta o dia quando a atividade foi marcada como Sim ao menos uma vez</div>
       <div class="table-wrap" style="margin-top:12px">${repoActivityCompletionTable(data.repoActivityCompletion || [])}</div>
     </section>
@@ -1025,23 +1025,23 @@ function renderReposition() {
     ["Rupturas", summary.ruptures || 0],
     ["Pedidos confirmados", summary.rupturesPurchased || 0],
     ["Validades", summary.expirations || 0],
-    ["Validades com ação", summary.expirationsActioned || 0],
+    ["Validades com aÃ§Ã£o", summary.expirationsActioned || 0],
     ["Avarias", summary.damages || 0],
   ];
   view.innerHTML = `
     <div class="topbar">
       <div>
-        <h2>Reposição da loja</h2>
+        <h2>ReposiÃ§Ã£o da loja</h2>
         <div class="muted">Atividades, rupturas, validades, avarias e retorno comercial</div>
       </div>
       <button class="btn" id="refreshReposition">Atualizar</button>
     </div>
     <form class="panel grid" id="repoFilterForm" style="margin-bottom:14px">
       <div class="grid two">
-        <label>Início <input name="startDate" type="date" value="${escapeHtml(state.repo.filters.startDate)}"></label>
+        <label>InÃ­cio <input name="startDate" type="date" value="${escapeHtml(state.repo.filters.startDate)}"></label>
         <label>Fim <input name="endDate" type="date" value="${escapeHtml(state.repo.filters.endDate)}"></label>
       </div>
-      <button class="btn primary" type="submit">Aplicar período</button>
+      <button class="btn primary" type="submit">Aplicar perÃ­odo</button>
     </form>
     <div class="metrics">${metrics.map(([label, value]) => `<div class="metric"><span class="muted">${label}</span><strong>${value}</strong></div>`).join("")}</div>
     <div class="grid two" style="margin-top:14px">
@@ -1083,8 +1083,8 @@ function renderReposition() {
 function repoTaskForm() {
   const linked = state.user?.collaborator_id ? state.collaborators.find((item) => Number(item.id) === Number(state.user.collaborator_id)) : null;
   return `
-    <h3>Checklist diário da reposição</h3>
-    <div class="muted" style="margin-top:4px">${linked ? "Acesso vinculado ao seu cadastro" : "Data e horário são registrados automaticamente no envio"}</div>
+    <h3>Checklist diÃ¡rio da reposiÃ§Ã£o</h3>
+    <div class="muted" style="margin-top:4px">${linked ? "Acesso vinculado ao seu cadastro" : "Data e horÃ¡rio sÃ£o registrados automaticamente no envio"}</div>
     <form class="grid" id="repoTaskForm" style="margin-top:12px">
       <div class="grid two">
         <label>Colaborador ${linked ? `<input value="${escapeHtml(linked.name)}" disabled><input type="hidden" name="collaboratorId" value="${linked.id}">` : `<select name="collaboratorId" required>${repoCollaboratorOptions()}</select>`}</label>
@@ -1092,11 +1092,11 @@ function repoTaskForm() {
       </div>
       <div class="grid two">
         <label>Atividade <select name="activity">${repoOptions(state.repo.activities)}</select></label>
-        <label>Sim / Não
-          <select name="answer" required><option>Sim</option><option>Não</option></select>
+        <label>Sim / NÃ£o
+          <select name="answer" required><option>Sim</option><option>NÃ£o</option></select>
         </label>
       </div>
-      <label>Observação <textarea name="observation"></textarea></label>
+      <label>ObservaÃ§Ã£o <textarea name="observation"></textarea></label>
       <button class="btn primary" type="submit">Enviar checklist</button>
     </form>
   `;
@@ -1116,7 +1116,7 @@ function repoIssueForm(kind, title, productLabel, fields) {
           ? `<label>${label} <select name="${name}">${repoOptions(typeOrOptions)}</select></label>`
           : `<label>${label} <input name="${name}" type="${typeOrOptions || "text"}"></label>`).join("")}
       </div>
-      <label>Observação <textarea name="observation"></textarea></label>
+      <label>ObservaÃ§Ã£o <textarea name="observation"></textarea></label>
       <button class="btn primary" type="submit">Salvar</button>
     </form>
   `;
@@ -1135,7 +1135,7 @@ function repoDamageForm() {
         <label>Quantidade <input name="quantity"></label>
         <label>Motivo <input name="reason"></label>
       </div>
-      <label>Ação tomada <input name="action"></label>
+      <label>AÃ§Ã£o tomada <input name="action"></label>
       <button class="btn primary" type="submit">Salvar avaria</button>
     </form>
   `;
@@ -1147,7 +1147,7 @@ function bindRepoForms() {
     await api("/api/reposition/tasks", { method: "POST", body: JSON.stringify(Object.fromEntries(new FormData(event.currentTarget).entries())) });
     await loadReposition();
     renderReposition();
-    toast("Checklist da reposição enviado.");
+    toast("Checklist da reposiÃ§Ã£o enviado.");
   });
   document.querySelectorAll("[data-repo-kind]").forEach((form) => {
     form.addEventListener("submit", async (event) => {
@@ -1167,9 +1167,9 @@ function bindRepoCommercialButtons() {
     button.addEventListener("click", async () => {
       const [kind, id] = button.dataset.repoCommercial.split(":");
       const commercialStatus = kind === "ruptures"
-        ? (confirm("O pedido foi realizado?") ? "Pedido realizado" : "Pedido não realizado")
-        : (confirm("Foi feita ação ou rebaixa?") ? "Ação ou rebaixa realizada" : "Ação não realizada");
-      const commercialObservation = prompt("Observação do comercial") || "";
+        ? (confirm("O pedido foi realizado?") ? "Pedido realizado" : "Pedido nÃ£o realizado")
+        : (confirm("Foi feita aÃ§Ã£o ou rebaixa?") ? "AÃ§Ã£o ou rebaixa realizada" : "AÃ§Ã£o nÃ£o realizada");
+      const commercialObservation = prompt("ObservaÃ§Ã£o do comercial") || "";
       await api(`/api/reposition/${kind}/${id}`, { method: "PUT", body: JSON.stringify({ commercialStatus, commercialObservation }) });
       await loadReposition();
       renderReposition();
@@ -1188,12 +1188,12 @@ function repoSectorTable(rows) {
 
 function repoUserEngagementTable(rows) {
   return `
-    <table><thead><tr><th>Usuário</th><th>Registros</th><th>Engajamento</th></tr></thead><tbody>
+    <table><thead><tr><th>UsuÃ¡rio</th><th>Registros</th><th>Engajamento</th></tr></thead><tbody>
       ${rows.map((row) => `<tr>
-        <td data-label="Usuário">${escapeHtml(row.name)}</td>
+        <td data-label="UsuÃ¡rio">${escapeHtml(row.name)}</td>
         <td data-label="Registros">${row.total || 0}</td>
         <td data-label="Engajamento">${percentBar(row.percent || 0)}</td>
-      </tr>`).join("") || `<tr><td colspan="3">Nenhum usuário cadastrado para este perfil.</td></tr>`}
+      </tr>`).join("") || `<tr><td colspan="3">Nenhum usuÃ¡rio cadastrado para este perfil.</td></tr>`}
     </tbody></table>
   `;
 }
@@ -1216,7 +1216,7 @@ function repoCommercialTable() {
     ...state.repo.expirations.map((row) => ({ ...row, kind: "expirations", origin: "Validade", detail: row.expiration_date ? fmtDate(row.expiration_date) : "" })),
   ].slice(0, 30);
   return `
-    <table><thead><tr><th>Origem</th><th>Produto</th><th>Setor</th><th>Detalhe</th><th>Status</th><th>Retorno</th><th>Ação</th></tr></thead><tbody>
+    <table><thead><tr><th>Origem</th><th>Produto</th><th>Setor</th><th>Detalhe</th><th>Status</th><th>Retorno</th><th>AÃ§Ã£o</th></tr></thead><tbody>
       ${rows.map((row) => `<tr>
         <td data-label="Origem">${row.origin}</td>
         <td data-label="Produto">${escapeHtml(row.product)}</td>
@@ -1224,7 +1224,7 @@ function repoCommercialTable() {
         <td data-label="Detalhe">${escapeHtml(row.detail)}</td>
         <td data-label="Status"><span class="status ${row.status === "Resolvido" ? "ok" : "warn"}">${escapeHtml(row.status)}</span></td>
         <td data-label="Retorno">${escapeHtml(row.commercial_status || "")}</td>
-        <td data-label="Ação"><button class="btn" type="button" data-repo-commercial="${row.kind}:${row.id}">Atualizar</button></td>
+        <td data-label="AÃ§Ã£o"><button class="btn" type="button" data-repo-commercial="${row.kind}:${row.id}">Atualizar</button></td>
       </tr>`).join("") || `<tr><td colspan="7">Sem registros comerciais.</td></tr>`}
     </tbody></table>
   `;
@@ -1232,14 +1232,14 @@ function repoCommercialTable() {
 
 function repoTasksTable() {
   return `
-    <table><thead><tr><th>Data</th><th>Colaborador</th><th>Setor</th><th>Atividade</th><th>Resposta</th><th>Observação</th></tr></thead><tbody>
+    <table><thead><tr><th>Data</th><th>Colaborador</th><th>Setor</th><th>Atividade</th><th>Resposta</th><th>ObservaÃ§Ã£o</th></tr></thead><tbody>
       ${state.repo.tasks.map((row) => `<tr>
         <td data-label="Data">${fmtDate(row.date)}</td>
         <td data-label="Colaborador">${escapeHtml(row.collaborator)}</td>
         <td data-label="Setor">${escapeHtml(row.sector)}</td>
         <td data-label="Atividade">${escapeHtml(row.activity)}</td>
-        <td data-label="Resposta"><span class="status ${row.status === "Realizado" ? "ok" : "danger"}">${row.status === "Realizado" ? "Sim" : "Não"}</span></td>
-        <td data-label="Observação">${escapeHtml(row.observation || "")}</td>
+        <td data-label="Resposta"><span class="status ${row.status === "Realizado" ? "ok" : "danger"}">${row.status === "Realizado" ? "Sim" : "NÃ£o"}</span></td>
+        <td data-label="ObservaÃ§Ã£o">${escapeHtml(row.observation || "")}</td>
       </tr>`).join("") || `<tr><td colspan="6">Sem atividades registradas.</td></tr>`}
     </tbody></table>
   `;
@@ -1249,19 +1249,19 @@ function renderPendencies() {
   view.innerHTML = `
     <div class="topbar">
       <div>
-        <h2>Pendências</h2>
-        <div class="muted">Controle de abertura, andamento e solução</div>
+        <h2>PendÃªncias</h2>
+        <div class="muted">Controle de abertura, andamento e soluÃ§Ã£o</div>
       </div>
     </div>
     <form class="panel grid" id="pendencyForm">
       <div class="grid three">
-        <label>Responsável <select name="responsibleId" required>${collaboratorOptions()}</select></label>
+        <label>ResponsÃ¡vel <select name="responsibleId" required>${collaboratorOptions()}</select></label>
         <label>Data de abertura <input name="openedAt" type="date" required value="${new Date().toISOString().slice(0, 10)}"></label>
         <label>Status <select name="status"><option>Aberto</option><option>Em andamento</option><option>Resolvido</option></select></label>
       </div>
-      <label>Descrição <textarea name="description" required></textarea></label>
-      <label>Observação da solução <textarea name="solutionObservation"></textarea></label>
-      <button class="btn primary" type="submit">Salvar pendência</button>
+      <label>DescriÃ§Ã£o <textarea name="description" required></textarea></label>
+      <label>ObservaÃ§Ã£o da soluÃ§Ã£o <textarea name="solutionObservation"></textarea></label>
+      <button class="btn primary" type="submit">Salvar pendÃªncia</button>
     </form>
     <div class="table-wrap" style="margin-top:14px" id="pendenciesTable"></div>
   `;
@@ -1274,22 +1274,22 @@ function renderPendencies() {
     await loadPendencies();
     form.reset();
     renderPendencies();
-    toast("Pendência salva.");
+    toast("PendÃªncia salva.");
   });
 }
 
 function drawPendenciesTable() {
   document.getElementById("pendenciesTable").innerHTML = `
-    <table><thead><tr><th>Descrição</th><th>Responsável</th><th>Abertura</th><th>Status</th><th>Solução</th></tr></thead><tbody>
+    <table><thead><tr><th>DescriÃ§Ã£o</th><th>ResponsÃ¡vel</th><th>Abertura</th><th>Status</th><th>SoluÃ§Ã£o</th></tr></thead><tbody>
       ${state.pendencies.map((row) => `
         <tr>
-          <td data-label="Descrição">${escapeHtml(row.description)}</td>
-          <td data-label="Responsável">${escapeHtml(row.responsible)}</td>
+          <td data-label="DescriÃ§Ã£o">${escapeHtml(row.description)}</td>
+          <td data-label="ResponsÃ¡vel">${escapeHtml(row.responsible)}</td>
           <td data-label="Abertura">${fmtDate(row.opened_at)}</td>
           <td data-label="Status"><span class="status ${row.status === "Resolvido" ? "ok" : row.status === "Em andamento" ? "warn" : "danger"}">${escapeHtml(row.status)}</span></td>
-          <td data-label="Solução">${escapeHtml(row.solution_observation || "")}</td>
+          <td data-label="SoluÃ§Ã£o">${escapeHtml(row.solution_observation || "")}</td>
         </tr>
-      `).join("") || `<tr><td colspan="5">Nenhuma pendência cadastrada.</td></tr>`}
+      `).join("") || `<tr><td colspan="5">Nenhuma pendÃªncia cadastrada.</td></tr>`}
     </tbody></table>
   `;
 }
@@ -1299,7 +1299,7 @@ function renderCollaborators() {
     <div class="topbar">
       <div>
         <h2>Colaboradores</h2>
-        <div class="muted">Cadastro de pessoas habilitadas no relatório</div>
+        <div class="muted">Cadastro de pessoas habilitadas no relatÃ³rio</div>
       </div>
     </div>
     <form class="panel grid" id="collaboratorForm">
@@ -1311,17 +1311,17 @@ function renderCollaborators() {
       </div>
       <div class="toolbar">
         <button class="btn primary" type="submit" id="collaboratorSubmit">Cadastrar colaborador</button>
-        <button class="btn hidden" type="button" id="cancelCollaboratorEdit">Cancelar edição</button>
+        <button class="btn hidden" type="button" id="cancelCollaboratorEdit">Cancelar ediÃ§Ã£o</button>
       </div>
     </form>
     <div class="table-wrap" style="margin-top:14px">
-      <table><thead><tr><th>Nome</th><th>Cargo</th><th>Status</th><th>Ações</th></tr></thead><tbody>
+      <table><thead><tr><th>Nome</th><th>Cargo</th><th>Status</th><th>AÃ§Ãµes</th></tr></thead><tbody>
         ${state.collaborators.map((row) => `
           <tr>
             <td data-label="Nome">${escapeHtml(row.name)}</td>
             <td data-label="Cargo">${escapeHtml(row.role)}</td>
             <td data-label="Status"><span class="status ${row.status === "ativo" ? "ok" : ""}">${row.status}</span></td>
-            <td data-label="Ações">
+            <td data-label="AÃ§Ãµes">
               <div class="toolbar">
                 <button class="btn" type="button" data-edit-collaborator="${row.id}">Editar</button>
                 <button class="btn danger" type="button" data-delete-collaborator="${row.id}">Excluir</button>
@@ -1367,7 +1367,7 @@ function renderCollaborators() {
       form.name.value = collaborator.name;
       form.role.value = collaborator.role;
       form.status.value = collaborator.status;
-      submitButton.textContent = "Salvar alterações";
+      submitButton.textContent = "Salvar alteraÃ§Ãµes";
       cancelButton.classList.remove("hidden");
       form.scrollIntoView({ behavior: "smooth", block: "start" });
     });
@@ -1382,7 +1382,7 @@ function renderCollaborators() {
       const result = await api(`/api/collaborators/${collaborator.id}`, { method: "DELETE" });
       await loadCollaborators();
       renderCollaborators();
-      toast(result.message || "Colaborador excluído.");
+      toast(result.message || "Colaborador excluÃ­do.");
     });
   });
 }
@@ -1392,30 +1392,30 @@ function renderUsers() {
     <div class="topbar">
       <div>
         <h2>Acessos</h2>
-        <div class="muted">Defina usuário e senha para cada colaborador acessar diretamente o checklist</div>
+        <div class="muted">Defina usuÃ¡rio e senha para cada colaborador acessar diretamente o checklist</div>
       </div>
     </div>
     <form class="panel grid" id="userForm">
       <input type="hidden" name="id">
       <div class="grid three">
         <label>Nome exibido <input name="displayName" required></label>
-        <label>Usuário <input name="username" required autocomplete="off"></label>
+        <label>UsuÃ¡rio <input name="username" required autocomplete="off"></label>
         <label>Senha <input name="password" required autocomplete="new-password"></label>
       </div>
       <div class="grid three">
         <label>Perfil
           <select name="role" required>
             <option value="colaborador">Colaborador</option>
-            <option value="prevencao">Prevenção</option>
+            <option value="prevencao">PrevenÃ§Ã£o</option>
             <option value="encarregada">Encarregada</option>
-            <option value="reposicao">Reposição</option>
+            <option value="reposicao">ReposiÃ§Ã£o</option>
             <option value="comercial">Comercial</option>
             <option value="administrador">Administrador</option>
           </select>
         </label>
         <label>Colaborador vinculado
           <select name="collaboratorId">
-            <option value="">Sem vínculo</option>
+            <option value="">Sem vÃ­nculo</option>
             ${collaboratorOptions(false)}
           </select>
         </label>
@@ -1425,20 +1425,20 @@ function renderUsers() {
       </div>
       <div class="toolbar">
         <button class="btn primary" type="submit" id="userSubmit">Criar acesso</button>
-        <button class="btn hidden" type="button" id="cancelUserEdit">Cancelar edição</button>
+        <button class="btn hidden" type="button" id="cancelUserEdit">Cancelar ediÃ§Ã£o</button>
       </div>
     </form>
     <div class="table-wrap" style="margin-top:14px">
-      <table><thead><tr><th>Nome</th><th>Usuário</th><th>Senha</th><th>Perfil</th><th>Colaborador</th><th>Status</th><th>Ações</th></tr></thead><tbody>
+      <table><thead><tr><th>Nome</th><th>UsuÃ¡rio</th><th>Senha</th><th>Perfil</th><th>Colaborador</th><th>Status</th><th>AÃ§Ãµes</th></tr></thead><tbody>
         ${state.users.map((row) => `
           <tr>
             <td data-label="Nome">${escapeHtml(row.display_name)}</td>
-            <td data-label="Usuário">${escapeHtml(row.username)}</td>
+            <td data-label="UsuÃ¡rio">${escapeHtml(row.username)}</td>
             <td data-label="Senha">${escapeHtml(row.password)}</td>
             <td data-label="Perfil">${escapeHtml(row.role)}</td>
             <td data-label="Colaborador">${escapeHtml(row.collaborator || "-")}</td>
             <td data-label="Status"><span class="status ${row.status === "ativo" ? "ok" : ""}">${escapeHtml(row.status)}</span></td>
-            <td data-label="Ações">
+            <td data-label="AÃ§Ãµes">
               <div class="toolbar">
                 <button class="btn" type="button" data-edit-user="${row.id}">Editar</button>
                 <button class="btn danger" type="button" data-delete-user="${row.id}">Excluir</button>
@@ -1488,7 +1488,7 @@ function renderUsers() {
       form.role.value = access.role;
       form.collaboratorId.value = access.collaborator_id || "";
       form.status.value = access.status;
-      submitButton.textContent = "Salvar alterações";
+      submitButton.textContent = "Salvar alteraÃ§Ãµes";
       cancelButton.classList.remove("hidden");
       form.scrollIntoView({ behavior: "smooth", block: "start" });
     });
@@ -1503,7 +1503,7 @@ function renderUsers() {
       const result = await api(`/api/users/${access.id}`, { method: "DELETE" });
       await loadUsers();
       renderUsers();
-      toast(result.message || "Acesso excluído.");
+      toast(result.message || "Acesso excluÃ­do.");
     });
   });
 }
@@ -1518,3 +1518,4 @@ function fileToDataUrl(file) {
 }
 
 bootstrap();
+
