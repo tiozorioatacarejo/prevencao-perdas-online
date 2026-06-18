@@ -123,7 +123,7 @@ function checklistActivitiesForUser() {
 function toast(message) {
   const el = document.createElement("div");
   el.className = "toast";
-  el.textContent = message;
+  el.textContent = normalizeText(message);
   document.body.appendChild(el);
   setTimeout(() => el.remove(), 3200);
 }
@@ -137,9 +137,21 @@ function escapeHtml(value) {
 }
 
 function normalizeText(value) {
-  const text = String(value ?? "");
-  if (!/[ÃÂ]/.test(text)) return text;
+  let text = String(value ?? "");
+  for (let index = 0; index < 3 && /[ÃÂ]/.test(text); index += 1) {
+    const decoded = decodeBrokenUtf8(text);
+    if (!decoded || decoded === text) break;
+    text = decoded;
+  }
+  return text;
+}
+
+function decodeBrokenUtf8(text) {
   try {
+    if (typeof TextDecoder !== "undefined") {
+      const bytes = Uint8Array.from(Array.from(text, (char) => char.charCodeAt(0) & 255));
+      return new TextDecoder("utf-8").decode(bytes);
+    }
     return decodeURIComponent(escape(text));
   } catch {
     return text;
@@ -147,14 +159,36 @@ function normalizeText(value) {
 }
 
 function fixVisibleText(root = app) {
+  if (!root) return;
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
   const nodes = [];
   while (walker.nextNode()) nodes.push(walker.currentNode);
   nodes.forEach((node) => {
     node.nodeValue = normalizeText(node.nodeValue);
   });
-  root.querySelectorAll("input[placeholder], textarea[placeholder]").forEach((field) => {
-    field.placeholder = normalizeText(field.placeholder);
+  root.querySelectorAll("input[placeholder], textarea[placeholder], [title], [aria-label]").forEach((field) => {
+    if (field.hasAttribute("placeholder")) field.placeholder = normalizeText(field.placeholder);
+    if (field.title) field.title = normalizeText(field.title);
+    if (field.getAttribute("aria-label")) field.setAttribute("aria-label", normalizeText(field.getAttribute("aria-label")));
+  });
+}
+
+let isFixingVisibleText = false;
+
+function scheduleVisibleTextFix() {
+  if (isFixingVisibleText) return;
+  requestAnimationFrame(() => {
+    isFixingVisibleText = true;
+    fixVisibleText(app);
+    isFixingVisibleText = false;
+  });
+}
+
+if (typeof MutationObserver !== "undefined") {
+  new MutationObserver(() => scheduleVisibleTextFix()).observe(app, {
+    childList: true,
+    subtree: true,
+    characterData: true,
   });
 }
 
