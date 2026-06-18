@@ -52,16 +52,78 @@ button {
   place-items: center;
   padding: 22px;
   background:
-    linear-gradient(rgba(20, 52, 36, 0.7), rgba(20, 52, 36, 0.55)),
+    radial-gradient(circle at 50% 35%, rgba(31, 122, 77, 0.32), transparent 34%),
+    linear-gradient(90deg, rgba(8, 10, 9, 0.9), rgba(13, 38, 27, 0.78), rgba(8, 10, 9, 0.92)),
     url("https://images.unsplash.com/photo-1556742502-ec7c0e9f34b1?auto=format&fit=crop&w=1600&q=80") center/cover;
 }
 
 .login-panel {
-  width: min(440px, 100%);
-  background: var(--surface);
+  width: min(460px, 100%);
+  background: rgba(16, 18, 17, 0.94);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 14px;
+  box-shadow: 0 26px 70px rgba(0, 0, 0, 0.42);
+  padding: 28px;
+  color: #f5f8f6;
+  backdrop-filter: blur(10px);
+}
+
+.login-panel .brand {
+  padding-bottom: 18px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.login-panel .brand-mark {
+  width: 50px;
+  height: 50px;
+  border-radius: 13px;
+  background: linear-gradient(135deg, #1f7a4d, #20a160);
+  box-shadow: 0 14px 32px rgba(31, 122, 77, 0.34);
+}
+
+.login-panel h1 {
+  color: #fff;
+  font-size: 25px;
+}
+
+.login-panel .muted {
+  color: #aab5ae;
+}
+
+.login-panel label {
+  color: #c8d2cc;
+}
+
+.login-panel input,
+.login-panel select {
+  background: #151917;
+  border-color: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  min-height: 48px;
+}
+
+.login-panel input:focus,
+.login-panel select:focus {
+  outline: 2px solid rgba(32, 161, 96, 0.38);
+  border-color: #20a160;
+}
+
+.login-panel .btn.primary {
+  min-height: 48px;
+  background: #1f7a4d;
+  font-weight: 800;
+}
+
+.login-panel .btn.primary:hover {
+  background: #24915b;
+}
+
+.login-panel .error {
+  background: rgba(184, 50, 50, 0.14);
+  border: 1px solid rgba(184, 50, 50, 0.28);
   border-radius: 8px;
-  box-shadow: var(--shadow);
-  padding: 26px;
+  padding: 10px 12px;
 }
 
 .brand {
