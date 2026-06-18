@@ -132,12 +132,22 @@ function escapeHtml(value) {
     .replaceAll('"', "&quot;");
 }
 
+function loginAreaMatches(area, role) {
+  const areaRoles = {
+    prevencao: ["prevencao", "colaborador", "encarregada"],
+    reposicao: ["reposicao"],
+    comercial: ["comercial"],
+    administrador: ["administrador"],
+  };
+  return (areaRoles[area] || []).includes(role);
+}
+
 function renderLogin(error = "") {
   app.innerHTML = `
     <section class="login-screen">
       <form class="login-panel" id="loginForm">
         <div class="brand">
-          <div class="brand-mark">PP</div>
+          <div class="brand-mark">CA</div>
           <div>
             <h1>Prevenção de Perdas</h1>
             <div class="muted">Atacarejo Antônio de Ozório</div>
@@ -156,11 +166,33 @@ function renderLogin(error = "") {
       </form>
     </section>
   `;
-  document.getElementById("loginForm").addEventListener("submit", async (event) => {
+  const loginForm = document.getElementById("loginForm");
+  loginForm.querySelector("h1").textContent = "Controle Atacarejo";
+  loginForm.querySelector(".brand .muted").textContent = "Atacarejo Antonio de Ozorio";
+  loginForm.querySelector('input[name="username"]').closest("label").insertAdjacentHTML("beforebegin", `
+    <label>Area de acesso
+      <select name="accessArea" required>
+        <option value="prevencao">Prevencao de perdas</option>
+        <option value="reposicao">Reposicao da loja</option>
+        <option value="comercial">Comercial</option>
+        <option value="administrador">Administrador</option>
+      </select>
+    </label>
+  `);
+  loginForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     const body = Object.fromEntries(new FormData(event.currentTarget).entries());
     try {
       const data = await api("/api/login", { method: "POST", body: JSON.stringify(body) });
+      if (!loginAreaMatches(body.accessArea, data.user.role)) {
+        const labels = {
+          prevencao: "Prevencao de perdas",
+          reposicao: "Reposicao da loja",
+          comercial: "Comercial",
+          administrador: "Administrador",
+        };
+        return renderLogin(`Este usuario nao pertence ao acesso ${labels[body.accessArea] || "selecionado"}.`);
+      }
       state.token = data.token;
       state.user = data.user;
       localStorage.setItem("token", data.token);
@@ -186,7 +218,7 @@ async function bootstrap() {
     state.tab = defaultTab();
     await loadCollaborators();
     if (state.tab === "dashboard") await loadDashboard();
-    if (state.tab === "reposition") await loadReposition();
+    if (state.tab === "reposition" || state.tab === "repoDashboard" || state.tab === "commercial") await loadReposition();
     renderShell();
   } catch {
     logout();
@@ -237,8 +269,9 @@ function renderShell() {
 
 async function refreshForTab() {
   if (state.tab === "dashboard") await loadDashboard();
+  if (state.tab === "repoDashboard") await Promise.all([loadCollaborators(), loadReposition()]);
   if (state.tab === "collaborators" || state.tab === "checklist" || state.tab === "pendencies") await loadCollaborators();
-  if (state.tab === "reposition") await Promise.all([loadCollaborators(), loadReposition()]);
+  if (state.tab === "reposition" || state.tab === "commercial") await Promise.all([loadCollaborators(), loadReposition()]);
   if (state.tab === "reports") await loadChecklists();
   if (state.tab === "pendencies") await loadPendencies();
   if (state.tab === "users") await Promise.all([loadUsers(), loadCollaborators()]);
@@ -247,10 +280,12 @@ async function refreshForTab() {
 function renderView() {
   const map = {
     dashboard: renderDashboard,
+    repoDashboard: renderRepoDashboard,
     checklist: renderChecklist,
     summary: renderSummary,
     reports: renderReports,
     reposition: renderReposition,
+    commercial: renderCommercial,
     pendencies: renderPendencies,
     collaborators: renderCollaborators,
     users: renderUsers,
@@ -259,11 +294,11 @@ function renderView() {
 }
 
 function allowedTabs() {
-  if (state.user?.role === "reposicao") return [["reposition", "Reposicao"]];
-  if (state.user?.role === "comercial") return [["reposition", "Reposicao"]];
+  if (state.user?.role === "reposicao") return [["repoDashboard", "Painel Rep/Comercial"], ["reposition", "Reposicao"]];
+  if (state.user?.role === "comercial") return [["repoDashboard", "Painel Rep/Comercial"], ["commercial", "Comercial"]];
   if (state.user?.role !== "administrador") {
     const tabs = [
-      ["dashboard", "Painel"],
+      ["dashboard", "Painel Prevencao"],
       ["checklist", "Checklist"],
       ["reposition", "Reposicao"],
       ["pendencies", "Pendências"],
@@ -272,9 +307,11 @@ function allowedTabs() {
     return tabs.filter(([id]) => id !== "reposition");
   }
   const tabs = [
-    ["dashboard", "Painel"],
+    ["dashboard", "Painel Prevencao"],
+    ["repoDashboard", "Painel Rep/Comercial"],
     ["checklist", "Checklist"],
     ["reposition", "Reposicao"],
+    ["commercial", "Comercial"],
     ["summary", "Resumo"],
     ["reports", "Relatórios"],
     ["pendencies", "Pendências"],
@@ -285,7 +322,8 @@ function allowedTabs() {
 }
 
 function defaultTab() {
-  if (["reposicao", "comercial"].includes(state.user?.role)) return "reposition";
+  if (state.user?.role === "reposicao") return "repoDashboard";
+  if (state.user?.role === "comercial") return "repoDashboard";
   return "dashboard";
 }
 
@@ -871,6 +909,80 @@ function repoOptions(items, selected = "") {
   return items.map((item) => `<option ${item === selected ? "selected" : ""}>${escapeHtml(item)}</option>`).join("");
 }
 
+function renderCommercial() {
+  view.innerHTML = `
+    <div class="topbar">
+      <div>
+        <h2>Comercial</h2>
+        <div class="muted">Retorno de rupturas, compras, acoes e rebaixas de validade</div>
+      </div>
+      <button class="btn" id="refreshCommercial">Atualizar</button>
+    </div>
+    <section class="panel">
+      <h3>Retornos pendentes e resolvidos</h3>
+      <div class="table-wrap" style="margin-top:12px">${repoCommercialTable()}</div>
+    </section>
+  `;
+  document.getElementById("refreshCommercial").addEventListener("click", async () => {
+    await loadReposition();
+    renderCommercial();
+  });
+  bindRepoCommercialButtons();
+}
+
+function renderRepoDashboard() {
+  const data = state.repo.dashboard || { summary: {}, bySector: [] };
+  const summary = data.summary || {};
+  const metrics = [
+    ["Atividades", summary.taskTotal || 0],
+    ["Realizadas", summary.completed || 0],
+    ["Pendentes", summary.pending || 0],
+    ["Rupturas", summary.ruptures || 0],
+    ["Pedidos confirmados", summary.rupturesPurchased || 0],
+    ["Validades", summary.expirations || 0],
+    ["Validades com acao", summary.expirationsActioned || 0],
+    ["Avarias", summary.damages || 0],
+  ];
+  view.innerHTML = `
+    <div class="topbar">
+      <div>
+        <h2>Painel Rep/Comercial</h2>
+        <div class="muted">Indicadores de reposicao, rupturas, validades, avarias e retorno comercial</div>
+      </div>
+      <button class="btn" id="refreshRepoDashboard">Atualizar</button>
+    </div>
+    <form class="panel grid" id="repoDashboardFilterForm" style="margin-bottom:14px">
+      <div class="grid two">
+        <label>Inicio <input name="startDate" type="date" value="${escapeHtml(state.repo.filters.startDate)}"></label>
+        <label>Fim <input name="endDate" type="date" value="${escapeHtml(state.repo.filters.endDate)}"></label>
+      </div>
+      <button class="btn primary" type="submit">Aplicar periodo</button>
+    </form>
+    <div class="metrics">${metrics.map(([label, value]) => `<div class="metric"><span class="muted">${label}</span><strong>${value}</strong></div>`).join("")}</div>
+    <div class="grid two" style="margin-top:14px">
+      <section class="panel">
+        <h3>Indicadores por setor</h3>
+        <div class="table-wrap" style="margin-top:12px">${repoSectorTable(data.bySector || [])}</div>
+      </section>
+      <section class="panel">
+        <h3>Retorno comercial</h3>
+        <div class="table-wrap" style="margin-top:12px">${repoCommercialTable()}</div>
+      </section>
+    </div>
+  `;
+  document.getElementById("refreshRepoDashboard").addEventListener("click", async () => {
+    await loadReposition();
+    renderRepoDashboard();
+  });
+  document.getElementById("repoDashboardFilterForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    state.repo.filters = Object.fromEntries(new FormData(event.currentTarget).entries());
+    await loadReposition();
+    renderRepoDashboard();
+  });
+  bindRepoCommercialButtons();
+}
+
 function renderReposition() {
   const data = state.repo.dashboard || { summary: {}, bySector: [] };
   const summary = data.summary || {};
@@ -1013,6 +1125,10 @@ function bindRepoForms() {
       toast("Registro salvo.");
     });
   });
+  bindRepoCommercialButtons();
+}
+
+function bindRepoCommercialButtons() {
   document.querySelectorAll("[data-repo-commercial]").forEach((button) => {
     button.addEventListener("click", async () => {
       const [kind, id] = button.dataset.repoCommercial.split(":");
