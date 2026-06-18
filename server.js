@@ -614,7 +614,7 @@ async function api(req, res, url) {
     const repoScopeParams = user.role === "reposicao" ? repoScopeSectors : [];
     const taskRows = await query("SELECT status, COUNT(*) AS total FROM repo_tasks WHERE date BETWEEN ? AND ? GROUP BY status", [start, end]);
     const completedTaskRows = await query(
-      `SELECT COUNT(DISTINCT date || '|' || sector || '|' || activity) AS total
+      `SELECT COUNT(DISTINCT date || '|' || activity) AS total
        FROM repo_tasks
        WHERE date BETWEEN ? AND ? AND status = 'Realizado'${repoScopeClause}`,
       [start, end, ...repoScopeParams]
@@ -644,7 +644,7 @@ async function api(req, res, url) {
       [start, end, start, end, start, end, start, end]
     );
     const submittedTaskTotal = taskRows.reduce((sum, row) => sum + Number(row.total || 0), 0);
-    const expectedTaskTotal = Math.max(0, repoActivities.length * period.days * repoScopeSectors.length);
+    const expectedTaskTotal = Math.max(0, repoActivities.length * period.days);
     const completed = Math.min(Number(completedTaskRows[0]?.total || 0), expectedTaskTotal || Number(completedTaskRows[0]?.total || 0));
     const ruptures = ruptureRows.reduce((sum, row) => sum + Number(row.total || 0), 0);
     const expirations = expirationRows.reduce((sum, row) => sum + Number(row.total || 0), 0);
@@ -661,7 +661,7 @@ async function api(req, res, url) {
     );
     const repoActivityCounts = await query(
       `
-      SELECT activity, COUNT(DISTINCT date || '|' || sector) AS total
+      SELECT activity, COUNT(DISTINCT date) AS total
       FROM repo_tasks
       WHERE date BETWEEN ? AND ? AND status = 'Realizado'${repoScopeClause}
       GROUP BY activity
@@ -710,8 +710,8 @@ async function api(req, res, url) {
         return {
           activity,
           total,
-          expected: period.days * repoScopeSectors.length,
-          percent: period.days && repoScopeSectors.length ? Math.min(100, Math.round((total / (period.days * repoScopeSectors.length)) * 100)) : 0,
+          expected: period.days,
+          percent: period.days ? Math.min(100, Math.round((total / period.days) * 100)) : 0,
         };
       }),
       commercialUserEngagement: commercialUserCounts.map((row) => ({
