@@ -19,6 +19,7 @@
     sectors: [],
     activities: [],
     repoCollaboratorIds: [],
+    commercialCollaboratorIds: [],
     repoUsers: [],
     commercialUsers: [],
     dashboard: null,
@@ -241,6 +242,7 @@ async function bootstrap() {
       state.repo.sectors = repoOptions.sectors;
       state.repo.activities = repoOptions.activities;
       state.repo.repoCollaboratorIds = repoOptions.repoCollaboratorIds || [];
+      state.repo.commercialCollaboratorIds = repoOptions.commercialCollaboratorIds || [];
       state.repo.repoUsers = repoOptions.repoUsers || [];
       state.repo.commercialUsers = repoOptions.commercialUsers || [];
     }
@@ -590,15 +592,68 @@ function collaboratorOptions(activeOnly = true) {
     .join("");
 }
 
+function preventionCollaboratorOptions(activeOnly = true) {
+  const repo = new Set((state.repo.repoCollaboratorIds || []).map((id) => Number(id)));
+  const commercial = new Set((state.repo.commercialCollaboratorIds || []).map((id) => Number(id)));
+  return state.collaborators
+    .filter((item) => (
+      (!activeOnly || item.status === "ativo")
+      && !repo.has(Number(item.id))
+      && !commercial.has(Number(item.id))
+      && !isCommercialCollaborator(item)
+      && isPreventionCollaborator(item)
+    ))
+    .map((item) => `<option value="${item.id}">${escapeHtml(item.name)} - ${escapeHtml(item.role)}</option>`)
+    .join("");
+}
+
 function repoCollaboratorOptions() {
   const allowed = new Set((state.repo.repoCollaboratorIds || []).map((id) => Number(id)));
+  const commercial = new Set((state.repo.commercialCollaboratorIds || []).map((id) => Number(id)));
   const rows = state.collaborators.filter((item) => (
-    item.status === "ativo" && (allowed.has(Number(item.id)) || collaboratorSectors(item).length > 0)
+    item.status === "ativo"
+    && !commercial.has(Number(item.id))
+    && !isCommercialCollaborator(item)
+    && (allowed.has(Number(item.id)) || collaboratorSectors(item).length > 0)
   ));
   if (!rows.length) return `<option value="">Cadastre e vincule usuÃ¡rios de reposiÃ§Ã£o</option>`;
   return rows
     .map((item) => `<option value="${item.id}">${escapeHtml(item.name)} - ${escapeHtml(item.role)}</option>`)
     .join("");
+}
+
+function isCommercialCollaborator(collaborator) {
+  const role = normalizedRole(collaborator);
+  return role.includes("comprador") || role.includes("compradora") || role.includes("comercial");
+}
+
+function isPreventionCollaborator(collaborator) {
+  const role = normalizedRole(collaborator);
+  const preventionTerms = ["prevencao", "perdas", "fiscal"];
+  const repositionTerms = [
+    "comprador",
+    "compradora",
+    "comercial",
+    "reposicao",
+    "mercearia",
+    "frios",
+    "perfumaria",
+    "acougue",
+    "flv",
+    "bazar",
+    "bebidas",
+    "limpeza",
+    "padaria",
+    "pereciveis",
+  ];
+  return preventionTerms.some((term) => role.includes(term)) && !repositionTerms.some((term) => role.includes(term));
+}
+
+function normalizedRole(collaborator) {
+  return normalizeText(collaborator?.role || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
 }
 
 function collaboratorSectors(collaborator) {
@@ -669,7 +724,7 @@ function renderChecklist() {
     `
     : `
       <label>Colaborador
-        <select name="collaboratorId" required>${collaboratorOptions()}</select>
+        <select name="collaboratorId" required>${preventionCollaboratorOptions()}</select>
       </label>
     `;
   view.innerHTML = `
@@ -878,7 +933,7 @@ function reportFiltersHtml() {
       <label>Data <input name="date" type="date"></label>
       <label>InÃ­cio <input name="startDate" type="date"></label>
       <label>Fim <input name="endDate" type="date"></label>
-      <label>Colaborador <select name="collaboratorId"><option value="">Todos</option>${collaboratorOptions(false)}</select></label>
+      <label>Colaborador <select name="collaboratorId"><option value="">Todos</option>${preventionCollaboratorOptions(false)}</select></label>
     </div>
     <label>Atividade <select name="activity"><option value="">Todas</option>${state.activities.map((item) => `<option>${escapeHtml(item)}</option>`).join("")}</select></label>
   `;
@@ -1391,7 +1446,7 @@ function renderPendencies() {
     </div>
     <form class="panel grid" id="pendencyForm">
       <div class="grid three">
-        <label>ResponsÃ¡vel <select name="responsibleId" required>${collaboratorOptions()}</select></label>
+        <label>ResponsÃ¡vel <select name="responsibleId" required>${preventionCollaboratorOptions()}</select></label>
         <label>Data de abertura <input name="openedAt" type="date" required value="${new Date().toISOString().slice(0, 10)}"></label>
         <label>Status <select name="status"><option>Aberto</option><option>Em andamento</option><option>Resolvido</option></select></label>
       </div>
@@ -1432,10 +1487,10 @@ function drawPendenciesTable() {
 
 function renderCollaborators() {
   view.innerHTML = `
-    <div class="topbar">
+      <div class="topbar">
       <div>
         <h2>Colaboradores</h2>
-        <div class="muted">Cadastro de pessoas habilitadas no relatÃ³rio</div>
+        <div class="muted">Cadastro de colaboradores, compradores e setores direcionados</div>
       </div>
     </div>
     <form class="panel grid" id="collaboratorForm">
@@ -1444,7 +1499,7 @@ function renderCollaborators() {
         <label>Nome <input name="name" required></label>
         <label>Cargo <input name="role" required></label>
         <div class="field-group">
-          <div class="field-label">Setores da reposiÃ§Ã£o</div>
+          <div class="field-label">Setores direcionados</div>
           <div class="check-grid sector-picker">${collaboratorSectorCheckboxes()}</div>
         </div>
         <label>Status <select name="status"><option value="ativo">Ativo</option><option value="inativo">Inativo</option></select></label>
@@ -1455,12 +1510,12 @@ function renderCollaborators() {
       </div>
     </form>
     <div class="table-wrap" style="margin-top:14px">
-      <table><thead><tr><th>Nome</th><th>Cargo</th><th>Setores reposiÃ§Ã£o</th><th>Status</th><th>AÃ§Ãµes</th></tr></thead><tbody>
+      <table><thead><tr><th>Nome</th><th>Cargo</th><th>Setores direcionados</th><th>Status</th><th>AÃ§Ãµes</th></tr></thead><tbody>
         ${state.collaborators.map((row) => `
           <tr>
             <td data-label="Nome">${escapeHtml(row.name)}</td>
             <td data-label="Cargo">${escapeHtml(row.role)}</td>
-            <td data-label="Setores reposiÃ§Ã£o">${escapeHtml(displayCollaboratorSectors(row))}</td>
+            <td data-label="Setores direcionados">${escapeHtml(displayCollaboratorSectors(row))}</td>
             <td data-label="Status"><span class="status ${row.status === "ativo" ? "ok" : ""}">${row.status}</span></td>
             <td data-label="AÃ§Ãµes">
               <div class="toolbar">
@@ -1514,7 +1569,7 @@ function renderCollaborators() {
         option.checked = selectedSectors.has(option.value);
       });
       form.status.value = collaborator.status;
-      submitButton.textContent = "Salvar alteraÃ§Ãµes";
+      submitButton.textContent = "Salvar alterações";
       cancelButton.classList.remove("hidden");
       form.scrollIntoView({ behavior: "smooth", block: "start" });
     });
@@ -1636,7 +1691,7 @@ function renderUsers() {
       form.role.value = access.role;
       form.collaboratorId.value = access.collaborator_id || "";
       form.status.value = access.status;
-      submitButton.textContent = "Salvar alteraÃ§Ãµes";
+      submitButton.textContent = "Salvar alterações";
       cancelButton.classList.remove("hidden");
       form.scrollIntoView({ behavior: "smooth", block: "start" });
     });

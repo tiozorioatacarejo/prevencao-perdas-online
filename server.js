@@ -589,12 +589,13 @@ async function api(req, res, url) {
       "SELECT id, display_name, collaborator_id FROM users WHERE role = 'reposicao' AND status = 'ativo' ORDER BY display_name"
     );
     const commercialUsers = await query(
-      "SELECT id, display_name FROM users WHERE role = 'comercial' AND status = 'ativo' ORDER BY display_name"
+      "SELECT id, display_name, collaborator_id FROM users WHERE role = 'comercial' AND status = 'ativo' ORDER BY display_name"
     );
     return send(res, 200, {
       sectors: repoSectors,
       activities: repoActivities,
       repoCollaboratorIds: repoUsers.map((row) => row.collaborator_id).filter(Boolean),
+      commercialCollaboratorIds: commercialUsers.map((row) => row.collaborator_id).filter(Boolean),
       repoUsers,
       commercialUsers,
     });
