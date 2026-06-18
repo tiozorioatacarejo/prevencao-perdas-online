@@ -149,7 +149,7 @@ function renderLogin(error = "") {
         <div class="brand">
           <div class="brand-mark">CA</div>
           <div>
-            <h1>Prevenção de Perdas</h1>
+            <h1>Controle Atacarejo</h1>
             <div class="muted">Atacarejo Antônio de Ozório</div>
           </div>
         </div>
@@ -168,12 +168,12 @@ function renderLogin(error = "") {
   `;
   const loginForm = document.getElementById("loginForm");
   loginForm.querySelector("h1").textContent = "Controle Atacarejo";
-  loginForm.querySelector(".brand .muted").textContent = "Atacarejo Antonio de Ozorio";
+  loginForm.querySelector(".brand .muted").textContent = "Atacarejo Antônio de Ozório";
   loginForm.querySelector('input[name="username"]').closest("label").insertAdjacentHTML("beforebegin", `
-    <label>Area de acesso
+    <label>Área de acesso
       <select name="accessArea" required>
-        <option value="prevencao">Prevencao de perdas</option>
-        <option value="reposicao">Reposicao da loja</option>
+        <option value="prevencao">Prevenção de perdas</option>
+        <option value="reposicao">Reposição da loja</option>
         <option value="comercial">Comercial</option>
         <option value="administrador">Administrador</option>
       </select>
@@ -186,12 +186,12 @@ function renderLogin(error = "") {
       const data = await api("/api/login", { method: "POST", body: JSON.stringify(body) });
       if (!loginAreaMatches(body.accessArea, data.user.role)) {
         const labels = {
-          prevencao: "Prevencao de perdas",
-          reposicao: "Reposicao da loja",
+          prevencao: "Prevenção de perdas",
+          reposicao: "Reposição da loja",
           comercial: "Comercial",
           administrador: "Administrador",
         };
-        return renderLogin(`Este usuario nao pertence ao acesso ${labels[body.accessArea] || "selecionado"}.`);
+        return renderLogin(`Este usuário não pertence ao acesso ${labels[body.accessArea] || "selecionado"}.`);
       }
       state.token = data.token;
       state.user = data.user;
@@ -240,9 +240,9 @@ function renderShell() {
     <section class="app-shell">
       <aside class="sidebar">
         <div class="brand">
-          <div class="brand-mark">PP</div>
+          <div class="brand-mark">CA</div>
           <div>
-            <h3>Atacarejo Antônio de Ozório</h3>
+            <h3>Controle Atacarejo</h3>
             <div class="muted">${escapeHtml(state.user.display_name)} · ${escapeHtml(state.user.role)}</div>
           </div>
         </div>
@@ -294,23 +294,23 @@ function renderView() {
 }
 
 function allowedTabs() {
-  if (state.user?.role === "reposicao") return [["repoDashboard", "Painel Rep/Comercial"], ["reposition", "Reposicao"]];
-  if (state.user?.role === "comercial") return [["repoDashboard", "Painel Rep/Comercial"], ["commercial", "Comercial"]];
+  if (state.user?.role === "reposicao") return [["repoDashboard", "Painel Reposição / Comercial"], ["reposition", "Reposição"]];
+  if (state.user?.role === "comercial") return [["repoDashboard", "Painel Reposição / Comercial"], ["commercial", "Comercial"]];
   if (state.user?.role !== "administrador") {
     const tabs = [
-      ["dashboard", "Painel Prevencao"],
+      ["dashboard", "Painel Prevenção"],
       ["checklist", "Checklist"],
-      ["reposition", "Reposicao"],
+      ["reposition", "Reposição"],
       ["pendencies", "Pendências"],
     ];
     if (canAccessSummary()) tabs.splice(2, 0, ["summary", "Resumo"]);
     return tabs.filter(([id]) => id !== "reposition");
   }
   const tabs = [
-    ["dashboard", "Painel Prevencao"],
-    ["repoDashboard", "Painel Rep/Comercial"],
+    ["dashboard", "Painel Prevenção"],
+    ["repoDashboard", "Painel Reposição / Comercial"],
     ["checklist", "Checklist"],
-    ["reposition", "Reposicao"],
+    ["reposition", "Reposição"],
     ["commercial", "Comercial"],
     ["summary", "Resumo"],
     ["reports", "Relatórios"],
@@ -940,23 +940,23 @@ function renderRepoDashboard() {
     ["Rupturas", summary.ruptures || 0],
     ["Pedidos confirmados", summary.rupturesPurchased || 0],
     ["Validades", summary.expirations || 0],
-    ["Validades com acao", summary.expirationsActioned || 0],
+    ["Validades com ação", summary.expirationsActioned || 0],
     ["Avarias", summary.damages || 0],
   ];
   view.innerHTML = `
     <div class="topbar">
       <div>
-        <h2>Painel Rep/Comercial</h2>
-        <div class="muted">Indicadores de reposicao, rupturas, validades, avarias e retorno comercial</div>
+        <h2>Painel Reposição / Comercial</h2>
+        <div class="muted">Indicadores de reposição, rupturas, validades, avarias e retorno comercial</div>
       </div>
       <button class="btn" id="refreshRepoDashboard">Atualizar</button>
     </div>
     <form class="panel grid" id="repoDashboardFilterForm" style="margin-bottom:14px">
       <div class="grid two">
-        <label>Inicio <input name="startDate" type="date" value="${escapeHtml(state.repo.filters.startDate)}"></label>
+        <label>Início <input name="startDate" type="date" value="${escapeHtml(state.repo.filters.startDate)}"></label>
         <label>Fim <input name="endDate" type="date" value="${escapeHtml(state.repo.filters.endDate)}"></label>
       </div>
-      <button class="btn primary" type="submit">Aplicar periodo</button>
+      <button class="btn primary" type="submit">Aplicar período</button>
     </form>
     <div class="metrics">${metrics.map(([label, value]) => `<div class="metric"><span class="muted">${label}</span><strong>${value}</strong></div>`).join("")}</div>
     <div class="grid two" style="margin-top:14px">
@@ -993,23 +993,23 @@ function renderReposition() {
     ["Rupturas", summary.ruptures || 0],
     ["Pedidos confirmados", summary.rupturesPurchased || 0],
     ["Validades", summary.expirations || 0],
-    ["Validades com acao", summary.expirationsActioned || 0],
+    ["Validades com ação", summary.expirationsActioned || 0],
     ["Avarias", summary.damages || 0],
   ];
   view.innerHTML = `
     <div class="topbar">
       <div>
-        <h2>Reposicao da loja</h2>
+        <h2>Reposição da loja</h2>
         <div class="muted">Atividades, rupturas, validades, avarias e retorno comercial</div>
       </div>
       <button class="btn" id="refreshReposition">Atualizar</button>
     </div>
     <form class="panel grid" id="repoFilterForm" style="margin-bottom:14px">
       <div class="grid two">
-        <label>Inicio <input name="startDate" type="date" value="${escapeHtml(state.repo.filters.startDate)}"></label>
+        <label>Início <input name="startDate" type="date" value="${escapeHtml(state.repo.filters.startDate)}"></label>
         <label>Fim <input name="endDate" type="date" value="${escapeHtml(state.repo.filters.endDate)}"></label>
       </div>
-      <button class="btn primary" type="submit">Aplicar periodo</button>
+      <button class="btn primary" type="submit">Aplicar período</button>
     </form>
     <div class="metrics">${metrics.map(([label, value]) => `<div class="metric"><span class="muted">${label}</span><strong>${value}</strong></div>`).join("")}</div>
     <div class="grid two" style="margin-top:14px">
@@ -1051,19 +1051,21 @@ function renderReposition() {
 function repoTaskForm() {
   const linked = state.user?.collaborator_id ? state.collaborators.find((item) => Number(item.id) === Number(state.user.collaborator_id)) : null;
   return `
-    <h3>Registrar atividade</h3>
+    <h3>Checklist diário da reposição</h3>
+    <div class="muted" style="margin-top:4px">${linked ? "Acesso vinculado ao seu cadastro" : "Data e horário são registrados automaticamente no envio"}</div>
     <form class="grid" id="repoTaskForm" style="margin-top:12px">
       <div class="grid two">
-        <label>Data <input name="date" type="date" value="${todayInputValue()}"></label>
         <label>Colaborador ${linked ? `<input value="${escapeHtml(linked.name)}" disabled><input type="hidden" name="collaboratorId" value="${linked.id}">` : `<select name="collaboratorId" required>${collaboratorOptions()}</select>`}</label>
+        <label>Setor <select name="sector">${repoOptions(state.repo.sectors)}</select></label>
       </div>
       <div class="grid two">
-        <label>Setor <select name="sector">${repoOptions(state.repo.sectors)}</select></label>
-        <label>Status <select name="status"><option>Realizado</option><option>Pendente</option><option>Parcial</option></select></label>
+        <label>Atividade <select name="activity">${repoOptions(state.repo.activities)}</select></label>
+        <label>Sim / Não
+          <select name="answer" required><option>Sim</option><option>Não</option></select>
+        </label>
       </div>
-      <label>Atividade <select name="activity">${repoOptions(state.repo.activities)}</select></label>
-      <label>Observacao <textarea name="observation"></textarea></label>
-      <button class="btn primary" type="submit">Salvar atividade</button>
+      <label>Observação <textarea name="observation"></textarea></label>
+      <button class="btn primary" type="submit">Enviar checklist</button>
     </form>
   `;
 }
@@ -1082,7 +1084,7 @@ function repoIssueForm(kind, title, productLabel, fields) {
           ? `<label>${label} <select name="${name}">${repoOptions(typeOrOptions)}</select></label>`
           : `<label>${label} <input name="${name}" type="${typeOrOptions || "text"}"></label>`).join("")}
       </div>
-      <label>Observacao <textarea name="observation"></textarea></label>
+      <label>Observação <textarea name="observation"></textarea></label>
       <button class="btn primary" type="submit">Salvar</button>
     </form>
   `;
@@ -1101,7 +1103,7 @@ function repoDamageForm() {
         <label>Quantidade <input name="quantity"></label>
         <label>Motivo <input name="reason"></label>
       </div>
-      <label>Acao tomada <input name="action"></label>
+      <label>Ação tomada <input name="action"></label>
       <button class="btn primary" type="submit">Salvar avaria</button>
     </form>
   `;
@@ -1113,7 +1115,7 @@ function bindRepoForms() {
     await api("/api/reposition/tasks", { method: "POST", body: JSON.stringify(Object.fromEntries(new FormData(event.currentTarget).entries())) });
     await loadReposition();
     renderReposition();
-    toast("Atividade de reposicao salva.");
+    toast("Checklist da reposição enviado.");
   });
   document.querySelectorAll("[data-repo-kind]").forEach((form) => {
     form.addEventListener("submit", async (event) => {
@@ -1133,9 +1135,9 @@ function bindRepoCommercialButtons() {
     button.addEventListener("click", async () => {
       const [kind, id] = button.dataset.repoCommercial.split(":");
       const commercialStatus = kind === "ruptures"
-        ? (confirm("O pedido foi realizado?") ? "Pedido realizado" : "Pedido nao realizado")
-        : (confirm("Foi feita acao ou rebaixa?") ? "Acao ou rebaixa realizada" : "Acao nao realizada");
-      const commercialObservation = prompt("Observacao do comercial") || "";
+        ? (confirm("O pedido foi realizado?") ? "Pedido realizado" : "Pedido não realizado")
+        : (confirm("Foi feita ação ou rebaixa?") ? "Ação ou rebaixa realizada" : "Ação não realizada");
+      const commercialObservation = prompt("Observação do comercial") || "";
       await api(`/api/reposition/${kind}/${id}`, { method: "PUT", body: JSON.stringify({ commercialStatus, commercialObservation }) });
       await loadReposition();
       renderReposition();
@@ -1158,7 +1160,7 @@ function repoCommercialTable() {
     ...state.repo.expirations.map((row) => ({ ...row, kind: "expirations", origin: "Validade", detail: row.expiration_date ? fmtDate(row.expiration_date) : "" })),
   ].slice(0, 30);
   return `
-    <table><thead><tr><th>Origem</th><th>Produto</th><th>Setor</th><th>Detalhe</th><th>Status</th><th>Retorno</th><th>Acao</th></tr></thead><tbody>
+    <table><thead><tr><th>Origem</th><th>Produto</th><th>Setor</th><th>Detalhe</th><th>Status</th><th>Retorno</th><th>Ação</th></tr></thead><tbody>
       ${rows.map((row) => `<tr>
         <td data-label="Origem">${row.origin}</td>
         <td data-label="Produto">${escapeHtml(row.product)}</td>
@@ -1166,7 +1168,7 @@ function repoCommercialTable() {
         <td data-label="Detalhe">${escapeHtml(row.detail)}</td>
         <td data-label="Status"><span class="status ${row.status === "Resolvido" ? "ok" : "warn"}">${escapeHtml(row.status)}</span></td>
         <td data-label="Retorno">${escapeHtml(row.commercial_status || "")}</td>
-        <td data-label="Acao"><button class="btn" type="button" data-repo-commercial="${row.kind}:${row.id}">Atualizar</button></td>
+        <td data-label="Ação"><button class="btn" type="button" data-repo-commercial="${row.kind}:${row.id}">Atualizar</button></td>
       </tr>`).join("") || `<tr><td colspan="7">Sem registros comerciais.</td></tr>`}
     </tbody></table>
   `;
@@ -1174,14 +1176,14 @@ function repoCommercialTable() {
 
 function repoTasksTable() {
   return `
-    <table><thead><tr><th>Data</th><th>Colaborador</th><th>Setor</th><th>Atividade</th><th>Status</th><th>Obs.</th></tr></thead><tbody>
+    <table><thead><tr><th>Data</th><th>Colaborador</th><th>Setor</th><th>Atividade</th><th>Resposta</th><th>Observação</th></tr></thead><tbody>
       ${state.repo.tasks.map((row) => `<tr>
         <td data-label="Data">${fmtDate(row.date)}</td>
         <td data-label="Colaborador">${escapeHtml(row.collaborator)}</td>
         <td data-label="Setor">${escapeHtml(row.sector)}</td>
         <td data-label="Atividade">${escapeHtml(row.activity)}</td>
-        <td data-label="Status"><span class="status ${row.status === "Realizado" ? "ok" : row.status === "Parcial" ? "warn" : "danger"}">${escapeHtml(row.status)}</span></td>
-        <td data-label="Obs.">${escapeHtml(row.observation || "")}</td>
+        <td data-label="Resposta"><span class="status ${row.status === "Realizado" ? "ok" : "danger"}">${row.status === "Realizado" ? "Sim" : "Não"}</span></td>
+        <td data-label="Observação">${escapeHtml(row.observation || "")}</td>
       </tr>`).join("") || `<tr><td colspan="6">Sem atividades registradas.</td></tr>`}
     </tbody></table>
   `;
@@ -1350,7 +1352,7 @@ function renderUsers() {
             <option value="colaborador">Colaborador</option>
             <option value="prevencao">Prevenção</option>
             <option value="encarregada">Encarregada</option>
-            <option value="reposicao">Reposicao</option>
+            <option value="reposicao">Reposição</option>
             <option value="comercial">Comercial</option>
             <option value="administrador">Administrador</option>
           </select>
