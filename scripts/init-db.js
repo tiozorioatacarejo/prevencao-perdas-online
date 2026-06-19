@@ -75,6 +75,35 @@ async function initPostgres() {
       updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS sector_audits (
+      id SERIAL PRIMARY KEY,
+      date TEXT NOT NULL,
+      sector TEXT NOT NULL,
+      manager_status TEXT NOT NULL DEFAULT 'Pendente',
+      observation TEXT,
+      action_required TEXT,
+      responsible TEXT,
+      due_date TEXT,
+      audited_by INTEGER REFERENCES users(id),
+      audited_at TIMESTAMP,
+      UNIQUE(date, sector)
+    );
+
+    CREATE TABLE IF NOT EXISTS sector_audit_reviews (
+      id SERIAL PRIMARY KEY,
+      date TEXT NOT NULL,
+      sector TEXT NOT NULL,
+      focus TEXT NOT NULL,
+      manager_status TEXT NOT NULL DEFAULT 'Pendente',
+      observation TEXT,
+      action_required TEXT,
+      responsible TEXT,
+      due_date TEXT,
+      audited_by INTEGER REFERENCES users(id),
+      audited_at TIMESTAMP,
+      UNIQUE(date, sector, focus)
+    );
+
     CREATE TABLE IF NOT EXISTS audit_logs (
       id SERIAL PRIMARY KEY,
       user_id INTEGER REFERENCES users(id),

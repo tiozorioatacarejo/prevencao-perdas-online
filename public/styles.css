@@ -505,6 +505,10 @@ textarea {
   gap: 12px;
 }
 
+.metrics.dashboard-summary {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .metric {
   background: var(--surface);
   border: 1px solid var(--line);
@@ -516,6 +520,13 @@ textarea {
   display: block;
   font-size: 26px;
   margin-top: 8px;
+}
+
+.metric small {
+  display: block;
+  color: var(--muted);
+  font-size: 13px;
+  margin-top: 6px;
 }
 
 .table-wrap {

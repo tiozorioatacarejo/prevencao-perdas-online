@@ -184,6 +184,37 @@ def init_db():
             FOREIGN KEY (created_by) REFERENCES users(id)
         );
 
+        CREATE TABLE IF NOT EXISTS sector_audits (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            date TEXT NOT NULL,
+            sector TEXT NOT NULL,
+            manager_status TEXT NOT NULL DEFAULT 'Pendente',
+            observation TEXT,
+            action_required TEXT,
+            responsible TEXT,
+            due_date TEXT,
+            audited_by INTEGER,
+            audited_at TEXT,
+            UNIQUE(date, sector),
+            FOREIGN KEY (audited_by) REFERENCES users(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS sector_audit_reviews (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            date TEXT NOT NULL,
+            sector TEXT NOT NULL,
+            focus TEXT NOT NULL,
+            manager_status TEXT NOT NULL DEFAULT 'Pendente',
+            observation TEXT,
+            action_required TEXT,
+            responsible TEXT,
+            due_date TEXT,
+            audited_by INTEGER,
+            audited_at TEXT,
+            UNIQUE(date, sector, focus),
+            FOREIGN KEY (audited_by) REFERENCES users(id)
+        );
+
         CREATE TABLE IF NOT EXISTS audit_logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER,
