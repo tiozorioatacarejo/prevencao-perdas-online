@@ -2,6 +2,7 @@
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
+const crypto = require("crypto");
 const { spawnSync } = require("child_process");
 
 const ROOT = __dirname;
@@ -15,9 +16,14 @@ const DATABASE_URL = process.env.DATABASE_URL || "";
 let pgPool = null;
 
 const sessions = new Map();
+const loginAttempts = new Map();
+const SESSION_TTL_MS = 8 * 60 * 60 * 1000;
+const LOGIN_LOCK_MS = 10 * 60 * 1000;
+const MAX_LOGIN_ATTEMPTS = 5;
 const PRICE_DIVERGENCE_ACTIVITY = "Confer\u00eancia de precifica\u00e7\u00e3o";
 const EXPIRED_PRODUCTS_ACTIVITY = "Verifica\u00e7\u00e3o de validades";
 const RECEIPTS_ACTIVITY = "Acompanhamento de recebimentos";
+const SECTOR_REQUIRED_ACTIVITY_TERMS = ["validade", "ruptura"];
 const ENGAGEMENT_EXCLUDED_ACTIVITIES = [
   "Lan\u00e7amento de perdas no sistema",
   "Lan\u00e7amento de consumo interno",
@@ -123,6 +129,7 @@ async function initPostgres(pool) {
       activity TEXT NOT NULL,
       answer TEXT NOT NULL,
       observation TEXT,
+      sector TEXT,
       price_divergence_products TEXT,
       expired_products TEXT,
       photo_path TEXT,
@@ -220,8 +227,19 @@ async function initPostgres(pool) {
       sent_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       created_by INTEGER NOT NULL REFERENCES users(id)
     );
+
+    CREATE TABLE IF NOT EXISTS audit_logs (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER REFERENCES users(id),
+      action TEXT NOT NULL,
+      entity TEXT NOT NULL,
+      entity_id TEXT,
+      details TEXT,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
   `);
   await pool.query("ALTER TABLE collaborators ADD COLUMN IF NOT EXISTS sector TEXT");
+  await pool.query("ALTER TABLE checklists ADD COLUMN IF NOT EXISTS sector TEXT");
   await pool.query("ALTER TABLE repo_ruptures ADD COLUMN IF NOT EXISTS commercial_updated_by INTEGER REFERENCES users(id)");
   await pool.query("ALTER TABLE repo_expirations ADD COLUMN IF NOT EXISTS commercial_updated_by INTEGER REFERENCES users(id)");
   const existing = await pool.query("SELECT COUNT(*) AS total FROM users");
@@ -268,6 +286,9 @@ function send(res, status, data, headers = {}) {
   const body = typeof data === "string" || Buffer.isBuffer(data) ? data : JSON.stringify(data);
   res.writeHead(status, {
     "Content-Type": Buffer.isBuffer(data) ? "application/octet-stream" : "application/json; charset=utf-8",
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "same-origin",
     ...headers,
   });
   res.end(body);
@@ -291,15 +312,45 @@ function readBody(req) {
   });
 }
 
-function makeToken(user) {
-  const raw = `${user.id}:${Date.now()}:${Math.random().toString(36).slice(2)}`;
-  return Buffer.from(raw).toString("base64url");
+function makeToken() {
+  return crypto.randomBytes(32).toString("base64url");
+}
+
+function isPasswordHash(value) {
+  return String(value || "").startsWith("scrypt$");
+}
+
+function hashPassword(password) {
+  const salt = crypto.randomBytes(16).toString("base64url");
+  const hash = crypto.scryptSync(String(password || ""), salt, 64).toString("base64url");
+  return `scrypt$${salt}$${hash}`;
+}
+
+function verifyPassword(password, stored) {
+  if (!isPasswordHash(stored)) return String(password || "") === String(stored || "");
+  const [, salt, expected] = String(stored).split("$");
+  if (!salt || !expected) return false;
+  const hash = crypto.scryptSync(String(password || ""), salt, 64);
+  const expectedBuffer = Buffer.from(expected, "base64url");
+  return expectedBuffer.length === hash.length && crypto.timingSafeEqual(hash, expectedBuffer);
+}
+
+function publicUser(user) {
+  if (!user) return user;
+  const { password, ...safe } = user;
+  return safe;
 }
 
 function currentUser(req) {
   const auth = req.headers.authorization || "";
   const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
-  return sessions.get(token);
+  const session = sessions.get(token);
+  if (!session) return null;
+  if (session.expiresAt <= Date.now()) {
+    sessions.delete(token);
+    return null;
+  }
+  return session.user;
 }
 
 function requireUser(req, res) {
@@ -309,6 +360,40 @@ function requireUser(req, res) {
     return null;
   }
   return user;
+}
+
+function loginAttemptKey(req, username) {
+  return `${req.socket.remoteAddress || "local"}:${String(username || "").toLowerCase()}`;
+}
+
+function isLoginLocked(key) {
+  const attempt = loginAttempts.get(key);
+  return attempt && attempt.lockedUntil && attempt.lockedUntil > Date.now();
+}
+
+function recordLoginFailure(key) {
+  const attempt = loginAttempts.get(key) || { count: 0, lockedUntil: 0 };
+  attempt.count += 1;
+  if (attempt.count >= MAX_LOGIN_ATTEMPTS) {
+    attempt.lockedUntil = Date.now() + LOGIN_LOCK_MS;
+    attempt.count = 0;
+  }
+  loginAttempts.set(key, attempt);
+}
+
+function clearLoginFailures(key) {
+  loginAttempts.delete(key);
+}
+
+async function logAudit(user, action, entity, entityId, details = {}) {
+  try {
+    await execute(
+      "INSERT INTO audit_logs (user_id, action, entity, entity_id, details, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+      [user?.id || null, action, entity, entityId == null ? null : String(entityId), JSON.stringify(details), nowIso()]
+    );
+  } catch (error) {
+    console.error("Falha ao registrar auditoria:", error.message);
+  }
 }
 
 function canCorrect(user) {
@@ -449,6 +534,14 @@ function escapeHtml(value) {
     .replaceAll('"', "&quot;");
 }
 
+function normalizeText(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
 async function rowsForReports(filters) {
   const where = [];
   const params = [];
@@ -475,7 +568,7 @@ async function rowsForReports(filters) {
   return query(
     `
     SELECT c.id, c.date, c.sent_at, c.collaborator_id, c.created_by, c.photo_path,
-           c.price_divergence_products, c.expired_products,
+           c.sector, c.price_divergence_products, c.expired_products,
            col.name AS collaborator, c.activity, c.answer, c.observation,
            u.display_name AS sent_by
     FROM checklists c
@@ -489,12 +582,13 @@ async function rowsForReports(filters) {
 }
 
 function makeExcel(rows) {
-  const header = ["Data", "Hora de envio", "Colaborador", "Atividade", "Sim/NÃ£o", "ObservaÃ§Ã£o", "Enviado por"];
+  const header = ["Data", "Hora de envio", "Colaborador", "Atividade", "Setor", "Sim/NÃ£o", "ObservaÃ§Ã£o", "Enviado por"];
   const xmlRows = [header, ...rows.map((row) => [
     row.date,
     row.sent_at,
     row.collaborator,
     row.activity,
+    row.sector || "",
     row.answer,
     row.observation || "",
     row.sent_by,
@@ -512,6 +606,7 @@ function makePdf(rows) {
     "",
     ...rows.flatMap((row) => [
       `${row.date} | ${row.collaborator} | ${row.activity}`,
+      `Setor: ${row.sector || "-"}`,
       `Resposta: ${row.answer}`,
       `ObservaÃ§Ã£o: ${row.observation || "-"}`,
       "",
@@ -548,7 +643,13 @@ function checklistSpecificFields(activity, body) {
   return {
     priceDivergenceProducts: activity === PRICE_DIVERGENCE_ACTIVITY ? body.priceDivergenceProducts || "" : "",
     expiredProducts: activity === EXPIRED_PRODUCTS_ACTIVITY ? body.expiredProducts || "" : "",
+    sector: activityNeedsProductSector(activity) ? body.sector || "" : "",
   };
+}
+
+function activityNeedsProductSector(activity) {
+  const normalized = normalizeText(activity);
+  return SECTOR_REQUIRED_ACTIVITY_TERMS.some((term) => normalized.includes(term));
 }
 
 function pdfEscape(value) {
@@ -563,24 +664,34 @@ async function api(req, res, url) {
 
   if (method === "POST" && url.pathname === "/api/login") {
     const body = await readBody(req);
-  const users = await query(
-      "SELECT id, username, role, display_name, collaborator_id, status FROM users WHERE username = ? AND password = ? AND status = 'ativo'",
-      [
-      body.username,
-      body.password,
-      ]
+    const attemptKey = loginAttemptKey(req, body.username);
+    if (isLoginLocked(attemptKey)) {
+      return send(res, 429, { error: "Muitas tentativas de login. Aguarde alguns minutos e tente novamente." });
+    }
+    const users = await query(
+      "SELECT id, username, password, role, display_name, collaborator_id, status FROM users WHERE username = ? AND status = 'ativo'",
+      [body.username]
     );
-    if (!users[0]) return send(res, 401, { error: "UsuÃ¡rio ou senha invÃ¡lidos." });
-    const token = makeToken(users[0]);
-    sessions.set(token, users[0]);
-    return send(res, 200, { token, user: users[0] });
+    if (!users[0] || !verifyPassword(body.password, users[0].password)) {
+      recordLoginFailure(attemptKey);
+      return send(res, 401, { error: "Usu\u00e1rio ou senha inv\u00e1lidos." });
+    }
+    if (!isPasswordHash(users[0].password)) {
+      await execute("UPDATE users SET password = ? WHERE id = ?", [hashPassword(body.password), users[0].id]);
+    }
+    clearLoginFailures(attemptKey);
+    const token = makeToken();
+    const safeUser = publicUser(users[0]);
+    sessions.set(token, { user: safeUser, expiresAt: Date.now() + SESSION_TTL_MS });
+    await logAudit(safeUser, "login", "users", safeUser.id);
+    return send(res, 200, { token, user: safeUser });
   }
 
   const user = requireUser(req, res);
   if (!user) return;
 
   if (method === "GET" && url.pathname === "/api/me") {
-    return send(res, 200, { user, activities });
+    return send(res, 200, { user, activities, sectors: repoSectors });
   }
 
   if (method === "GET" && url.pathname === "/api/reposition/options") {
@@ -843,7 +954,7 @@ async function api(req, res, url) {
     return send(res, 200, {
       rows: await query(
         `
-        SELECT u.id, u.username, u.password, u.role, u.display_name, u.collaborator_id, u.status,
+        SELECT u.id, u.username, u.role, u.display_name, u.collaborator_id, u.status,
                c.name AS collaborator
         FROM users u
         LEFT JOIN collaborators c ON c.id = u.collaborator_id
@@ -856,17 +967,19 @@ async function api(req, res, url) {
   if (method === "POST" && url.pathname === "/api/users") {
     if (!isAdmin(user)) return send(res, 403, { error: "Apenas administrador pode gerenciar acessos." });
     const body = await readBody(req);
+    if (!body.password) return send(res, 400, { error: "Informe uma senha para criar o acesso." });
     await execute(
       "INSERT INTO users (username, password, role, display_name, collaborator_id, status) VALUES (?, ?, ?, ?, ?, ?)",
       [
         body.username,
-        body.password,
+        hashPassword(body.password),
         body.role || "colaborador",
         body.displayName,
         body.collaboratorId || null,
         body.status || "ativo",
       ]
     );
+    await logAudit(user, "create", "users", body.username, { role: body.role, displayName: body.displayName });
     return send(res, 201, { ok: true });
   }
 
@@ -874,18 +987,21 @@ async function api(req, res, url) {
     if (!isAdmin(user)) return send(res, 403, { error: "Apenas administrador pode gerenciar acessos." });
     const id = Number(url.pathname.split("/").pop());
     const body = await readBody(req);
+    const passwordSql = body.password ? ", password = ?" : "";
+    const params = [
+      body.username,
+      body.role,
+      body.displayName,
+      body.collaboratorId || null,
+      body.status,
+    ];
+    if (body.password) params.push(hashPassword(body.password));
+    params.push(id);
     await execute(
-      "UPDATE users SET username = ?, password = ?, role = ?, display_name = ?, collaborator_id = ?, status = ? WHERE id = ?",
-      [
-        body.username,
-        body.password,
-        body.role,
-        body.displayName,
-        body.collaboratorId || null,
-        body.status,
-        id,
-      ]
+      `UPDATE users SET username = ?, role = ?, display_name = ?, collaborator_id = ?, status = ?${passwordSql} WHERE id = ?`,
+      params
     );
+    await logAudit(user, "update", "users", id, { username: body.username, role: body.role, status: body.status, passwordChanged: Boolean(body.password) });
     return send(res, 200, { ok: true });
   }
 
@@ -894,6 +1010,7 @@ async function api(req, res, url) {
     const id = Number(url.pathname.split("/").pop());
     if (id === user.id) return send(res, 400, { error: "VocÃª nÃ£o pode excluir o prÃ³prio acesso enquanto estÃ¡ logado." });
     await execute("DELETE FROM users WHERE id = ?", [id]);
+    await logAudit(user, "delete", "users", id);
     return send(res, 200, { ok: true, message: "Acesso excluÃ­do." });
   }
 
@@ -914,6 +1031,7 @@ async function api(req, res, url) {
       body.sector || "",
       body.status || "ativo",
     ]);
+    await logAudit(user, "create", "collaborators", body.name, { role: body.role, sector: body.sector || "", status: body.status || "ativo" });
     return send(res, 201, { ok: true });
   }
 
@@ -928,6 +1046,7 @@ async function api(req, res, url) {
       body.status,
       id,
     ]);
+    await logAudit(user, "update", "collaborators", id, { name: body.name, role: body.role, sector: body.sector || "", status: body.status });
     return send(res, 200, { ok: true });
   }
 
@@ -939,6 +1058,7 @@ async function api(req, res, url) {
     await execute("UPDATE users SET collaborator_id = NULL, status = 'inativo' WHERE collaborator_id = ?", [id]);
     if (checklistCount > 0 || pendencyCount > 0) {
       await execute("UPDATE collaborators SET status = 'inativo' WHERE id = ?", [id]);
+      await logAudit(user, "inactivate", "collaborators", id);
       return send(res, 200, {
         ok: true,
         mode: "inactivated",
@@ -946,6 +1066,7 @@ async function api(req, res, url) {
       });
     }
     await execute("DELETE FROM collaborators WHERE id = ?", [id]);
+    await logAudit(user, "delete", "collaborators", id);
     return send(res, 200, { ok: true, mode: "deleted", message: "Colaborador excluÃ­do." });
   }
 
@@ -964,14 +1085,18 @@ async function api(req, res, url) {
       return send(res, 403, { error: "Apenas a encarregada pode preencher perdas, consumos e vasilhames." });
     }
     const specificFields = checklistSpecificFields(body.activity, body);
+    if (activityNeedsProductSector(body.activity) && !specificFields.sector) {
+      return send(res, 400, { error: "Selecione o setor do produto." });
+    }
     await execute(
-      "INSERT INTO checklists (date, collaborator_id, activity, answer, observation, price_divergence_products, expired_products, sent_at, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      "INSERT INTO checklists (date, collaborator_id, activity, answer, observation, sector, price_divergence_products, expired_products, sent_at, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       [
         date,
         collaboratorId,
         body.activity,
         body.answer,
         body.observation || "",
+        specificFields.sector,
         specificFields.priceDivergenceProducts,
         specificFields.expiredProducts,
         nowIso(),
@@ -995,13 +1120,17 @@ async function api(req, res, url) {
     }
     const collaboratorId = canCorrect(user) ? body.collaboratorId : user.collaborator_id || body.collaboratorId;
     const specificFields = checklistSpecificFields(body.activity, body);
+    if (activityNeedsProductSector(body.activity) && !specificFields.sector) {
+      return send(res, 400, { error: "Selecione o setor do produto." });
+    }
     await execute(
-      "UPDATE checklists SET collaborator_id = ?, activity = ?, answer = ?, observation = ?, price_divergence_products = ?, expired_products = ?, corrected_by = ?, corrected_at = ? WHERE id = ?",
+      "UPDATE checklists SET collaborator_id = ?, activity = ?, answer = ?, observation = ?, sector = ?, price_divergence_products = ?, expired_products = ?, corrected_by = ?, corrected_at = ? WHERE id = ?",
       [
         collaboratorId,
         body.activity,
         body.answer,
         body.observation || "",
+        specificFields.sector,
         specificFields.priceDivergenceProducts,
         specificFields.expiredProducts,
         user.id,

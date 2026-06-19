@@ -71,6 +71,7 @@ def init_db():
             activity TEXT NOT NULL,
             answer TEXT NOT NULL,
             observation TEXT,
+            sector TEXT,
             price_divergence_products TEXT,
             expired_products TEXT,
             photo_path TEXT,
@@ -182,6 +183,17 @@ def init_db():
             created_by INTEGER NOT NULL,
             FOREIGN KEY (created_by) REFERENCES users(id)
         );
+
+        CREATE TABLE IF NOT EXISTS audit_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            action TEXT NOT NULL,
+            entity TEXT NOT NULL,
+            entity_id TEXT,
+            details TEXT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        );
         """
     )
 
@@ -204,6 +216,8 @@ def init_db():
         conn.execute("ALTER TABLE checklists ADD COLUMN price_divergence_products TEXT")
     if "expired_products" not in checklist_columns:
         conn.execute("ALTER TABLE checklists ADD COLUMN expired_products TEXT")
+    if "sector" not in checklist_columns:
+        conn.execute("ALTER TABLE checklists ADD COLUMN sector TEXT")
 
     rupture_columns = [row["name"] for row in conn.execute("PRAGMA table_info(repo_ruptures)").fetchall()]
     if "commercial_updated_by" not in rupture_columns:

@@ -34,6 +34,7 @@ async function initPostgres() {
       activity TEXT NOT NULL,
       answer TEXT NOT NULL,
       observation TEXT,
+      sector TEXT,
       price_divergence_products TEXT,
       expired_products TEXT,
       photo_path TEXT,
@@ -73,8 +74,19 @@ async function initPostgres() {
       created_by INTEGER NOT NULL REFERENCES users(id),
       updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
+
+    CREATE TABLE IF NOT EXISTS audit_logs (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER REFERENCES users(id),
+      action TEXT NOT NULL,
+      entity TEXT NOT NULL,
+      entity_id TEXT,
+      details TEXT,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
   `);
   await pool.query("ALTER TABLE collaborators ADD COLUMN IF NOT EXISTS sector TEXT");
+  await pool.query("ALTER TABLE checklists ADD COLUMN IF NOT EXISTS sector TEXT");
   const existing = await pool.query("SELECT COUNT(*) AS total FROM users");
   if (Number(existing.rows[0].total) === 0) {
     await pool.query(

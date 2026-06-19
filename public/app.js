@@ -37,6 +37,7 @@
 const app = document.getElementById("app");
 const PRICE_DIVERGENCE_ACTIVITY = "Confer\u00eancia de precifica\u00e7\u00e3o";
 const EXPIRED_PRODUCTS_ACTIVITY = "Verifica\u00e7\u00e3o de validades";
+const SECTOR_REQUIRED_ACTIVITY_TERMS = ["validade", "ruptura"];
 const ENCARREGADA_ONLY_ACTIVITIES = [
   "Lan\u00e7amento de perdas no sistema",
   "Lan\u00e7amento de consumo interno",
@@ -271,6 +272,7 @@ async function bootstrap() {
     const me = await api("/api/me");
     state.user = me.user;
     state.activities = me.activities;
+    state.repo.sectors = me.sectors || state.repo.sectors;
     if (canAccessReposition()) {
       const repoOptions = await api("/api/reposition/options");
       state.repo.sectors = repoOptions.sectors;
@@ -509,10 +511,7 @@ function renderDashboard() {
   const monthLabel = data.month?.label || "mÃªs atual";
   const metrics = [
     ["Checklists pendentes", data.pendingToday || 0],
-    ["Perdas lanÃ§adas", fmtMoney(summary.losses)],
-    ["Consumos internos", fmtMoney(summary.consumptions)],
     ["Contagem de vasilhames", summary.bottles || 0],
-    ["Recebimentos", summary.receipts || 0],
     ["Produtos vencidos", summary.expired || 0],
     ["DivergÃªncias de preÃ§o", summary.divergences || 0],
     ["Dias com checklist", data.totalsByDay.length],
@@ -638,10 +637,9 @@ function exportDashboardCsv() {
     [],
     ["Indicador", "Valor"],
     ["Checklists pendentes", data.pendingToday || 0],
-    ["Perdas lanÃ§adas", data.summary?.losses || 0],
-    ["Consumos internos", data.summary?.consumptions || 0],
     ["Contagem de vasilhames", data.summary?.bottles || 0],
-    ["Recebimentos", data.summary?.receipts || 0],
+    ["Produtos vencidos", data.summary?.expired || 0],
+    ["Divergencias de preco", data.summary?.divergences || 0],
     [],
     ["Engajamento por colaborador"],
     ["Colaborador", "Preenchimentos", "Percentual"],
@@ -790,6 +788,11 @@ function repoSectorOptionsForCurrentUser() {
   return repoOptions(sectors);
 }
 
+function activityNeedsProductSector(activity) {
+  const normalized = normalizeText(activity);
+  return SECTOR_REQUIRED_ACTIVITY_TERMS.some((term) => normalized.includes(term));
+}
+
 function renderChecklist() {
   const availableActivities = checklistActivitiesForUser();
   const linkedCollaborator = state.user?.collaborator_id
@@ -828,6 +831,9 @@ function renderChecklist() {
         <label data-price-divergence-field>Produtos com divergÃªncia de preÃ§os <textarea name="priceDivergenceProducts"></textarea></label>
       </div>
       <label data-expired-products-field>Produtos vencidos encontrados <textarea name="expiredProducts"></textarea></label>
+      <label data-product-sector-field>Setor do produto
+        <select name="sector">${repoOptions(state.repo.sectors || [])}</select>
+      </label>
       <label>ObservaÃ§Ã£o
         <textarea name="observation"></textarea>
       </label>
@@ -838,16 +844,22 @@ function renderChecklist() {
   const activitySelect = checklistForm.elements.activity;
   const priceField = checklistForm.querySelector("[data-price-divergence-field]");
   const expiredField = checklistForm.querySelector("[data-expired-products-field]");
+  const sectorField = checklistForm.querySelector("[data-product-sector-field]");
   const syncChecklistSpecificFields = () => {
     const activity = activitySelect.value;
     const showPrice = activity === PRICE_DIVERGENCE_ACTIVITY;
     const showExpired = activity === EXPIRED_PRODUCTS_ACTIVITY;
+    const showSector = activityNeedsProductSector(activity);
     priceField.hidden = !showPrice;
     expiredField.hidden = !showExpired;
+    sectorField.hidden = !showSector;
     priceField.classList.toggle("hidden", !showPrice);
     expiredField.classList.toggle("hidden", !showExpired);
+    sectorField.classList.toggle("hidden", !showSector);
+    checklistForm.elements.sector.required = showSector;
     if (!showPrice) checklistForm.elements.priceDivergenceProducts.value = "";
     if (!showExpired) checklistForm.elements.expiredProducts.value = "";
+    if (!showSector) checklistForm.elements.sector.value = "";
   };
   activitySelect.addEventListener("change", syncChecklistSpecificFields);
   syncChecklistSpecificFields();
@@ -871,16 +883,11 @@ function renderSummary() {
         <div class="muted">ConsolidaÃ§Ã£o do dia para acompanhamento gerencial</div>
       </div>
     </div>
-    ${summaryLocked ? `<div class="panel muted" style="margin-bottom:14px">Somente a encarregada pode preencher, alterar ou excluir perdas, consumos e vasilhames.</div>` : ""}
+    ${summaryLocked ? `<div class="panel muted" style="margin-bottom:14px">Somente a encarregada pode preencher, alterar ou excluir o resumo operacional.</div>` : ""}
     <form class="panel grid" id="summaryForm">
-      <div class="grid three">
+      <div class="grid two">
         <label>Data do resumo <input name="date" type="date" required value="${todayInputValue()}"></label>
-        <label>Valor das perdas lanÃ§adas <input name="lossesValue" type="number" step="0.01" min="0"></label>
-        <label>Valor dos consumos lanÃ§ados <input name="consumptionValue" type="number" step="0.01" min="0"></label>
-      </div>
-      <div class="grid four">
         <label>Contagem de vasilhames do dia <input name="bottlesCount" type="number" min="0"></label>
-        <label>Recebimentos acompanhados <input name="receiptsCount" type="number" min="0"></label>
       </div>
       <label>Qual vasilhame
         <textarea name="bottlesDetails" placeholder="Ex.: garrafa 1L, garrafa 2L, caixas, engradados"></textarea>
@@ -899,15 +906,12 @@ function renderSummary() {
   `;
   const form = document.getElementById("summaryForm");
   if (summaryLocked) {
-    ["lossesValue", "consumptionValue", "bottlesCount", "receiptsCount", "bottlesDetails", "occurrences", "correctiveActions"].forEach((name) => {
+    ["bottlesCount", "bottlesDetails", "occurrences", "correctiveActions"].forEach((name) => {
       form.elements[name].disabled = true;
     });
   }
   const clearSummaryFields = () => {
-    form.lossesValue.value = "";
-    form.consumptionValue.value = "";
     form.bottlesCount.value = "";
-    form.receiptsCount.value = "";
     form.bottlesDetails.value = "";
     form.occurrences.value = "";
     form.correctiveActions.value = "";
@@ -916,10 +920,7 @@ function renderSummary() {
     clearSummaryFields();
     if (!row) return;
     form.date.value = row.date || form.date.value;
-    form.lossesValue.value = row.losses_value ?? "";
-    form.consumptionValue.value = row.consumption_value ?? "";
     form.bottlesCount.value = row.bottles_count ?? "";
-    form.receiptsCount.value = row.receipts_count ?? "";
     form.bottlesDetails.value = row.bottles_details || "";
     form.occurrences.value = row.occurrences || "";
     form.correctiveActions.value = row.corrective_actions || "";
@@ -936,11 +937,8 @@ function renderSummary() {
         <thead>
           <tr>
             <th>Data</th>
-            <th>Perdas</th>
-            <th>Consumos</th>
             <th>Vasilhames</th>
             <th>Qual vasilhame</th>
-            <th>Recebimentos</th>
             <th>AÃ§Ãµes</th>
           </tr>
         </thead>
@@ -948,11 +946,8 @@ function renderSummary() {
           ${data.rows.map((row) => `
             <tr>
               <td data-label="Data">${fmtDate(row.date)}</td>
-              <td data-label="Perdas">${fmtMoney(row.losses_value)}</td>
-              <td data-label="Consumos">${fmtMoney(row.consumption_value)}</td>
               <td data-label="Vasilhames">${row.bottles_count || 0}</td>
               <td data-label="Qual vasilhame">${escapeHtml(row.bottles_details || "")}</td>
-              <td data-label="Recebimentos">${row.receipts_count || 0}</td>
               <td data-label="AÃ§Ãµes">
                 <div class="toolbar">
                   <button class="btn" type="button" data-edit-summary="${row.date}">Editar</button>
@@ -960,7 +955,7 @@ function renderSummary() {
                 </div>
               </td>
             </tr>
-          `).join("") || `<tr><td colspan="7">Nenhum resumo lanÃ§ado.</td></tr>`}
+          `).join("") || `<tr><td colspan="4">Nenhum resumo lanÃ§ado.</td></tr>`}
         </tbody>
       </table>
     `;
@@ -1053,12 +1048,13 @@ function renderReports() {
 function drawReportTable() {
   const showActions = state.checklists.some((row) => canEditChecklist(row) || canDeleteChecklist());
   document.getElementById("reportTable").innerHTML = `
-    <table><thead><tr><th>Data</th><th>Colaborador</th><th>Atividade</th><th>Resposta</th><th>ObservaÃ§Ã£o</th><th>Enviado em</th>${showActions ? "<th>AÃ§Ãµes</th>" : ""}</tr></thead><tbody>
+    <table><thead><tr><th>Data</th><th>Colaborador</th><th>Atividade</th><th>Setor</th><th>Resposta</th><th>ObservaÃ§Ã£o</th><th>Enviado em</th>${showActions ? "<th>AÃ§Ãµes</th>" : ""}</tr></thead><tbody>
       ${state.checklists.map((row) => `
         <tr>
           <td data-label="Data">${fmtDate(row.date)}</td>
           <td data-label="Colaborador">${escapeHtml(row.collaborator)}</td>
           <td data-label="Atividade">${escapeHtml(row.activity)}</td>
+          <td data-label="Setor">${escapeHtml(row.sector || "-")}</td>
           <td data-label="Resposta"><span class="status ${row.answer === "Sim" ? "ok" : "danger"}">${row.answer}</span></td>
           <td data-label="ObservaÃ§Ã£o">${escapeHtml(row.observation || "")}</td>
           <td data-label="Enviado em">${new Date(row.sent_at).toLocaleString("pt-BR")}</td>
@@ -1071,7 +1067,7 @@ function drawReportTable() {
             </td>
           ` : ""}
         </tr>
-      `).join("") || `<tr><td colspan="${showActions ? 7 : 6}">Nenhum registro encontrado.</td></tr>`}
+      `).join("") || `<tr><td colspan="${showActions ? 8 : 7}">Nenhum registro encontrado.</td></tr>`}
     </tbody></table>
   `;
   document.querySelectorAll("[data-edit-checklist]").forEach((button) => {
@@ -1108,6 +1104,9 @@ function editChecklist(id) {
   const expiredProducts = row.activity === EXPIRED_PRODUCTS_ACTIVITY
     ? prompt("Produtos vencidos encontrados", row.expired_products || "") || ""
     : "";
+  const sector = activityNeedsProductSector(row.activity)
+    ? prompt("Setor do produto", row.sector || "") || ""
+    : "";
   api(`/api/checklists/${id}`, {
     method: "PUT",
     body: JSON.stringify({
@@ -1115,6 +1114,7 @@ function editChecklist(id) {
       activity: row.activity,
       answer,
       observation,
+      sector,
       priceDivergenceProducts,
       expiredProducts,
     }),
@@ -1718,12 +1718,11 @@ function renderUsers() {
       </div>
     </form>
     <div class="table-wrap" style="margin-top:14px">
-      <table><thead><tr><th>Nome</th><th>UsuÃ¡rio</th><th>Senha</th><th>Perfil</th><th>Colaborador</th><th>Status</th><th>AÃ§Ãµes</th></tr></thead><tbody>
+      <table><thead><tr><th>Nome</th><th>UsuÃ¡rio</th><th>Perfil</th><th>Colaborador</th><th>Status</th><th>AÃ§Ãµes</th></tr></thead><tbody>
         ${state.users.map((row) => `
           <tr>
             <td data-label="Nome">${escapeHtml(row.display_name)}</td>
             <td data-label="UsuÃ¡rio">${escapeHtml(row.username)}</td>
-            <td data-label="Senha">${escapeHtml(row.password)}</td>
             <td data-label="Perfil">${escapeHtml(row.role)}</td>
             <td data-label="Colaborador">${escapeHtml(row.collaborator || "-")}</td>
             <td data-label="Status"><span class="status ${row.status === "ativo" ? "ok" : ""}">${escapeHtml(row.status)}</span></td>
@@ -1734,7 +1733,7 @@ function renderUsers() {
               </div>
             </td>
           </tr>
-        `).join("") || `<tr><td colspan="7">Nenhum acesso cadastrado.</td></tr>`}
+        `).join("") || `<tr><td colspan="6">Nenhum acesso cadastrado.</td></tr>`}
       </tbody></table>
     </div>
   `;
@@ -1746,6 +1745,8 @@ function renderUsers() {
   function clearUserEdit() {
     form.reset();
     form.id.value = "";
+    form.password.required = true;
+    form.password.placeholder = "";
     submitButton.textContent = "Criar acesso";
     cancelButton.classList.add("hidden");
   }
@@ -1753,6 +1754,7 @@ function renderUsers() {
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     const body = Object.fromEntries(new FormData(form).entries());
+    if (!body.password) delete body.password;
     const id = body.id;
     delete body.id;
     await api(id ? `/api/users/${id}` : "/api/users", {
@@ -1773,7 +1775,9 @@ function renderUsers() {
       form.id.value = access.id;
       form.displayName.value = access.display_name;
       form.username.value = access.username;
-      form.password.value = access.password;
+      form.password.value = "";
+      form.password.required = false;
+      form.password.placeholder = "Preencha apenas se quiser trocar";
       form.role.value = access.role;
       form.collaboratorId.value = access.collaborator_id || "";
       form.status.value = access.status;
