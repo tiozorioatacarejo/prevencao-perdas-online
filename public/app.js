@@ -863,7 +863,11 @@ function repoSectorOptionsForCurrentUser() {
 }
 
 function activityNeedsProductSector(activity) {
-  const normalized = normalizeText(activity);
+  const normalized = normalizeText(activity)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+  if (normalized === normalizeText(PRICE_DIVERGENCE_ACTIVITY).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()) return true;
   return SECTOR_REQUIRED_ACTIVITY_TERMS.some((term) => normalized.includes(term));
 }
 
