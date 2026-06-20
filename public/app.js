@@ -339,7 +339,7 @@ function roleLabel(role) {
     administrador: "Administrador",
     prevencao: "Prevenção",
     colaborador: "Colaborador",
-    encarregada: "Encarregada",
+    encarregada: "Gerente",
     reposicao: "Reposição",
     comercial: "Comercial",
   };
@@ -1126,16 +1126,23 @@ function renderReports() {
   refresh();
 }
 
+function checklistProductDetails(row) {
+  if (row.activity === PRICE_DIVERGENCE_ACTIVITY) return row.price_divergence_products || "";
+  if (row.activity === EXPIRED_PRODUCTS_ACTIVITY) return row.expired_products || "";
+  return "";
+}
+
 function drawReportTable() {
   const showActions = state.checklists.some((row) => canEditChecklist(row) || canDeleteChecklist());
   document.getElementById("reportTable").innerHTML = `
-    <table><thead><tr><th>Data</th><th>Colaborador</th><th>Atividade</th><th>Setor</th><th>Resposta</th><th>ObservaÃ§Ã£o</th><th>Enviado em</th>${showActions ? "<th>AÃ§Ãµes</th>" : ""}</tr></thead><tbody>
+    <table><thead><tr><th>Data</th><th>Colaborador</th><th>Atividade</th><th>Setor</th><th>Produtos identificados</th><th>Resposta</th><th>ObservaÃ§Ã£o</th><th>Enviado em</th>${showActions ? "<th>AÃ§Ãµes</th>" : ""}</tr></thead><tbody>
       ${state.checklists.map((row) => `
         <tr>
           <td data-label="Data">${fmtDate(row.date)}</td>
           <td data-label="Colaborador">${escapeHtml(row.collaborator)}</td>
           <td data-label="Atividade">${escapeHtml(row.activity)}</td>
           <td data-label="Setor">${escapeHtml(row.sector || "-")}</td>
+          <td data-label="Produtos identificados">${escapeHtml(checklistProductDetails(row) || "-")}</td>
           <td data-label="Resposta"><span class="status ${row.answer === "Sim" ? "ok" : "danger"}">${row.answer}</span></td>
           <td data-label="ObservaÃ§Ã£o">${escapeHtml(row.observation || "")}</td>
           <td data-label="Enviado em">${new Date(row.sent_at).toLocaleString("pt-BR")}</td>
@@ -1148,7 +1155,7 @@ function drawReportTable() {
             </td>
           ` : ""}
         </tr>
-      `).join("") || `<tr><td colspan="${showActions ? 8 : 7}">Nenhum registro encontrado.</td></tr>`}
+      `).join("") || `<tr><td colspan="${showActions ? 9 : 8}">Nenhum registro encontrado.</td></tr>`}
     </tbody></table>
   `;
   document.querySelectorAll("[data-edit-checklist]").forEach((button) => {
@@ -1933,7 +1940,7 @@ function renderUsers() {
           <select name="role" required>
             <option value="colaborador">Colaborador</option>
             <option value="prevencao">PrevenÃ§Ã£o</option>
-            <option value="encarregada">Encarregada</option>
+            <option value="encarregada">Gerente</option>
             <option value="reposicao">ReposiÃ§Ã£o</option>
             <option value="comercial">Comercial</option>
             <option value="administrador">Administrador</option>
@@ -1960,7 +1967,7 @@ function renderUsers() {
           <tr>
             <td data-label="Nome">${escapeHtml(row.display_name)}</td>
             <td data-label="UsuÃ¡rio">${escapeHtml(row.username)}</td>
-            <td data-label="Perfil">${escapeHtml(row.role)}</td>
+            <td data-label="Perfil">${escapeHtml(roleLabel(row.role))}</td>
             <td data-label="Colaborador">${escapeHtml(row.collaborator || "-")}</td>
             <td data-label="Status"><span class="status ${row.status === "ativo" ? "ok" : ""}">${escapeHtml(row.status)}</span></td>
             <td data-label="AÃ§Ãµes">

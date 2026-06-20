@@ -820,14 +820,21 @@ async function rowsForReports(filters) {
   );
 }
 
+function checklistProductDetails(row) {
+  if (row.activity === PRICE_DIVERGENCE_ACTIVITY) return row.price_divergence_products || "";
+  if (row.activity === EXPIRED_PRODUCTS_ACTIVITY) return row.expired_products || "";
+  return "";
+}
+
 function makeExcel(rows) {
-  const header = ["Data", "Hora de envio", "Colaborador", "Atividade", "Setor", "Sim/NÃ£o", "ObservaÃ§Ã£o", "Enviado por"];
+  const header = ["Data", "Hora de envio", "Colaborador", "Atividade", "Setor", "Produtos identificados", "Sim/NÃ£o", "ObservaÃ§Ã£o", "Enviado por"];
   const xmlRows = [header, ...rows.map((row) => [
     row.date,
     row.sent_at,
     row.collaborator,
     row.activity,
     row.sector || "",
+    checklistProductDetails(row),
     row.answer,
     row.observation || "",
     row.sent_by,
@@ -846,6 +853,7 @@ function makePdf(rows) {
     ...rows.flatMap((row) => [
       `${row.date} | ${row.collaborator} | ${row.activity}`,
       `Setor: ${row.sector || "-"}`,
+      `Produtos identificados: ${checklistProductDetails(row) || "-"}`,
       `Resposta: ${row.answer}`,
       `ObservaÃ§Ã£o: ${row.observation || "-"}`,
       "",
