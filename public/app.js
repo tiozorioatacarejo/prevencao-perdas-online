@@ -211,7 +211,7 @@ if (typeof MutationObserver !== "undefined") {
 
 function loginAreaMatches(area, role) {
   const areaRoles = {
-    prevencao: ["prevencao", "colaborador", "encarregada"],
+    prevencao: ["prevencao", "colaborador"],
     gerente: ["encarregada"],
     reposicao: ["reposicao"],
     comercial: ["comercial"],
@@ -433,6 +433,14 @@ function renderView() {
 function allowedTabs() {
   if (state.user?.role === "reposicao") return [["repoDashboard", "Painel Reposi\u00e7\u00e3o"], ["reposition", "Reposi\u00e7\u00e3o"]];
   if (state.user?.role === "comercial") return [["commercialDashboard", "Painel Comercial"], ["commercial", "Comercial"]];
+  if (state.user?.role === "encarregada") {
+    return [
+      ["sectorAudit", "Conferência Gerencial"],
+      ["summary", "Resumo"],
+      ["reports", "Relatórios"],
+      ["pendencies", "Pendências"],
+    ];
+  }
   if (state.user?.role !== "administrador") {
     const tabs = [
       ["dashboard", "Painel PrevenÃ§Ã£o"],
@@ -463,6 +471,7 @@ function allowedTabs() {
 function defaultTab() {
   if (state.user?.role === "reposicao") return "repoDashboard";
   if (state.user?.role === "comercial") return "commercialDashboard";
+  if (state.user?.role === "encarregada") return "sectorAudit";
   return "dashboard";
 }
 
