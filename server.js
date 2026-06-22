@@ -1086,7 +1086,22 @@ async function api(req, res, url) {
     const start = url.searchParams.get("startDate") || today();
     const end = url.searchParams.get("endDate") || start;
     const focus = url.searchParams.get("focus") || "abastecimento";
-    return send(res, 200, { rows: await sectorAuditDashboard(start, end, focus) });
+    const rows = await sectorAuditDashboard(start, end, focus);
+    const totalRows = await query(
+      "SELECT COUNT(*) AS total FROM sector_audit_reviews WHERE date BETWEEN ? AND ? AND focus = ?",
+      [start, end, focus]
+    );
+    const userRows = await query(
+      "SELECT COUNT(*) AS total FROM sector_audit_reviews WHERE date BETWEEN ? AND ? AND focus = ? AND audited_by = ?",
+      [start, end, focus, user.id]
+    );
+    return send(res, 200, {
+      rows,
+      summary: {
+        evaluatedTotal: Number(totalRows[0]?.total || 0),
+        evaluatedByUser: Number(userRows[0]?.total || 0),
+      },
+    });
   }
 
   if (method === "POST" && url.pathname === "/api/sector-audits") {
@@ -1586,7 +1601,7 @@ async function api(req, res, url) {
         AND c.activity NOT IN (?, ?, ?)
       WHERE col.status = 'ativo'
         AND u.status = 'ativo'
-        AND u.role IN ('prevencao', 'colaborador', 'encarregada')
+        AND u.role IN ('prevencao', 'colaborador')
       GROUP BY col.id, col.name
       ORDER BY col.name
       `,

@@ -14,6 +14,7 @@
   checklists: [],
   pendencies: [],
   sectorAudits: [],
+  sectorAuditSummary: { evaluatedByUser: 0, evaluatedTotal: 0 },
   users: [],
   auditFilters: {
     startDate: new Date().toISOString().slice(0, 10),
@@ -533,6 +534,7 @@ async function loadSectorAudits() {
   const qs = new URLSearchParams(state.auditFilters);
   const data = await api(`/api/sector-audits?${qs.toString()}`);
   state.sectorAudits = data.rows || [];
+  state.sectorAuditSummary = data.summary || { evaluatedByUser: 0, evaluatedTotal: 0 };
 }
 
 function renderDashboard() {
@@ -1661,6 +1663,9 @@ function auditStatusClass(status) {
 }
 
 function renderSectorAudit() {
+  const auditSummary = state.sectorAuditSummary || { evaluatedByUser: 0, evaluatedTotal: 0 };
+  const managerMetricLabel = state.user?.role === "encarregada" ? "Avaliações feitas por você" : "Avaliações registradas";
+  const managerMetricValue = state.user?.role === "encarregada" ? auditSummary.evaluatedByUser : auditSummary.evaluatedTotal;
   view.innerHTML = `
     <div class="topbar">
       <div>
@@ -1681,6 +1686,13 @@ function renderSectorAudit() {
       </div>
       <button class="btn primary" type="submit">Aplicar período</button>
     </form>
+    <div class="metrics dashboard-summary" style="margin-bottom:14px">
+      <div class="metric">
+        <span class="muted">${managerMetricLabel}</span>
+        <strong>${managerMetricValue || 0}</strong>
+        <small>${state.auditFilters.startDate === state.auditFilters.endDate ? "no dia selecionado" : "no período selecionado"}</small>
+      </div>
+    </div>
     <section class="panel">
       <h3>Auditoria por setor</h3>
       <div class="muted" style="margin-top:4px">Escolha um ponto de conferência para comparar o que a reposição apontou com a realidade do setor.</div>
