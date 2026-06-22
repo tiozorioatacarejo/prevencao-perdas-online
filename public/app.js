@@ -436,7 +436,6 @@ function allowedTabs() {
   if (state.user?.role === "encarregada") {
     return [
       ["sectorAudit", "Conferência Gerencial"],
-      ["summary", "Resumo"],
       ["reports", "Relatórios"],
       ["pendencies", "Pendências"],
     ];
