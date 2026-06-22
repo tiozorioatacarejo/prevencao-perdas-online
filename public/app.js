@@ -212,6 +212,7 @@ if (typeof MutationObserver !== "undefined") {
 function loginAreaMatches(area, role) {
   const areaRoles = {
     prevencao: ["prevencao", "colaborador", "encarregada"],
+    gerente: ["encarregada"],
     reposicao: ["reposicao"],
     comercial: ["comercial"],
     administrador: ["administrador"],
@@ -250,6 +251,7 @@ function renderLogin(error = "") {
     <label>Ãrea de acesso
       <select name="accessArea" required>
         <option value="prevencao">PrevenÃ§Ã£o de perdas</option>
+        <option value="gerente">Gerente</option>
         <option value="reposicao">ReposiÃ§Ã£o da loja</option>
         <option value="comercial">Comercial</option>
         <option value="administrador">Administrador</option>
@@ -264,6 +266,7 @@ function renderLogin(error = "") {
       if (!loginAreaMatches(body.accessArea, data.user.role)) {
         const labels = {
           prevencao: "PrevenÃ§Ã£o de perdas",
+          gerente: "Gerente",
           reposicao: "ReposiÃ§Ã£o da loja",
           comercial: "Comercial",
           administrador: "Administrador",
