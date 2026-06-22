@@ -1545,13 +1545,13 @@ async function api(req, res, url) {
     const start = url.searchParams.get("startDate") || fallback;
     const end = url.searchParams.get("endDate") || start;
     const currentMonth = periodInfo(start, end);
-    const dashboardActivities = activities.filter((activity) => !ENGAGEMENT_EXCLUDED_ACTIVITIES.includes(activity));
+    const dashboardActivities = activities;
     const totalsByDay = await query(
       `SELECT date, COUNT(*) AS total
        FROM checklists
-       WHERE date BETWEEN ? AND ? AND activity NOT IN (?, ?, ?)
+       WHERE date BETWEEN ? AND ?
        GROUP BY date ORDER BY date`,
-      [start, end, ...ENGAGEMENT_EXCLUDED_ACTIVITIES]
+      [start, end]
     );
     const summary = (await query(
       `
@@ -1569,8 +1569,8 @@ async function api(req, res, url) {
     const completedActivityRows = await query(
       `SELECT DISTINCT date, activity
        FROM checklists
-       WHERE date BETWEEN ? AND ? AND activity NOT IN (?, ?, ?)`,
-      [start, end, ...ENGAGEMENT_EXCLUDED_ACTIVITIES]
+       WHERE date BETWEEN ? AND ?`,
+      [start, end]
     );
     const completedActivityKeys = new Set(
       completedActivityRows
@@ -1584,10 +1584,10 @@ async function api(req, res, url) {
       `
       SELECT col.name, COUNT(*) AS total
       FROM checklists c JOIN collaborators col ON col.id = c.collaborator_id
-      WHERE c.answer = 'Nao' AND c.date BETWEEN ? AND ? AND c.activity NOT IN (?, ?, ?)
+      WHERE c.answer = 'Nao' AND c.date BETWEEN ? AND ?
       GROUP BY col.name ORDER BY total DESC
       `,
-      [start, end, ...ENGAGEMENT_EXCLUDED_ACTIVITIES]
+      [start, end]
     );
     const collaboratorCounts = await query(
       `
@@ -1617,10 +1617,10 @@ async function api(req, res, url) {
       `
       SELECT activity, COUNT(DISTINCT date) AS total
       FROM checklists
-      WHERE date BETWEEN ? AND ? AND activity NOT IN (?, ?, ?)
+      WHERE date BETWEEN ? AND ?
       GROUP BY activity
       `,
-      [currentMonth.start, currentMonth.end, ...ENGAGEMENT_EXCLUDED_ACTIVITIES]
+      [currentMonth.start, currentMonth.end]
     );
     const activityMap = new Map(activityCounts.map((row) => [row.activity, row.total]));
     const expectedPerActivity = currentMonth.days;
