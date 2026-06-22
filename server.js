@@ -542,7 +542,7 @@ function sectorAuditAutomaticStatus(row, focus) {
   };
 }
 
-async function sectorAuditDashboard(start, end, focus = "abastecimento") {
+async function sectorAuditDashboard(start, end, focus = "abastecimento", sectorFilter = "") {
   const period = periodInfo(start, end);
   const selectedActivities = focusActivities(focus);
   const expectedTasks = selectedActivities.length * period.days;
@@ -668,7 +668,7 @@ async function sectorAuditDashboard(start, end, focus = "abastecimento") {
     if (!audits.has(audit.sector)) audits.set(audit.sector, audit);
   });
 
-  return Array.from(sectors.values()).map((row) => {
+  return Array.from(sectors.values()).filter((row) => !sectorFilter || row.sector === sectorFilter).map((row) => {
     const automatic = sectorAuditAutomaticStatus(row, focus);
     const audit = audits.get(row.sector) || null;
     return {
@@ -705,6 +705,11 @@ async function sectorAuditDashboard(start, end, focus = "abastecimento") {
 
 function canFillEncarregadaOnly(user) {
   return user.role === "encarregada";
+}
+
+function canFillLaraOnlyActivities(user) {
+  const identifier = normalizeText(`${user.display_name || ""} ${user.username || ""}`);
+  return user.role === "encarregada" && identifier.includes("lara");
 }
 
 function isEncarregadaOnlyActivity(activity) {
@@ -1086,14 +1091,17 @@ async function api(req, res, url) {
     const start = url.searchParams.get("startDate") || today();
     const end = url.searchParams.get("endDate") || start;
     const focus = url.searchParams.get("focus") || "abastecimento";
-    const rows = await sectorAuditDashboard(start, end, focus);
+    const sector = url.searchParams.get("sector") || "";
+    const rows = await sectorAuditDashboard(start, end, focus, sector);
+    const sectorClause = sector ? " AND sector = ?" : "";
+    const sectorParams = sector ? [sector] : [];
     const totalRows = await query(
-      "SELECT COUNT(*) AS total FROM sector_audit_reviews WHERE date BETWEEN ? AND ? AND focus = ?",
-      [start, end, focus]
+      `SELECT COUNT(*) AS total FROM sector_audit_reviews WHERE date BETWEEN ? AND ? AND focus = ?${sectorClause}`,
+      [start, end, focus, ...sectorParams]
     );
     const userRows = await query(
-      "SELECT COUNT(*) AS total FROM sector_audit_reviews WHERE date BETWEEN ? AND ? AND focus = ? AND audited_by = ?",
-      [start, end, focus, user.id]
+      `SELECT COUNT(*) AS total FROM sector_audit_reviews WHERE date BETWEEN ? AND ? AND focus = ? AND audited_by = ?${sectorClause}`,
+      [start, end, focus, user.id, ...sectorParams]
     );
     return send(res, 200, {
       rows,
@@ -1399,8 +1407,8 @@ async function api(req, res, url) {
     const date = today();
     const collaboratorId = user.collaborator_id || body.collaboratorId;
     if (!collaboratorId) return send(res, 400, { error: "Selecione um colaborador." });
-    if (isEncarregadaOnlyActivity(body.activity) && !canFillEncarregadaOnly(user)) {
-      return send(res, 403, { error: "Apenas a encarregada pode preencher perdas, consumos e vasilhames." });
+    if (isEncarregadaOnlyActivity(body.activity) && !canFillLaraOnlyActivities(user)) {
+      return send(res, 403, { error: "Apenas a encarregada Lara pode preencher perdas e consumos." });
     }
     const specificFields = checklistSpecificFields(body.activity, body);
     if (activityNeedsProductSector(body.activity) && !specificFields.sector) {
@@ -1433,8 +1441,8 @@ async function api(req, res, url) {
       return send(res, 403, { error: "VocÃª sÃ³ pode corrigir preenchimentos enviados por vocÃª." });
     }
     const body = await readBody(req);
-    if (isEncarregadaOnlyActivity(body.activity) && !canFillEncarregadaOnly(user)) {
-      return send(res, 403, { error: "Apenas a encarregada pode corrigir perdas, consumos e vasilhames." });
+    if (isEncarregadaOnlyActivity(body.activity) && !canFillLaraOnlyActivities(user)) {
+      return send(res, 403, { error: "Apenas a encarregada Lara pode corrigir perdas e consumos." });
     }
     const collaboratorId = canCorrect(user) ? body.collaboratorId : user.collaborator_id || body.collaboratorId;
     const specificFields = checklistSpecificFields(body.activity, body);

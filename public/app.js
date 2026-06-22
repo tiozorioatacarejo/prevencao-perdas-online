@@ -20,6 +20,7 @@
     startDate: new Date().toISOString().slice(0, 10),
     endDate: new Date().toISOString().slice(0, 10),
     focus: "abastecimento",
+    sector: "",
   },
   dashboard: null,
   repo: {
@@ -58,7 +59,6 @@ const AUDIT_FOCUS_OPTIONS = [
 const ENCARREGADA_ONLY_ACTIVITIES = [
   "Lan\u00e7amento de perdas no sistema",
   "Lan\u00e7amento de consumo interno",
-  "Contagem e acompanhamento de vasilhames",
 ];
 
 function api(path, options = {}) {
@@ -132,9 +132,17 @@ function canFillEncarregadaOnly() {
   return state.user?.role === "encarregada";
 }
 
+function canFillLaraOnlyActivities() {
+  const name = normalizeText(`${state.user?.display_name || ""} ${state.user?.username || ""}`)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+  return state.user?.role === "encarregada" && name.includes("lara");
+}
+
 function checklistActivitiesForUser() {
   return state.activities.filter((activity) => (
-    canFillEncarregadaOnly() || !ENCARREGADA_ONLY_ACTIVITIES.includes(activity)
+    canFillLaraOnlyActivities() || !ENCARREGADA_ONLY_ACTIVITIES.includes(activity)
   ));
 }
 
@@ -164,6 +172,12 @@ function normalizeText(value) {
   return text;
 }
 
+function withoutAccents(value) {
+  return normalizeText(value)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
 function decodeBrokenUtf8(text) {
   try {
     if (typeof TextDecoder !== "undefined") {
@@ -182,12 +196,16 @@ function fixVisibleText(root = app) {
   const nodes = [];
   while (walker.nextNode()) nodes.push(walker.currentNode);
   nodes.forEach((node) => {
-    node.nodeValue = normalizeText(node.nodeValue);
+    if (node.parentElement?.tagName === "OPTION") {
+      node.nodeValue = normalizeText(node.nodeValue);
+    } else {
+      node.nodeValue = withoutAccents(node.nodeValue);
+    }
   });
   root.querySelectorAll("input[placeholder], textarea[placeholder], [title], [aria-label]").forEach((field) => {
-    if (field.hasAttribute("placeholder")) field.placeholder = normalizeText(field.placeholder);
-    if (field.title) field.title = normalizeText(field.title);
-    if (field.getAttribute("aria-label")) field.setAttribute("aria-label", normalizeText(field.getAttribute("aria-label")));
+    if (field.hasAttribute("placeholder")) field.placeholder = withoutAccents(field.placeholder);
+    if (field.title) field.title = withoutAccents(field.title);
+    if (field.getAttribute("aria-label")) field.setAttribute("aria-label", withoutAccents(field.getAttribute("aria-label")));
   });
 }
 
@@ -435,11 +453,13 @@ function allowedTabs() {
   if (state.user?.role === "reposicao") return [["repoDashboard", "Painel Reposi\u00e7\u00e3o"], ["reposition", "Reposi\u00e7\u00e3o"]];
   if (state.user?.role === "comercial") return [["commercialDashboard", "Painel Comercial"], ["commercial", "Comercial"]];
   if (state.user?.role === "encarregada") {
-    return [
+    const tabs = [
       ["sectorAudit", "Conferência Gerencial"],
       ["reports", "Relatórios"],
       ["pendencies", "Pendências"],
     ];
+    if (canFillLaraOnlyActivities()) tabs.splice(1, 0, ["checklist", "Checklist"]);
+    return tabs;
   }
   if (state.user?.role !== "administrador") {
     const tabs = [
@@ -1675,12 +1695,18 @@ function renderSectorAudit() {
       <button class="btn" id="refreshSectorAudit">Atualizar</button>
     </div>
     <form class="panel grid" id="sectorAuditFilterForm" style="margin-bottom:14px">
-      <div class="grid three">
+      <div class="grid four">
         <label>Início <input name="startDate" type="date" value="${escapeHtml(state.auditFilters.startDate)}"></label>
         <label>Fim <input name="endDate" type="date" value="${escapeHtml(state.auditFilters.endDate)}"></label>
         <label>O que deseja conferir?
           <select name="focus">
             ${AUDIT_FOCUS_OPTIONS.map(([value, label]) => `<option value="${value}" ${state.auditFilters.focus === value ? "selected" : ""}>${label}</option>`).join("")}
+          </select>
+        </label>
+        <label>Setor
+          <select name="sector">
+            <option value="">Todos</option>
+            ${repoOptions(state.repo.sectors || [], state.auditFilters.sector || "")}
           </select>
         </label>
       </div>
