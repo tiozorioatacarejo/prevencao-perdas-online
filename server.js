@@ -53,7 +53,6 @@ const repoActivities = [
   "Verifica\u00e7\u00e3o de validades",
   "Ruptura de produto em loja",
   "Ruptura para direcionar ao comercial",
-  "Controle de avarias",
   "Ponta de g\u00f4ndola e ilhas organizadas",
   "Confer\u00eancia de estoque no dep\u00f3sito",
   "Devolu\u00e7\u00e3o de produtos ao setor correto",

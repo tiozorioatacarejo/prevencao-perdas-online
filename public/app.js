@@ -536,18 +536,17 @@ async function loadUsers() {
 
 async function loadReposition() {
   const qs = new URLSearchParams(state.repo.filters);
-  const [dashboard, tasks, ruptures, expirations, damages] = await Promise.all([
+  const [dashboard, tasks, ruptures, expirations] = await Promise.all([
     api(`/api/reposition/dashboard?${qs.toString()}`),
     api(`/api/reposition/tasks?${qs.toString()}`),
     api(`/api/reposition/ruptures?${qs.toString()}`),
     api(`/api/reposition/expirations?${qs.toString()}`),
-    api(`/api/reposition/damages?${qs.toString()}`),
   ]);
   state.repo.dashboard = dashboard;
   state.repo.tasks = tasks.rows;
   state.repo.ruptures = ruptures.rows;
   state.repo.expirations = expirations.rows;
-  state.repo.damages = damages.rows;
+  state.repo.damages = [];
 }
 
 async function loadSectorAudits() {
@@ -751,13 +750,12 @@ function exportRepoPanelCsv(kind) {
     ["Atividades realizadas", `${summary.completed || 0}/${summary.taskTotal || 0}`],
     [],
     ["Itens identificados por setor"],
-    ["Setor", "Itens identificados", "Rupturas", "Validades", "Avarias"],
+    ["Setor", "Itens identificados", "Rupturas", "Validades"],
     ...(data.bySector || []).map((row) => [
       row.sector,
-      Number(row.ruptures || 0) + Number(row.expirations || 0) + Number(row.damages || 0),
+      Number(row.ruptures || 0) + Number(row.expirations || 0),
       row.ruptures || 0,
       row.expirations || 0,
-      row.damages || 0,
     ]),
     [],
     ["Engajamento da reposição"],
@@ -1316,7 +1314,7 @@ function renderRepoDashboard() {
     <div class="grid two" style="margin-top:14px">
       <section class="panel">
         <h3>Itens identificados por setor</h3>
-        <div class="muted" style="margin-top:4px">Soma de rupturas, validades e avarias registradas no período</div>
+        <div class="muted" style="margin-top:4px">Soma de rupturas e validades registradas no período</div>
         <div class="table-wrap" style="margin-top:12px">${repoSectorTable(data.bySector || [])}</div>
       </section>
       <section class="panel">
@@ -1413,7 +1411,7 @@ function renderReposition() {
     <div class="topbar">
       <div>
         <h2>ReposiÃ§Ã£o da loja</h2>
-        <div class="muted">Atividades, rupturas, validades, avarias e retorno comercial</div>
+        <div class="muted">Atividades, rupturas, validades e retorno comercial</div>
       </div>
       <button class="btn" id="refreshReposition">Atualizar</button>
     </div>
@@ -1428,10 +1426,7 @@ function renderReposition() {
       <section class="panel">${repoTaskForm()}</section>
       <section class="panel">${repoIssueForm("ruptures", "Rupturas", "Produto em falta", [["type", "Tipo", ["Ruptura total", "Proximo de ruptura"]], ["quantity", "Quantidade"]])}</section>
     </div>
-    <div class="grid two" style="margin-top:14px">
-      <section class="panel">${repoIssueForm("expirations", "Validades", "Produto com validade curta", [["expirationDate", "Data de validade", "date"], ["quantity", "Quantidade"]])}</section>
-      <section class="panel">${repoDamageForm()}</section>
-    </div>
+    <section class="panel" style="margin-top:14px">${repoIssueForm("expirations", "Validades", "Produto com validade curta", [["expirationDate", "Data de validade", "date"], ["quantity", "Quantidade"]])}</section>
     <div class="grid two" style="margin-top:14px">
       <section class="panel">
         <h3>Indicadores por setor</h3>
@@ -1510,25 +1505,6 @@ function repoIssueForm(kind, title, productLabel, fields) {
   `;
 }
 
-function repoDamageForm() {
-  return `
-    <h3>Avarias</h3>
-    <form class="grid" id="repo-damages-form" data-repo-kind="damages" style="margin-top:12px">
-      <div class="grid two">
-        <label>Data <input name="date" type="date" value="${todayInputValue()}"></label>
-        <label>Setor <select name="sector">${repoSectorOptionsForCurrentUser()}</select></label>
-      </div>
-      <label>Produto <input name="product" required></label>
-      <div class="grid two">
-        <label>Quantidade <input name="quantity"></label>
-        <label>Motivo <input name="reason"></label>
-      </div>
-      <label>AÃ§Ã£o tomada <input name="action"></label>
-      <button class="btn primary" type="submit">Salvar avaria</button>
-    </form>
-  `;
-}
-
 function bindRepoForms() {
   const taskForm = document.getElementById("repoTaskForm");
   const syncRepoTaskSector = () => {
@@ -1580,11 +1556,11 @@ function bindRepoCommercialButtons() {
 
 function repoSectorTable(rows) {
   return `
-    <table><thead><tr><th>Setor</th><th>Itens identificados</th><th>Rupturas</th><th>Validades</th><th>Avarias</th></tr></thead><tbody>
+    <table><thead><tr><th>Setor</th><th>Itens identificados</th><th>Rupturas</th><th>Validades</th></tr></thead><tbody>
       ${rows.map((row) => {
-        const identified = Number(row.ruptures || 0) + Number(row.expirations || 0) + Number(row.damages || 0);
-        return `<tr><td data-label="Setor">${escapeHtml(row.sector)}</td><td data-label="Itens identificados">${identified}</td><td data-label="Rupturas">${row.ruptures || 0}</td><td data-label="Validades">${row.expirations || 0}</td><td data-label="Avarias">${row.damages || 0}</td></tr>`;
-      }).join("") || `<tr><td colspan="5">Sem registros.</td></tr>`}
+        const identified = Number(row.ruptures || 0) + Number(row.expirations || 0);
+        return `<tr><td data-label="Setor">${escapeHtml(row.sector)}</td><td data-label="Itens identificados">${identified}</td><td data-label="Rupturas">${row.ruptures || 0}</td><td data-label="Validades">${row.expirations || 0}</td></tr>`;
+      }).join("") || `<tr><td colspan="4">Sem registros.</td></tr>`}
     </tbody></table>
   `;
 }
