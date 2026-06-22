@@ -706,9 +706,13 @@ function canFillEncarregadaOnly(user) {
   return user.role === "encarregada";
 }
 
-function canFillLaraOnlyActivities(user) {
+async function canFillLaraOnlyActivities(user) {
+  if (user.role !== "encarregada") return false;
   const identifier = normalizeText(`${user.display_name || ""} ${user.username || ""}`);
-  return user.role === "encarregada" && identifier.includes("lara");
+  if (identifier.includes("lara")) return true;
+  if (!user.collaborator_id) return false;
+  const rows = await query("SELECT name FROM collaborators WHERE id = ?", [user.collaborator_id]);
+  return normalizeText(rows[0]?.name || "").includes("lara");
 }
 
 function isEncarregadaOnlyActivity(activity) {
@@ -1406,7 +1410,7 @@ async function api(req, res, url) {
     const date = today();
     const collaboratorId = user.collaborator_id || body.collaboratorId;
     if (!collaboratorId) return send(res, 400, { error: "Selecione um colaborador." });
-    if (isEncarregadaOnlyActivity(body.activity) && !canFillLaraOnlyActivities(user)) {
+    if (isEncarregadaOnlyActivity(body.activity) && !(await canFillLaraOnlyActivities(user))) {
       return send(res, 403, { error: "Apenas a encarregada Lara pode preencher perdas e consumos." });
     }
     const specificFields = checklistSpecificFields(body.activity, body);
@@ -1440,7 +1444,7 @@ async function api(req, res, url) {
       return send(res, 403, { error: "VocÃª sÃ³ pode corrigir preenchimentos enviados por vocÃª." });
     }
     const body = await readBody(req);
-    if (isEncarregadaOnlyActivity(body.activity) && !canFillLaraOnlyActivities(user)) {
+    if (isEncarregadaOnlyActivity(body.activity) && !(await canFillLaraOnlyActivities(user))) {
       return send(res, 403, { error: "Apenas a encarregada Lara pode corrigir perdas e consumos." });
     }
     const collaboratorId = canCorrect(user) ? body.collaboratorId : user.collaborator_id || body.collaboratorId;
@@ -1560,9 +1564,13 @@ async function api(req, res, url) {
     const start = url.searchParams.get("startDate") || fallback;
     const end = url.searchParams.get("endDate") || start;
     const currentMonth = periodInfo(start, end);
+    const dashboardActivities = activities.filter((activity) => !ENGAGEMENT_EXCLUDED_ACTIVITIES.includes(activity));
     const totalsByDay = await query(
-      "SELECT date, COUNT(*) AS total FROM checklists WHERE date BETWEEN ? AND ? GROUP BY date ORDER BY date",
-      [start, end]
+      `SELECT date, COUNT(*) AS total
+       FROM checklists
+       WHERE date BETWEEN ? AND ? AND activity NOT IN (?, ?, ?)
+       GROUP BY date ORDER BY date`,
+      [start, end, ...ENGAGEMENT_EXCLUDED_ACTIVITIES]
     );
     const summary = (await query(
       `
@@ -1578,25 +1586,27 @@ async function api(req, res, url) {
       [start, end, RECEIPTS_ACTIVITY, start, end, EXPIRED_PRODUCTS_ACTIVITY, start, end, PRICE_DIVERGENCE_ACTIVITY, start, end]
     ))[0];
     const completedActivityRows = await query(
-      "SELECT DISTINCT date, activity FROM checklists WHERE date BETWEEN ? AND ?",
-      [start, end]
+      `SELECT DISTINCT date, activity
+       FROM checklists
+       WHERE date BETWEEN ? AND ? AND activity NOT IN (?, ?, ?)`,
+      [start, end, ...ENGAGEMENT_EXCLUDED_ACTIVITIES]
     );
     const completedActivityKeys = new Set(
       completedActivityRows
-        .filter((row) => activities.includes(row.activity))
+        .filter((row) => dashboardActivities.includes(row.activity))
         .map((row) => `${row.date}|${row.activity}`)
     );
-    const expectedChecklistTotal = activities.length * currentMonth.days;
+    const expectedChecklistTotal = dashboardActivities.length * currentMonth.days;
     const completedChecklistTotal = completedActivityKeys.size;
     const pendingToday = Math.max(expectedChecklistTotal - completedChecklistTotal, 0);
     const byCollaborator = await query(
       `
       SELECT col.name, COUNT(*) AS total
       FROM checklists c JOIN collaborators col ON col.id = c.collaborator_id
-      WHERE c.answer = 'Nao' AND c.date BETWEEN ? AND ?
+      WHERE c.answer = 'Nao' AND c.date BETWEEN ? AND ? AND c.activity NOT IN (?, ?, ?)
       GROUP BY col.name ORDER BY total DESC
       `,
-      [start, end]
+      [start, end, ...ENGAGEMENT_EXCLUDED_ACTIVITIES]
     );
     const collaboratorCounts = await query(
       `
@@ -1626,14 +1636,14 @@ async function api(req, res, url) {
       `
       SELECT activity, COUNT(DISTINCT date) AS total
       FROM checklists
-      WHERE date BETWEEN ? AND ?
+      WHERE date BETWEEN ? AND ? AND activity NOT IN (?, ?, ?)
       GROUP BY activity
       `,
-      [currentMonth.start, currentMonth.end]
+      [currentMonth.start, currentMonth.end, ...ENGAGEMENT_EXCLUDED_ACTIVITIES]
     );
     const activityMap = new Map(activityCounts.map((row) => [row.activity, row.total]));
     const expectedPerActivity = currentMonth.days;
-    const activityCompletion = activities.map((activity) => {
+    const activityCompletion = dashboardActivities.map((activity) => {
       const total = activityMap.get(activity) || 0;
       return {
         activity,

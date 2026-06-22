@@ -133,11 +133,18 @@ function canFillEncarregadaOnly() {
 }
 
 function canFillLaraOnlyActivities() {
+  const linkedCollaborator = state.user?.collaborator_id
+    ? state.collaborators.find((item) => Number(item.id) === Number(state.user.collaborator_id))
+    : null;
   const name = normalizeText(`${state.user?.display_name || ""} ${state.user?.username || ""}`)
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase();
-  return state.user?.role === "encarregada" && name.includes("lara");
+  const collaboratorName = normalizeText(linkedCollaborator?.name || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+  return state.user?.role === "encarregada" && (name.includes("lara") || collaboratorName.includes("lara"));
 }
 
 function checklistActivitiesForUser() {
