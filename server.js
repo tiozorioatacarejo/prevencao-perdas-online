@@ -706,19 +706,6 @@ function canFillEncarregadaOnly(user) {
   return user.role === "encarregada";
 }
 
-async function canFillLaraOnlyActivities(user) {
-  if (user.role !== "encarregada") return false;
-  const identifier = normalizeText(`${user.display_name || ""} ${user.username || ""}`);
-  if (identifier.includes("lara")) return true;
-  if (!user.collaborator_id) return false;
-  const rows = await query("SELECT name FROM collaborators WHERE id = ?", [user.collaborator_id]);
-  return normalizeText(rows[0]?.name || "").includes("lara");
-}
-
-function isEncarregadaOnlyActivity(activity) {
-  return ENGAGEMENT_EXCLUDED_ACTIVITIES.includes(activity);
-}
-
 function today() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -1410,9 +1397,6 @@ async function api(req, res, url) {
     const date = today();
     const collaboratorId = user.collaborator_id || body.collaboratorId;
     if (!collaboratorId) return send(res, 400, { error: "Selecione um colaborador." });
-    if (isEncarregadaOnlyActivity(body.activity) && !(await canFillLaraOnlyActivities(user))) {
-      return send(res, 403, { error: "Apenas a encarregada Lara pode preencher perdas e consumos." });
-    }
     const specificFields = checklistSpecificFields(body.activity, body);
     if (activityNeedsProductSector(body.activity) && !specificFields.sector) {
       return send(res, 400, { error: "Selecione o setor do produto." });
@@ -1444,9 +1428,6 @@ async function api(req, res, url) {
       return send(res, 403, { error: "VocÃª sÃ³ pode corrigir preenchimentos enviados por vocÃª." });
     }
     const body = await readBody(req);
-    if (isEncarregadaOnlyActivity(body.activity) && !(await canFillLaraOnlyActivities(user))) {
-      return send(res, 403, { error: "Apenas a encarregada Lara pode corrigir perdas e consumos." });
-    }
     const collaboratorId = canCorrect(user) ? body.collaboratorId : user.collaborator_id || body.collaboratorId;
     const specificFields = checklistSpecificFields(body.activity, body);
     if (activityNeedsProductSector(body.activity) && !specificFields.sector) {

@@ -56,11 +56,6 @@ const AUDIT_FOCUS_OPTIONS = [
   ["avaria", "Avaria"],
   ["tudo", "Tudo"],
 ];
-const ENCARREGADA_ONLY_ACTIVITIES = [
-  "Lan\u00e7amento de perdas no sistema",
-  "Lan\u00e7amento de consumo interno",
-];
-
 function api(path, options = {}) {
   return fetch(path, {
     ...options,
@@ -148,9 +143,7 @@ function canFillLaraOnlyActivities() {
 }
 
 function checklistActivitiesForUser() {
-  return state.activities.filter((activity) => (
-    canFillLaraOnlyActivities() || !ENCARREGADA_ONLY_ACTIVITIES.includes(activity)
-  ));
+  return state.activities;
 }
 
 function toast(message) {
