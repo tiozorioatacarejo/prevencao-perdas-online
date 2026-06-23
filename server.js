@@ -227,6 +227,17 @@ async function initPostgres(pool) {
       created_by INTEGER NOT NULL REFERENCES users(id)
     );
 
+    CREATE TABLE IF NOT EXISTS repo_goals (
+      id SERIAL PRIMARY KEY,
+      sector TEXT NOT NULL,
+      goal_type TEXT NOT NULL DEFAULT 'checklist',
+      target_daily INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'ativo',
+      updated_by INTEGER REFERENCES users(id),
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(sector, goal_type)
+    );
+
     CREATE TABLE IF NOT EXISTS sector_audits (
       id SERIAL PRIMARY KEY,
       date TEXT NOT NULL,
@@ -441,7 +452,11 @@ function canAccessPrevention(user) {
 }
 
 function canAccessReposition(user) {
-  return ["administrador", "reposicao", "comercial"].includes(user.role);
+  return ["administrador", "encarregada", "reposicao", "comercial"].includes(user.role);
+}
+
+function canManageRepoGoals(user) {
+  return ["administrador", "encarregada"].includes(user.role);
 }
 
 function canUpdateRepoCommercial(user) {
@@ -996,6 +1011,24 @@ async function api(req, res, url) {
       `,
       [start, end, start, end, start, end, start, end]
     );
+    const goalRows = await query(
+      "SELECT sector, target_daily, status FROM repo_goals WHERE goal_type = 'checklist' AND status = 'ativo' ORDER BY sector"
+    );
+    const tasksBySector = new Map((bySector || []).map((row) => [row.sector, Number(row.tasks || 0)]));
+    const goalProgress = goalRows.map((row) => {
+      const targetDaily = Number(row.target_daily || 0);
+      const target = targetDaily * period.days;
+      const done = tasksBySector.get(row.sector) || 0;
+      return {
+        sector: row.sector,
+        targetDaily,
+        target,
+        done,
+        pending: Math.max(target - done, 0),
+        percent: target ? Math.min(100, Math.round((done / target) * 100)) : 0,
+        status: row.status,
+      };
+    });
     const submittedTaskTotal = taskRows.reduce((sum, row) => sum + Number(row.total || 0), 0);
     const expectedTaskTotal = Math.max(0, repoActivities.length * period.days);
     const completed = Math.min(Number(completedTaskRows[0]?.total || 0), expectedTaskTotal || Number(completedTaskRows[0]?.total || 0));
@@ -1052,6 +1085,7 @@ async function api(req, res, url) {
         damages: Number(damageRows[0]?.total || 0),
       },
       bySector,
+      repoGoalProgress: goalProgress,
       repoUserEngagement: repoUserCounts.map((row) => ({
         id: row.id,
         name: row.name,
@@ -1074,6 +1108,36 @@ async function api(req, res, url) {
         percent: commercialTotalByUsers ? Math.round((Number(row.total || 0) / commercialTotalByUsers) * 100) : 0,
       })),
     });
+  }
+
+  if (method === "GET" && url.pathname === "/api/reposition/goals") {
+    if (!canAccessReposition(user) && !canManageRepoGoals(user)) return send(res, 403, { error: "Acesso restrito às metas da reposição." });
+    return send(res, 200, {
+      rows: await query("SELECT * FROM repo_goals WHERE goal_type = 'checklist' ORDER BY sector"),
+    });
+  }
+
+  if (method === "POST" && url.pathname === "/api/reposition/goals") {
+    if (!canManageRepoGoals(user)) return send(res, 403, { error: "Apenas administrador ou gerente pode salvar metas." });
+    const body = await readBody(req);
+    const sector = String(body.sector || "").trim();
+    const targetDaily = Math.max(0, Number.parseInt(body.targetDaily, 10) || 0);
+    const status = body.status === "inativo" ? "inativo" : "ativo";
+    if (!repoSectors.includes(sector)) return send(res, 400, { error: "Selecione um setor válido." });
+    await execute(
+      `
+      INSERT INTO repo_goals (sector, goal_type, target_daily, status, updated_by, updated_at)
+      VALUES (?, 'checklist', ?, ?, ?, ?)
+      ON CONFLICT(sector, goal_type) DO UPDATE SET
+        target_daily=excluded.target_daily,
+        status=excluded.status,
+        updated_by=excluded.updated_by,
+        updated_at=excluded.updated_at
+      `,
+      [sector, targetDaily, status, user.id, nowIso()]
+    );
+    await logAudit(user, "upsert", "repo_goals", sector, { targetDaily, status });
+    return send(res, 200, { ok: true });
   }
 
   if (method === "GET" && url.pathname === "/api/sector-audits") {

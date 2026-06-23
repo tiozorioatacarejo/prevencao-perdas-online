@@ -75,6 +75,17 @@ async function initPostgres() {
       updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS repo_goals (
+      id SERIAL PRIMARY KEY,
+      sector TEXT NOT NULL,
+      goal_type TEXT NOT NULL DEFAULT 'checklist',
+      target_daily INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'ativo',
+      updated_by INTEGER REFERENCES users(id),
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(sector, goal_type)
+    );
+
     CREATE TABLE IF NOT EXISTS sector_audits (
       id SERIAL PRIMARY KEY,
       date TEXT NOT NULL,

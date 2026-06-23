@@ -184,6 +184,18 @@ def init_db():
             FOREIGN KEY (created_by) REFERENCES users(id)
         );
 
+        CREATE TABLE IF NOT EXISTS repo_goals (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sector TEXT NOT NULL,
+            goal_type TEXT NOT NULL DEFAULT 'checklist',
+            target_daily INTEGER NOT NULL DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'ativo',
+            updated_by INTEGER,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(sector, goal_type),
+            FOREIGN KEY (updated_by) REFERENCES users(id)
+        );
+
         CREATE TABLE IF NOT EXISTS sector_audits (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             date TEXT NOT NULL,

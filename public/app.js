@@ -35,6 +35,7 @@
     ruptures: [],
     expirations: [],
     damages: [],
+    goals: [],
     filters: {
       startDate: new Date().toISOString().slice(0, 10),
       endDate: new Date().toISOString().slice(0, 10),
@@ -120,7 +121,11 @@ function canAccessPrevention() {
 }
 
 function canAccessReposition() {
-  return ["administrador", "reposicao", "comercial"].includes(state.user?.role);
+  return ["administrador", "encarregada", "reposicao", "comercial"].includes(state.user?.role);
+}
+
+function canManageRepoGoals() {
+  return ["administrador", "encarregada"].includes(state.user?.role);
 }
 
 function canFillEncarregadaOnly() {
@@ -149,7 +154,7 @@ function checklistActivitiesForUser() {
 function toast(message) {
   const el = document.createElement("div");
   el.className = "toast";
-  el.textContent = normalizeText(message);
+  el.textContent = withoutAccents(message);
   document.body.appendChild(el);
   setTimeout(() => el.remove(), 3200);
 }
@@ -197,7 +202,9 @@ function fixVisibleText(root = app) {
   while (walker.nextNode()) nodes.push(walker.currentNode);
   nodes.forEach((node) => {
     if (node.parentElement?.tagName === "OPTION") {
-      node.nodeValue = normalizeText(node.nodeValue);
+      const option = node.parentElement;
+      if (!option.hasAttribute("value")) option.value = normalizeText(node.nodeValue);
+      node.nodeValue = withoutAccents(node.nodeValue);
     } else {
       node.nodeValue = withoutAccents(node.nodeValue);
     }
@@ -421,7 +428,7 @@ function renderShell() {
 
 async function refreshForTab() {
   if (state.tab === "dashboard") await loadDashboard();
-  if (state.tab === "repoDashboard" || state.tab === "commercialDashboard") await Promise.all([loadCollaborators(), loadReposition()]);
+  if (state.tab === "repoDashboard" || state.tab === "commercialDashboard" || state.tab === "repoGoals") await Promise.all([loadCollaborators(), loadReposition()]);
   if (state.tab === "sectorAudit") await Promise.all([loadCollaborators(), loadSectorAudits()]);
   if (state.tab === "collaborators" || state.tab === "checklist" || state.tab === "pendencies") await loadCollaborators();
   if (state.tab === "reposition" || state.tab === "commercial") await Promise.all([loadCollaborators(), loadReposition()]);
@@ -440,6 +447,7 @@ function renderView() {
     reports: renderReports,
     reposition: renderReposition,
     commercial: renderCommercial,
+    repoGoals: renderRepoGoals,
     sectorAudit: renderSectorAudit,
     pendencies: renderPendencies,
     collaborators: renderCollaborators,
@@ -455,6 +463,7 @@ function allowedTabs() {
   if (state.user?.role === "encarregada") {
     const tabs = [
       ["sectorAudit", "Conferência Gerencial"],
+      ["repoGoals", "Metas Reposição"],
       ["reports", "Relatórios"],
       ["pendencies", "Pendências"],
     ];
@@ -474,6 +483,7 @@ function allowedTabs() {
   const tabs = [
     ["dashboard", "Painel PrevenÃ§Ã£o"],
     ["repoDashboard", "Painel Reposi\u00e7\u00e3o"],
+    ["repoGoals", "Metas Reposição"],
     ["commercialDashboard", "Painel Comercial"],
     ["sectorAudit", "Confer\u00eancia Gerencial"],
     ["checklist", "Checklist"],
@@ -542,11 +552,13 @@ async function loadReposition() {
     api(`/api/reposition/ruptures?${qs.toString()}`),
     api(`/api/reposition/expirations?${qs.toString()}`),
   ]);
+  const goals = await api("/api/reposition/goals");
   state.repo.dashboard = dashboard;
   state.repo.tasks = tasks.rows;
   state.repo.ruptures = ruptures.rows;
   state.repo.expirations = expirations.rows;
   state.repo.damages = [];
+  state.repo.goals = goals.rows || [];
 }
 
 async function loadSectorAudits() {
@@ -1257,7 +1269,7 @@ async function deleteChecklist(id) {
 }
 
 function repoOptions(items, selected = "") {
-  return items.map((item) => `<option ${item === selected ? "selected" : ""}>${escapeHtml(item)}</option>`).join("");
+  return items.map((item) => `<option value="${escapeHtml(item)}" ${item === selected ? "selected" : ""}>${escapeHtml(withoutAccents(item))}</option>`).join("");
 }
 
 function renderCommercial() {
@@ -1279,6 +1291,82 @@ function renderCommercial() {
     renderCommercial();
   });
   bindRepoCommercialButtons();
+  fixVisibleText(view);
+}
+
+function renderRepoGoals() {
+  if (!canManageRepoGoals()) {
+    view.innerHTML = `<section class="panel"><h3>Acesso restrito</h3><p class="muted">Apenas administrador ou gerente pode definir metas.</p></section>`;
+    fixVisibleText(view);
+    return;
+  }
+  const goalsBySector = new Map((state.repo.goals || []).map((row) => [row.sector, row]));
+  view.innerHTML = `
+    <div class="topbar">
+      <div>
+        <h2>Metas Reposição</h2>
+        <div class="muted">Definição de meta diária de atividades por setor</div>
+      </div>
+      <button class="btn" id="refreshRepoGoals">Atualizar</button>
+    </div>
+    <section class="panel">
+      <h3>Definir meta por setor</h3>
+      <div class="muted" style="margin-top:4px">Informe quantas atividades de checklist o setor deve realizar por dia.</div>
+      <form class="grid" id="repoGoalForm" style="margin-top:12px">
+        <div class="grid three">
+          <label>Setor <select name="sector">${repoOptions(state.repo.sectors || [])}</select></label>
+          <label>Meta diária <input name="targetDaily" type="number" min="0" step="1" required placeholder="Ex.: 11"></label>
+          <label>Status
+            <select name="status">
+              <option value="ativo">Ativo</option>
+              <option value="inativo">Inativo</option>
+            </select>
+          </label>
+        </div>
+        <button class="btn primary" type="submit">Salvar meta</button>
+      </form>
+    </section>
+    <section class="panel" style="margin-top:14px">
+      <h3>Metas cadastradas</h3>
+      <div class="table-wrap" style="margin-top:12px">${repoGoalsTable(state.repo.goals || [])}</div>
+    </section>
+    <section class="panel" style="margin-top:14px">
+      <h3>Sugestão rápida</h3>
+      <div class="table-wrap" style="margin-top:12px">
+        <table><thead><tr><th>Setor</th><th>Meta atual</th><th>Sugestão</th></tr></thead><tbody>
+          ${(state.repo.sectors || []).map((sector) => {
+            const current = goalsBySector.get(sector);
+            return `<tr>
+              <td data-label="Setor">${escapeHtml(sector)}</td>
+              <td data-label="Meta atual">${current ? `${current.target_daily || 0} por dia` : "Sem meta"}</td>
+              <td data-label="Sugestão">${state.repo.activities.length} atividades por dia</td>
+            </tr>`;
+          }).join("")}
+        </tbody></table>
+      </div>
+    </section>
+  `;
+  document.getElementById("refreshRepoGoals").addEventListener("click", async () => {
+    await loadReposition();
+    renderRepoGoals();
+  });
+  document.getElementById("repoGoalForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    await api("/api/reposition/goals", { method: "POST", body: JSON.stringify(Object.fromEntries(new FormData(event.currentTarget).entries())) });
+    await loadReposition();
+    renderRepoGoals();
+    toast("Meta da reposição salva.");
+  });
+  document.querySelectorAll("[data-repo-goal-sector]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const row = (state.repo.goals || []).find((item) => item.sector === button.dataset.repoGoalSector);
+      const form = document.getElementById("repoGoalForm");
+      form.elements.sector.value = row.sector;
+      form.elements.targetDaily.value = row.target_daily || 0;
+      form.elements.status.value = row.status || "ativo";
+      form.elements.targetDaily.focus();
+    });
+  });
   fixVisibleText(view);
 }
 
@@ -1323,6 +1411,11 @@ function renderRepoDashboard() {
         <div class="table-wrap" style="margin-top:12px">${repoUserEngagementTable(data.repoUserEngagement || [])}</div>
       </section>
     </div>
+    <section class="panel" style="margin-top:14px">
+      <h3>Metas por setor</h3>
+      <div class="muted" style="margin-top:4px">Compara a meta diária definida com as atividades registradas no período</div>
+      <div class="table-wrap" style="margin-top:12px">${repoGoalProgressTable(data.repoGoalProgress || [])}</div>
+    </section>
     <section class="panel" style="margin-top:14px">
       <h3>Percentual de realização das atividades da reposição</h3>
       <div class="muted" style="margin-top:4px">Conta o dia quando a atividade foi marcada como Sim ao menos uma vez</div>
@@ -1588,6 +1681,33 @@ function commercialSectorTable() {
   return `
     <table><thead><tr><th>Setor</th><th>Itens identificados</th><th>Rupturas</th><th>Validades</th></tr></thead><tbody>
       ${rows.map((row) => `<tr><td data-label="Setor">${escapeHtml(row.sector)}</td><td data-label="Itens identificados">${row.total}</td><td data-label="Rupturas">${row.ruptures}</td><td data-label="Validades">${row.expirations}</td></tr>`).join("") || `<tr><td colspan="4">Sem registros.</td></tr>`}
+    </tbody></table>
+  `;
+}
+
+function repoGoalsTable(rows) {
+  return `
+    <table><thead><tr><th>Setor</th><th>Meta diária</th><th>Status</th><th>Ação</th></tr></thead><tbody>
+      ${rows.map((row) => `<tr>
+        <td data-label="Setor">${escapeHtml(row.sector)}</td>
+        <td data-label="Meta diária">${row.target_daily || 0}</td>
+        <td data-label="Status"><span class="status ${row.status === "ativo" ? "ok" : "warn"}">${escapeHtml(row.status || "")}</span></td>
+        <td data-label="Ação"><button class="btn" type="button" data-repo-goal-sector="${escapeHtml(row.sector)}">Editar</button></td>
+      </tr>`).join("") || `<tr><td colspan="4">Nenhuma meta cadastrada.</td></tr>`}
+    </tbody></table>
+  `;
+}
+
+function repoGoalProgressTable(rows) {
+  return `
+    <table><thead><tr><th>Setor</th><th>Realizado</th><th>Meta</th><th>Pendente</th><th>Percentual</th></tr></thead><tbody>
+      ${rows.map((row) => `<tr>
+        <td data-label="Setor">${escapeHtml(row.sector)}</td>
+        <td data-label="Realizado">${row.done || 0}</td>
+        <td data-label="Meta">${row.target || 0}</td>
+        <td data-label="Pendente">${row.pending || 0}</td>
+        <td data-label="Percentual">${percentBar(row.percent || 0)}</td>
+      </tr>`).join("") || `<tr><td colspan="5">Nenhuma meta ativa cadastrada.</td></tr>`}
     </tbody></table>
   `;
 }
