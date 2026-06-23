@@ -49,6 +49,7 @@
       endDate: new Date().toISOString().slice(0, 10),
     },
   },
+  openNavGroup: "",
 };
 
 const app = document.getElementById("app");
@@ -129,7 +130,7 @@ function canAccessPrevention() {
 }
 
 function canAccessReposition() {
-  return ["administrador", "encarregada", "reposicao", "comercial"].includes(state.user?.role);
+  return ["administrador", "encarregada", "gerente", "reposicao", "comercial"].includes(state.user?.role);
 }
 
 function canAccessAgenda(type) {
@@ -253,7 +254,7 @@ if (typeof MutationObserver !== "undefined") {
 function loginAreaMatches(area, role) {
   const areaRoles = {
     prevencao: ["prevencao", "colaborador"],
-    gerente: ["encarregada"],
+    gerente: ["gerente", "encarregada"],
     reposicao: ["reposicao"],
     recebimento: ["recebimento"],
     comercial: ["comercial"],
@@ -399,7 +400,8 @@ function roleLabel(role) {
     administrador: "Administrador",
     prevencao: "Prevenção",
     colaborador: "Colaborador",
-    encarregada: "Gerente",
+    encarregada: "Encarregada",
+    gerente: "Gerente",
     reposicao: "Reposição",
     recebimento: "Recebimento",
     comercial: "Comercial",
@@ -413,7 +415,9 @@ function userInitial(name) {
 
 function renderShell() {
   const tabs = allowedTabs();
+  const groups = navGroups(tabs);
   if (!tabs.some(([id]) => id === state.tab)) state.tab = tabs[0][0];
+  const openGroup = state.openNavGroup || "";
   app.innerHTML = `
     <section class="app-shell">
       <aside class="sidebar">
@@ -426,11 +430,22 @@ function renderShell() {
         </div>
         <div class="nav-title">Menu principal</div>
         <nav class="nav">
-          ${tabs.map(([id, label]) => `
-            <button class="${state.tab === id ? "active" : ""}" data-tab="${id}">
-              <span class="nav-icon" aria-hidden="true">${tabIcon(id)}</span>
-              <span class="nav-label">${label}</span>
-            </button>
+          ${groups.map((group) => `
+            <div class="nav-group ${openGroup === group.id ? "open" : ""}">
+              <button class="nav-group-title" type="button" data-nav-group="${group.id}">
+                <span class="nav-icon" aria-hidden="true">${group.icon}</span>
+                <span>${group.label}</span>
+                <span class="nav-chevron" aria-hidden="true"></span>
+              </button>
+              <div class="nav-subitems">
+                ${group.items.map(([id, label]) => `
+                  <button class="${state.tab === id ? "active" : ""}" data-tab="${id}" data-tab-group="${group.id}">
+                    <span class="nav-icon" aria-hidden="true">${tabIcon(id)}</span>
+                    <span class="nav-label">${label}</span>
+                  </button>
+                `).join("")}
+              </div>
+            </div>
           `).join("")}
         </nav>
         <div class="sidebar-user">
@@ -447,15 +462,77 @@ function renderShell() {
       </section>
     </section>
   `;
+  document.querySelectorAll("[data-nav-group]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.openNavGroup = state.openNavGroup === button.dataset.navGroup ? "" : button.dataset.navGroup;
+      renderShell();
+    });
+  });
   document.querySelectorAll("[data-tab]").forEach((button) => {
     button.addEventListener("click", async () => {
       state.tab = button.dataset.tab;
+      state.openNavGroup = button.dataset.tabGroup || "";
       await refreshForTab();
       renderShell();
     });
   });
   document.getElementById("logoutBtn").addEventListener("click", logout);
   renderView();
+}
+
+function navGroups(tabs) {
+  const tabMap = new Map(tabs);
+  const tabOrder = new Map(tabs.map(([id], index) => [id, index]));
+  const groupDefs = [
+    {
+      id: "prevention",
+      label: "Prevenção",
+      icon: "📈",
+      tabs: ["dashboard", "checklist", "summary", "reports"],
+    },
+    {
+      id: "reposition",
+      label: "Reposição",
+      icon: "📦",
+      tabs: ["repoDashboard", "reposition", "repoGoals", "repoReports"],
+    },
+    {
+      id: "commercial",
+      label: "Comercial",
+      icon: "💼",
+      tabs: ["commercialDashboard", "commercial", "commercialAgenda"],
+    },
+    {
+      id: "receiving",
+      label: "Recebimento",
+      icon: "🚚",
+      tabs: ["receivingAgenda"],
+    },
+    {
+      id: "management",
+      label: "Gerencial",
+      icon: "🔎",
+      tabs: ["sectorAudit", "pendencies"],
+    },
+    {
+      id: "admin",
+      label: "Administração",
+      icon: "⚙",
+      tabs: ["collaborators", "users"],
+    },
+  ];
+  const used = new Set();
+  const groups = groupDefs.map((group) => {
+    const items = group.tabs.filter((id) => tabMap.has(id)).map((id) => {
+      used.add(id);
+      return [id, tabMap.get(id)];
+    });
+    const order = items.length ? Math.min(...items.map(([id]) => tabOrder.get(id) ?? 999)) : 999;
+    return { ...group, items, order };
+  }).filter((group) => group.items.length).sort((a, b) => a.order - b.order);
+  const remaining = tabs.filter(([id]) => !used.has(id));
+  if (remaining.length) groups.push({ id: "other", label: "Outros", icon: "•", items: remaining });
+  return groups;
 }
 
 async function refreshForTab() {
@@ -499,6 +576,7 @@ function allowedTabs() {
   if (state.user?.role === "reposicao") return [["repoDashboard", "Painel Reposi\u00e7\u00e3o"], ["reposition", "Reposi\u00e7\u00e3o"], ["repoReports", "Relatórios Reposição"]];
   if (state.user?.role === "recebimento") return [["receivingAgenda", "Agenda Recebimento"]];
   if (state.user?.role === "comercial") return [["commercialDashboard", "Painel Comercial"], ["commercial", "Comercial"], ["commercialAgenda", "Agenda Comercial"]];
+  if (state.user?.role === "gerente") return [["sectorAudit", "Conferência Gerencial"], ["repoReports", "Relatórios Reposição"], ["pendencies", "Pendências"]];
   if (state.user?.role === "encarregada") {
     const tabs = [
       ["sectorAudit", "Conferência Gerencial"],
@@ -547,6 +625,7 @@ function defaultTab() {
   if (state.user?.role === "reposicao") return "repoDashboard";
   if (state.user?.role === "recebimento") return "receivingAgenda";
   if (state.user?.role === "comercial") return "commercialDashboard";
+  if (state.user?.role === "gerente") return "sectorAudit";
   if (state.user?.role === "encarregada") return "sectorAudit";
   return "dashboard";
 }
@@ -680,38 +759,36 @@ function renderDashboard() {
           `).join("") || `<div class="muted">Sem registros.</div>`}
         </div>
     </section>
-    <div class="grid two" style="margin-top:14px">
-      <section class="panel">
-        <h3>Engajamento por colaborador</h3>
-        <div class="muted" style="margin-top:4px">ParticipaÃ§Ã£o nos preenchimentos do mÃªs, sem considerar perdas, consumos e vasilhames</div>
-        <div class="table-wrap" style="margin-top:12px">
-          <table><thead><tr><th>Colaborador</th><th>Preenchimentos</th><th>Engajamento</th></tr></thead><tbody>
-            ${data.collaboratorCompletion.map((row) => `
-              <tr>
-                <td data-label="Colaborador">${escapeHtml(row.name)}</td>
-                <td data-label="Preenchimentos">${row.total}</td>
-                <td data-label="Engajamento">${percentBar(row.percent)}</td>
-              </tr>
-            `).join("") || `<tr><td colspan="3">Nenhum colaborador ativo.</td></tr>`}
-          </tbody></table>
-        </div>
-      </section>
-      <section class="panel">
-        <h3>Percentual de realizaÃ§Ã£o das atividades</h3>
-        <div class="muted" style="margin-top:4px">Meta: dias do mÃªs; conta o dia quando a atividade foi registrada ao menos uma vez</div>
-        <div class="table-wrap" style="margin-top:12px">
-          <table><thead><tr><th>Atividade</th><th>Realizado</th><th>Percentual</th></tr></thead><tbody>
-            ${data.activityCompletion.map((row) => `
-              <tr>
-                <td data-label="Atividade">${escapeHtml(row.activity)}</td>
-                <td data-label="Realizado">${row.total}/${row.expected}</td>
-                <td data-label="Percentual">${percentBar(row.percent)}</td>
-              </tr>
-            `).join("") || `<tr><td colspan="3">Nenhuma atividade cadastrada.</td></tr>`}
-          </tbody></table>
-        </div>
-      </section>
-    </div>
+    <section class="panel" style="margin-top:14px">
+      <h3>Engajamento por colaborador</h3>
+      <div class="muted" style="margin-top:4px">ParticipaÃ§Ã£o nos preenchimentos do mÃªs, sem considerar perdas, consumos e vasilhames</div>
+      <div class="table-wrap" style="margin-top:12px">
+        <table><thead><tr><th>Colaborador</th><th>Preenchimentos</th><th>Engajamento</th></tr></thead><tbody>
+          ${data.collaboratorCompletion.map((row) => `
+            <tr>
+              <td data-label="Colaborador">${escapeHtml(row.name)}</td>
+              <td data-label="Preenchimentos">${row.total}</td>
+              <td data-label="Engajamento">${percentBar(row.percent)}</td>
+            </tr>
+          `).join("") || `<tr><td colspan="3">Nenhum colaborador ativo.</td></tr>`}
+        </tbody></table>
+      </div>
+    </section>
+    <section class="panel" style="margin-top:14px">
+      <h3>Percentual de realizaÃ§Ã£o das atividades</h3>
+      <div class="muted" style="margin-top:4px">Meta: dias do mÃªs; conta o dia quando a atividade foi registrada ao menos uma vez</div>
+      <div class="table-wrap" style="margin-top:12px">
+        <table><thead><tr><th>Atividade</th><th>Realizado</th><th>Percentual</th></tr></thead><tbody>
+          ${data.activityCompletion.map((row) => `
+            <tr>
+              <td data-label="Atividade">${escapeHtml(row.activity)}</td>
+              <td data-label="Realizado">${row.total}/${row.expected}</td>
+              <td data-label="Percentual">${percentBar(row.percent)}</td>
+            </tr>
+          `).join("") || `<tr><td colspan="3">Nenhuma atividade cadastrada.</td></tr>`}
+        </tbody></table>
+      </div>
+    </section>
   `;
   document.getElementById("refreshDashboard").addEventListener("click", async () => {
     await loadDashboard();
@@ -2266,8 +2343,7 @@ function sectorAuditTable() {
         <tr>
           <th>Setor</th>
           <th>Conferência</th>
-          <th>Status automático</th>
-          <th>Motivos</th>
+          <th>Apontamentos</th>
           <th>Responsáveis</th>
           <th>Validação gerente</th>
           <th>Ação</th>
@@ -2281,11 +2357,8 @@ function sectorAuditTable() {
               <div class="muted">Última atualização: ${row.lastUpdate ? new Date(row.lastUpdate).toLocaleString("pt-BR") : "-"}</div>
             </td>
             <td data-label="Conferência">${escapeHtml(row.focusLabel || "")}</td>
-            <td data-label="Status automático">
-              <span class="status ${auditStatusClass(row.automaticStatus)}">${escapeHtml(row.automaticStatus)}</span>
-              <div class="muted" style="margin-top:6px">${row.expectedTasks ? `${row.completedTasks || 0}/${row.expectedTasks || 0} registros esperados` : "Conferência por ocorrência"}</div>
-            </td>
-            <td data-label="Motivos">
+            <td data-label="Apontamentos">
+              <div class="muted" style="margin-bottom:6px">${row.expectedTasks ? `${row.completedTasks || 0}/${row.expectedTasks || 0} registros esperados` : "Conferência por ocorrência"}</div>
               ${(row.motives || []).map((item) => `<div>${escapeHtml(item)}</div>`).join("")}
               ${(row.notes || []).length ? `<div class="muted" style="margin-top:6px">${row.notes.map(escapeHtml).join("<br>")}</div>` : ""}
             </td>
@@ -2306,7 +2379,7 @@ function sectorAuditTable() {
             </td>
             <td data-label="Ação"><button class="btn primary" type="button" data-save-sector-audit="${escapeHtml(row.sector)}">Salvar</button></td>
           </tr>
-        `).join("") || `<tr><td colspan="7">Sem setores para conferência.</td></tr>`}
+        `).join("") || `<tr><td colspan="6">Sem setores para conferência.</td></tr>`}
       </tbody>
     </table>
   `;
@@ -2508,7 +2581,8 @@ function renderUsers() {
           <select name="role" required>
             <option value="colaborador">Colaborador</option>
             <option value="prevencao">PrevenÃ§Ã£o</option>
-            <option value="encarregada">Gerente</option>
+            <option value="encarregada">Encarregada</option>
+            <option value="gerente">Gerente</option>
             <option value="reposicao">ReposiÃ§Ã£o</option>
             <option value="recebimento">Recebimento</option>
             <option value="comercial">Comercial</option>

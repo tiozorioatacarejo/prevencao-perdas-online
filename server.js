@@ -469,11 +469,15 @@ function canAccessPrevention(user) {
 }
 
 function canAccessReposition(user) {
-  return ["administrador", "encarregada", "reposicao", "comercial"].includes(user.role);
+  return ["administrador", "encarregada", "gerente", "reposicao", "comercial"].includes(user.role);
 }
 
 function canManageRepoGoals(user) {
   return ["administrador", "encarregada"].includes(user.role);
+}
+
+function canAccessSectorAudit(user) {
+  return ["administrador", "gerente", "encarregada"].includes(user.role);
 }
 
 function normalizeAgendaType(value) {
@@ -749,10 +753,7 @@ async function sectorAuditDashboard(start, end, focus = "abastecimento", sectorF
       auditedBy: audit?.audited_by_name || "",
       auditedAt: audit?.audited_at || "",
     };
-  }).sort((a, b) => {
-    const rank = { "Cr\u00edtico": 0, "Aten\u00e7\u00e3o": 1, "Em conformidade": 2 };
-    return (rank[a.automaticStatus] ?? 3) - (rank[b.automaticStatus] ?? 3) || a.sector.localeCompare(b.sector);
-  });
+  }).sort((a, b) => a.sector.localeCompare(b.sector));
 }
 
 function canFillEncarregadaOnly(user) {
@@ -1280,7 +1281,7 @@ async function api(req, res, url) {
   }
 
   if (method === "GET" && url.pathname === "/api/sector-audits") {
-    if (!isAdmin(user)) return send(res, 403, { error: "Apenas administrador pode acessar a conferência gerencial." });
+    if (!canAccessSectorAudit(user)) return send(res, 403, { error: "Acesso restrito à conferência gerencial." });
     const start = url.searchParams.get("startDate") || today();
     const end = url.searchParams.get("endDate") || start;
     const focus = url.searchParams.get("focus") || "abastecimento";
@@ -1306,7 +1307,7 @@ async function api(req, res, url) {
   }
 
   if (method === "POST" && url.pathname === "/api/sector-audits") {
-    if (!isAdmin(user)) return send(res, 403, { error: "Apenas administrador pode salvar a conferência gerencial." });
+    if (!canAccessSectorAudit(user)) return send(res, 403, { error: "Acesso restrito à conferência gerencial." });
     const body = await readBody(req);
     const managerStatus = ["Pendente", "Confere", "N\u00e3o confere", "Corrigir"].includes(body.managerStatus) ? body.managerStatus : "Pendente";
     const focus = body.focus || "abastecimento";

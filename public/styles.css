@@ -234,42 +234,94 @@ h3 {
 
 .nav {
   display: grid;
-  gap: 5px;
+  gap: 12px;
 }
 
-.nav button {
+.nav-group {
+  display: grid;
+  gap: 3px;
+}
+
+.nav-group-title {
+  width: 100%;
+  border: 0;
+  text-align: left;
+  color: #f3f7f4;
+  background: transparent;
+  border-radius: 8px;
+  padding: 9px 8px;
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) 16px;
+  align-items: center;
+  gap: 9px;
+  font-size: 14px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.nav-group.open > .nav-group-title,
+.nav-group-title:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.nav-chevron {
+  width: 8px;
+  height: 8px;
+  justify-self: center;
+  border-right: 2px solid #9aa39d;
+  border-bottom: 2px solid #9aa39d;
+  transform: rotate(45deg);
+  transition: transform 0.15s ease;
+}
+
+.nav-group.open .nav-chevron {
+  transform: rotate(-135deg);
+}
+
+.nav-subitems {
+  display: none;
+  gap: 2px;
+  padding-left: 24px;
+}
+
+.nav-group.open .nav-subitems {
+  display: grid;
+}
+
+.nav-subitems button {
   width: 100%;
   text-align: left;
   color: #f3f7f4;
   background: transparent;
   border-radius: 8px;
-  padding: 10px 11px;
+  padding: 8px 10px;
   display: grid;
-  grid-template-columns: 24px minmax(0, 1fr);
+  grid-template-columns: 20px minmax(0, 1fr);
   align-items: center;
-  gap: 9px;
-  font-size: 14px;
+  gap: 8px;
+  font-size: 13px;
   font-weight: 700;
   transition: background 0.15s ease, color 0.15s ease, transform 0.15s ease;
 }
 
-.nav button.active,
-.nav button:hover {
+.nav-subitems button.active,
+.nav-subitems button:hover {
   background: var(--primary);
   color: #fff;
 }
 
-.nav button:hover {
+.nav-subitems button:hover {
   transform: translateX(1px);
 }
 
 .nav-icon {
   display: grid;
   place-items: center;
-  width: 24px;
-  height: 24px;
+  width: 20px;
+  height: 20px;
   color: currentColor;
-  font-size: 16px;
+  font-size: 15px;
   line-height: 1;
 }
 
@@ -745,9 +797,24 @@ th {
     grid-template-columns: repeat(auto-fit, minmax(104px, 1fr));
     overflow: visible;
     padding-bottom: 0;
+    gap: 8px;
   }
 
-  .nav button {
+  .nav-group {
+    min-width: 0;
+    gap: 4px;
+  }
+
+  .nav-group-title {
+    padding: 8px;
+    font-size: 13px;
+  }
+
+  .nav-subitems {
+    padding-left: 0;
+  }
+
+  .nav-subitems button {
     text-align: left;
     white-space: nowrap;
     grid-template-columns: 20px minmax(0, 1fr);
@@ -819,7 +886,7 @@ th {
     grid-template-columns: 40px minmax(0, 1fr);
   }
 
-  .nav button {
+  .nav-subitems button {
     padding: 9px 10px;
     min-width: 0;
   }
@@ -915,7 +982,11 @@ th {
     gap: 8px;
   }
 
-  .nav button {
+  .nav-group-title {
+    grid-template-columns: 20px minmax(0, 1fr) 14px;
+  }
+
+  .nav-subitems button {
     font-size: 13px;
     padding: 9px 6px;
   }
