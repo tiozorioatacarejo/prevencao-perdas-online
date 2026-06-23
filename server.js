@@ -51,8 +51,7 @@ const repoActivities = [
   "Precifica\u00e7\u00e3o - placas de ofertas",
   "Precifica\u00e7\u00e3o - etiqueta de pre\u00e7o normal",
   "Verifica\u00e7\u00e3o de validades",
-  "Ruptura de produto em loja",
-  "Ruptura para direcionar ao comercial",
+  "Ruptura",
   "Ponta de g\u00f4ndola e ilhas organizadas",
   "Confer\u00eancia de estoque no dep\u00f3sito",
   "Devolu\u00e7\u00e3o de produtos ao setor correto",
@@ -236,6 +235,24 @@ async function initPostgres(pool) {
       updated_by INTEGER REFERENCES users(id),
       updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       UNIQUE(sector, goal_type)
+    );
+
+    CREATE TABLE IF NOT EXISTS agenda_slots (
+      id SERIAL PRIMARY KEY,
+      agenda_type TEXT NOT NULL,
+      date TEXT NOT NULL,
+      start_time TEXT NOT NULL,
+      end_time TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'Disponivel',
+      booked_name TEXT,
+      booked_company TEXT,
+      booked_phone TEXT,
+      booked_document TEXT,
+      booked_observation TEXT,
+      created_by INTEGER REFERENCES users(id),
+      booked_at TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(agenda_type, date, start_time)
     );
 
     CREATE TABLE IF NOT EXISTS sector_audits (
@@ -459,6 +476,17 @@ function canManageRepoGoals(user) {
   return ["administrador", "encarregada"].includes(user.role);
 }
 
+function normalizeAgendaType(value) {
+  return value === "recebimento" ? "recebimento" : "comercial";
+}
+
+function canAccessAgenda(user, type) {
+  if (["administrador", "encarregada"].includes(user.role)) return true;
+  if (type === "comercial") return user.role === "comercial";
+  if (type === "recebimento") return user.role === "recebimento";
+  return false;
+}
+
 function canUpdateRepoCommercial(user) {
   return ["administrador", "comercial"].includes(user.role);
 }
@@ -493,6 +521,16 @@ async function sectorsForUser(user) {
 
 async function commercialSectorFilter(user, column = "sector") {
   if (user.role !== "comercial") return { clause: "", params: [] };
+  const sectors = await sectorsForUser(user);
+  if (!sectors.length) return { clause: " AND 1 = 0", params: [] };
+  return {
+    clause: ` AND ${column} IN (${sectors.map(() => "?").join(", ")})`,
+    params: sectors,
+  };
+}
+
+async function repositionSectorFilter(user, column = "sector") {
+  if (user.role !== "reposicao") return { clause: "", params: [] };
   const sectors = await sectorsForUser(user);
   if (!sectors.length) return { clause: " AND 1 = 0", params: [] };
   return {
@@ -944,6 +982,40 @@ async function api(req, res, url) {
     return send(res, 200, { token, user: safeUser });
   }
 
+  if (method === "GET" && url.pathname === "/api/public/agenda") {
+    const type = normalizeAgendaType(url.searchParams.get("type"));
+    if (type === "recebimento") return send(res, 200, { rows: [], closed: true });
+    const rows = await query(
+      `SELECT id, agenda_type, date, start_time, end_time
+       FROM agenda_slots
+       WHERE agenda_type = ? AND status = 'Disponivel' AND date >= ?
+       ORDER BY date, start_time`,
+      [type, today()]
+    );
+    return send(res, 200, { rows });
+  }
+
+  if (method === "POST" && url.pathname === "/api/public/agenda/book") {
+    const body = await readBody(req);
+    const id = Number(body.slotId || 0);
+    const name = String(body.name || "").trim();
+    const company = String(body.company || "").trim();
+    const phone = String(body.phone || "").trim();
+    if (!id || !name || !company || !phone) {
+      return send(res, 400, { error: "Preencha nome, empresa e telefone." });
+    }
+    const available = await query("SELECT id FROM agenda_slots WHERE id = ? AND agenda_type = 'comercial' AND status = 'Disponivel'", [id]);
+    if (!available[0]) return send(res, 409, { error: "Este horário não está mais disponível." });
+    await execute(
+      `UPDATE agenda_slots
+       SET status = 'Agendado', booked_name = ?, booked_company = ?, booked_phone = ?, booked_document = ?,
+           booked_observation = ?, booked_at = ?, updated_at = ?
+       WHERE id = ? AND status = 'Disponivel'`,
+      [name, company, phone, body.document || "", body.observation || "", nowIso(), nowIso(), id]
+    );
+    return send(res, 200, { ok: true });
+  }
+
   const user = requireUser(req, res);
   if (!user) return;
 
@@ -967,6 +1039,73 @@ async function api(req, res, url) {
       repoUsers,
       commercialUsers,
     });
+  }
+
+  if (method === "GET" && url.pathname === "/api/agenda") {
+    const type = normalizeAgendaType(url.searchParams.get("type"));
+    if (!canAccessAgenda(user, type)) return send(res, 403, { error: "Acesso restrito à agenda." });
+    const start = url.searchParams.get("startDate") || today();
+    const end = url.searchParams.get("endDate") || start;
+    const rows = await query(
+      `SELECT *
+       FROM agenda_slots
+       WHERE agenda_type = ? AND date BETWEEN ? AND ?
+       ORDER BY date, start_time`,
+      [type, start, end]
+    );
+    return send(res, 200, { rows });
+  }
+
+  if (method === "POST" && url.pathname === "/api/agenda") {
+    const body = await readBody(req);
+    const type = normalizeAgendaType(body.type);
+    if (!canAccessAgenda(user, type)) return send(res, 403, { error: "Acesso restrito à agenda." });
+    const date = body.date || today();
+    const startTime = String(body.startTime || "").trim();
+    const endTime = String(body.endTime || body.startTime || "").trim();
+    if (!date || !startTime || !endTime) return send(res, 400, { error: type === "recebimento" ? "Informe data e horário." : "Informe data, início e fim." });
+    const status = type === "recebimento" ? "Agendado" : "Disponivel";
+    try {
+      await execute(
+        `INSERT INTO agenda_slots (
+          agenda_type, date, start_time, end_time, status, booked_name, booked_company, booked_phone,
+          booked_document, booked_observation, created_by, updated_at
+        )
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          type,
+          date,
+          startTime,
+          endTime,
+          status,
+          body.name || "",
+          body.company || "",
+          body.phone || "",
+          body.document || "",
+          body.observation || "",
+          user.id,
+          nowIso(),
+        ]
+      );
+    } catch (error) {
+      return send(res, 409, { error: "Já existe horário cadastrado para essa agenda, data e início." });
+    }
+    await logAudit(user, "create", "agenda_slots", `${type}|${date}|${startTime}`, { endTime });
+    return send(res, 201, { ok: true });
+  }
+
+  if (method === "PUT" && url.pathname.startsWith("/api/agenda/")) {
+    const id = Number(url.pathname.split("/").pop());
+    const body = await readBody(req);
+    const rows = await query("SELECT agenda_type FROM agenda_slots WHERE id = ?", [id]);
+    if (!rows[0]) return send(res, 404, { error: "Horário não encontrado." });
+    const type = normalizeAgendaType(rows[0].agenda_type);
+    if (!canAccessAgenda(user, type)) return send(res, 403, { error: "Acesso restrito à agenda." });
+    const allowed = ["Disponivel", "Agendado", "Recebido", "Atendido", "Cancelado", "Atrasado"];
+    const status = allowed.includes(body.status) ? body.status : "Disponivel";
+    await execute("UPDATE agenda_slots SET status = ?, updated_at = ? WHERE id = ?", [status, nowIso(), id]);
+    await logAudit(user, "update", "agenda_slots", id, { status });
+    return send(res, 200, { ok: true });
   }
 
   if (method === "GET" && url.pathname === "/api/reposition/dashboard") {
@@ -1206,15 +1345,16 @@ async function api(req, res, url) {
     if (!canAccessReposition(user)) return send(res, 403, { error: "Acesso restrito ao módulo de reposição." });
     const start = url.searchParams.get("startDate") || today();
     const end = url.searchParams.get("endDate") || start;
+    const repoFilter = await repositionSectorFilter(user, "t.sector");
     return send(res, 200, {
       rows: await query(
         `
         SELECT t.*, c.name AS collaborator
         FROM repo_tasks t JOIN collaborators c ON c.id = t.collaborator_id
-        WHERE t.date BETWEEN ? AND ?
+        WHERE t.date BETWEEN ? AND ?${repoFilter.clause}
         ORDER BY t.date DESC, t.id DESC
         `,
-        [start, end]
+        [start, end, ...repoFilter.params]
       ),
     });
   }
@@ -1231,17 +1371,32 @@ async function api(req, res, url) {
       "INSERT INTO repo_tasks (date, collaborator_id, sector, activity, status, observation, sent_at, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
       [body.date || today(), collaboratorId, body.sector, body.activity, status, body.observation || "", nowIso(), user.id]
     );
+    const activityText = normalizeText(body.activity || "");
+    const taskDate = body.date || today();
+    if (activityText.includes("ruptura") && body.product) {
+      await execute(
+        "INSERT INTO repo_ruptures (date, product, sector, type, quantity, observation, sent_at, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        [taskDate, body.product, body.sector, body.type || "Ruptura", body.quantity || "", body.observation || "", nowIso(), user.id]
+      );
+    }
+    if (activityText.includes("validade") && body.product) {
+      await execute(
+        "INSERT INTO repo_expirations (date, product, sector, expiration_date, quantity, observation, sent_at, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        [taskDate, body.product, body.sector, body.expirationDate || taskDate, body.quantity || "", body.observation || "", nowIso(), user.id]
+      );
+    }
     return send(res, 201, { ok: true });
   }
 
   if (method === "GET" && url.pathname === "/api/reposition/ruptures") {
     if (!canAccessReposition(user)) return send(res, 403, { error: "Acesso restrito ao módulo de reposição." });
     const filter = await commercialSectorFilter(user);
+    const repoFilter = await repositionSectorFilter(user);
     const start = url.searchParams.get("startDate");
     const end = url.searchParams.get("endDate") || start;
     const dateClause = start ? " AND date BETWEEN ? AND ?" : "";
     const dateParams = start ? [start, end] : [];
-    return send(res, 200, { rows: await query(`SELECT * FROM repo_ruptures WHERE 1 = 1${filter.clause}${dateClause} ORDER BY date DESC, id DESC`, [...filter.params, ...dateParams]) });
+    return send(res, 200, { rows: await query(`SELECT * FROM repo_ruptures WHERE 1 = 1${filter.clause}${repoFilter.clause}${dateClause} ORDER BY date DESC, id DESC`, [...filter.params, ...repoFilter.params, ...dateParams]) });
   }
 
   if (method === "POST" && url.pathname === "/api/reposition/ruptures") {
@@ -1274,11 +1429,12 @@ async function api(req, res, url) {
   if (method === "GET" && url.pathname === "/api/reposition/expirations") {
     if (!canAccessReposition(user)) return send(res, 403, { error: "Acesso restrito ao módulo de reposição." });
     const filter = await commercialSectorFilter(user);
+    const repoFilter = await repositionSectorFilter(user);
     const start = url.searchParams.get("startDate");
     const end = url.searchParams.get("endDate") || start;
     const dateClause = start ? " AND date BETWEEN ? AND ?" : "";
     const dateParams = start ? [start, end] : [];
-    return send(res, 200, { rows: await query(`SELECT * FROM repo_expirations WHERE 1 = 1${filter.clause}${dateClause} ORDER BY date DESC, id DESC`, [...filter.params, ...dateParams]) });
+    return send(res, 200, { rows: await query(`SELECT * FROM repo_expirations WHERE 1 = 1${filter.clause}${repoFilter.clause}${dateClause} ORDER BY date DESC, id DESC`, [...filter.params, ...repoFilter.params, ...dateParams]) });
   }
 
   if (method === "POST" && url.pathname === "/api/reposition/expirations") {
@@ -1766,7 +1922,7 @@ async function api(req, res, url) {
 }
 
 function serveStatic(req, res, url) {
-  let filePath = url.pathname === "/" ? path.join(ROOT, "public", "index.html") : path.join(ROOT, url.pathname);
+  let filePath = (url.pathname === "/" || url.pathname.startsWith("/agendar/")) ? path.join(ROOT, "public", "index.html") : path.join(ROOT, url.pathname);
   if (url.pathname.startsWith("/uploads/")) filePath = path.join(ROOT, url.pathname);
   if (!filePath.startsWith(ROOT) || !fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
     return send(res, 404, "Arquivo nÃ£o encontrado", { "Content-Type": "text/plain; charset=utf-8" });

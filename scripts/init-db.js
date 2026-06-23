@@ -86,6 +86,24 @@ async function initPostgres() {
       UNIQUE(sector, goal_type)
     );
 
+    CREATE TABLE IF NOT EXISTS agenda_slots (
+      id SERIAL PRIMARY KEY,
+      agenda_type TEXT NOT NULL,
+      date TEXT NOT NULL,
+      start_time TEXT NOT NULL,
+      end_time TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'Disponivel',
+      booked_name TEXT,
+      booked_company TEXT,
+      booked_phone TEXT,
+      booked_document TEXT,
+      booked_observation TEXT,
+      created_by INTEGER REFERENCES users(id),
+      booked_at TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(agenda_type, date, start_time)
+    );
+
     CREATE TABLE IF NOT EXISTS sector_audits (
       id SERIAL PRIMARY KEY,
       date TEXT NOT NULL,

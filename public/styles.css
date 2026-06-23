@@ -473,6 +473,105 @@ textarea {
   font-weight: 800;
 }
 
+.agenda-share {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: center;
+  background: #f8fbf8;
+}
+
+.agenda-link {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 1px dashed rgba(31, 122, 77, 0.42);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--primary-2);
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.section-title-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: end;
+  margin-bottom: 12px;
+}
+
+.agenda-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(310px, 1fr));
+  gap: 12px;
+}
+
+.agenda-card {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 16px;
+  box-shadow: 0 6px 18px rgba(33, 47, 39, 0.05);
+  display: grid;
+  gap: 14px;
+}
+
+.agenda-card-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(132px, 170px);
+  gap: 12px;
+  align-items: center;
+}
+
+.agenda-date {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.agenda-booking {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.agenda-booking div {
+  min-width: 0;
+  padding: 10px;
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+
+.agenda-booking span {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.agenda-booking strong {
+  display: block;
+  margin-top: 3px;
+  overflow-wrap: anywhere;
+}
+
+.agenda-note {
+  border-left: 3px solid var(--accent);
+  padding-left: 10px;
+  color: var(--muted);
+}
+
+.empty-state {
+  background: #fff;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  padding: 18px;
+  color: var(--muted);
+  text-align: center;
+}
+
 .status {
   display: inline-flex;
   align-items: center;
@@ -658,6 +757,9 @@ th {
   .grid.two,
   .grid.three,
   .grid.four,
+  .agenda-share,
+  .agenda-card-main,
+  .agenda-booking,
   .metrics {
     grid-template-columns: 1fr;
   }

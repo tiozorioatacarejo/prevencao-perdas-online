@@ -196,6 +196,25 @@ def init_db():
             FOREIGN KEY (updated_by) REFERENCES users(id)
         );
 
+        CREATE TABLE IF NOT EXISTS agenda_slots (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            agenda_type TEXT NOT NULL,
+            date TEXT NOT NULL,
+            start_time TEXT NOT NULL,
+            end_time TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'Disponivel',
+            booked_name TEXT,
+            booked_company TEXT,
+            booked_phone TEXT,
+            booked_document TEXT,
+            booked_observation TEXT,
+            created_by INTEGER,
+            booked_at TEXT,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(agenda_type, date, start_time),
+            FOREIGN KEY (created_by) REFERENCES users(id)
+        );
+
         CREATE TABLE IF NOT EXISTS sector_audits (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             date TEXT NOT NULL,

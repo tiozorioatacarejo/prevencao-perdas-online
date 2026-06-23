@@ -41,6 +41,14 @@
       endDate: new Date().toISOString().slice(0, 10),
     },
   },
+  agenda: {
+    rows: [],
+    publicRows: [],
+    filters: {
+      startDate: new Date().toISOString().slice(0, 10),
+      endDate: new Date().toISOString().slice(0, 10),
+    },
+  },
 };
 
 const app = document.getElementById("app");
@@ -122,6 +130,13 @@ function canAccessPrevention() {
 
 function canAccessReposition() {
   return ["administrador", "encarregada", "reposicao", "comercial"].includes(state.user?.role);
+}
+
+function canAccessAgenda(type) {
+  if (["administrador", "encarregada"].includes(state.user?.role)) return true;
+  if (type === "comercial") return state.user?.role === "comercial";
+  if (type === "recebimento") return state.user?.role === "recebimento";
+  return false;
 }
 
 function canManageRepoGoals() {
@@ -240,6 +255,7 @@ function loginAreaMatches(area, role) {
     prevencao: ["prevencao", "colaborador"],
     gerente: ["encarregada"],
     reposicao: ["reposicao"],
+    recebimento: ["recebimento"],
     comercial: ["comercial"],
     administrador: ["administrador"],
   };
@@ -279,6 +295,7 @@ function renderLogin(error = "") {
         <option value="prevencao">PrevenÃ§Ã£o de perdas</option>
         <option value="gerente">Gerente</option>
         <option value="reposicao">ReposiÃ§Ã£o da loja</option>
+        <option value="recebimento">Recebimento</option>
         <option value="comercial">Comercial</option>
         <option value="administrador">Administrador</option>
       </select>
@@ -294,6 +311,7 @@ function renderLogin(error = "") {
           prevencao: "PrevenÃ§Ã£o de perdas",
           gerente: "Gerente",
           reposicao: "ReposiÃ§Ã£o da loja",
+          recebimento: "Recebimento",
           comercial: "Comercial",
           administrador: "Administrador",
         };
@@ -312,6 +330,7 @@ function renderLogin(error = "") {
 }
 
 async function bootstrap() {
+  if (isPublicAgendaPage()) return renderPublicAgenda();
   if (!state.token) return renderLogin();
   try {
     const me = await api("/api/me");
@@ -342,7 +361,16 @@ function logout() {
   state.user = null;
   localStorage.removeItem("token");
   localStorage.removeItem("user");
+  if (isPublicAgendaPage()) return renderPublicAgenda();
   renderLogin();
+}
+
+function isPublicAgendaPage() {
+  return window.location.pathname.startsWith("/agendar/");
+}
+
+function publicAgendaType() {
+  return window.location.pathname.includes("recebimento") ? "recebimento" : "comercial";
 }
 
 function tabIcon(id) {
@@ -350,9 +378,12 @@ function tabIcon(id) {
     dashboard: "&#128200;",
     repoDashboard: "&#9673;",
     commercialDashboard: "&#128188;",
+    commercialAgenda: "&#128197;",
+    receivingAgenda: "&#128666;",
     checklist: "&#9745;",
     summary: "&#128221;",
     reports: "&#128202;",
+    repoReports: "&#128202;",
     reposition: "&#128230;",
     commercial: "&#128179;",
     sectorAudit: "&#128269;",
@@ -370,6 +401,7 @@ function roleLabel(role) {
     colaborador: "Colaborador",
     encarregada: "Gerente",
     reposicao: "Reposição",
+    recebimento: "Recebimento",
     comercial: "Comercial",
   };
   return labels[role] || role || "";
@@ -432,6 +464,9 @@ async function refreshForTab() {
   if (state.tab === "sectorAudit") await Promise.all([loadCollaborators(), loadSectorAudits()]);
   if (state.tab === "collaborators" || state.tab === "checklist" || state.tab === "pendencies") await loadCollaborators();
   if (state.tab === "reposition" || state.tab === "commercial") await Promise.all([loadCollaborators(), loadReposition()]);
+  if (state.tab === "repoReports") await Promise.all([loadCollaborators(), loadReposition()]);
+  if (state.tab === "commercialAgenda") await loadAgenda("comercial");
+  if (state.tab === "receivingAgenda") await loadAgenda("recebimento");
   if (state.tab === "reports") await loadChecklists();
   if (state.tab === "pendencies") await loadPendencies();
   if (state.tab === "users") await Promise.all([loadUsers(), loadCollaborators()]);
@@ -442,9 +477,12 @@ function renderView() {
     dashboard: renderDashboard,
     repoDashboard: renderRepoDashboard,
     commercialDashboard: renderCommercialDashboard,
+    commercialAgenda: () => renderAgenda("comercial"),
+    receivingAgenda: () => renderAgenda("recebimento"),
     checklist: renderChecklist,
     summary: renderSummary,
     reports: renderReports,
+    repoReports: renderRepoReports,
     reposition: renderReposition,
     commercial: renderCommercial,
     repoGoals: renderRepoGoals,
@@ -458,13 +496,17 @@ function renderView() {
 }
 
 function allowedTabs() {
-  if (state.user?.role === "reposicao") return [["repoDashboard", "Painel Reposi\u00e7\u00e3o"], ["reposition", "Reposi\u00e7\u00e3o"]];
-  if (state.user?.role === "comercial") return [["commercialDashboard", "Painel Comercial"], ["commercial", "Comercial"]];
+  if (state.user?.role === "reposicao") return [["repoDashboard", "Painel Reposi\u00e7\u00e3o"], ["reposition", "Reposi\u00e7\u00e3o"], ["repoReports", "Relatórios Reposição"]];
+  if (state.user?.role === "recebimento") return [["receivingAgenda", "Agenda Recebimento"]];
+  if (state.user?.role === "comercial") return [["commercialDashboard", "Painel Comercial"], ["commercial", "Comercial"], ["commercialAgenda", "Agenda Comercial"]];
   if (state.user?.role === "encarregada") {
     const tabs = [
       ["sectorAudit", "Conferência Gerencial"],
       ["repoGoals", "Metas Reposição"],
-      ["reports", "Relatórios"],
+      ["commercialAgenda", "Agenda Comercial"],
+      ["receivingAgenda", "Agenda Recebimento"],
+      ["repoReports", "Relatórios Reposição"],
+      ["reports", "Relatórios Prevenção"],
       ["pendencies", "Pendências"],
     ];
     if (canFillLaraOnlyActivities()) tabs.splice(1, 0, ["checklist", "Checklist"]);
@@ -489,8 +531,11 @@ function allowedTabs() {
     ["checklist", "Checklist"],
     ["reposition", "ReposiÃ§Ã£o"],
     ["commercial", "Comercial"],
+    ["commercialAgenda", "Agenda Comercial"],
+    ["receivingAgenda", "Agenda Recebimento"],
+    ["repoReports", "Relatórios Reposição"],
     ["summary", "Resumo"],
-    ["reports", "RelatÃ³rios"],
+    ["reports", "Relatórios Prevenção"],
     ["pendencies", "PendÃªncias"],
     ["collaborators", "Colaboradores"],
   ];
@@ -500,6 +545,7 @@ function allowedTabs() {
 
 function defaultTab() {
   if (state.user?.role === "reposicao") return "repoDashboard";
+  if (state.user?.role === "recebimento") return "receivingAgenda";
   if (state.user?.role === "comercial") return "commercialDashboard";
   if (state.user?.role === "encarregada") return "sectorAudit";
   return "dashboard";
@@ -559,6 +605,16 @@ async function loadReposition() {
   state.repo.expirations = expirations.rows;
   state.repo.damages = [];
   state.repo.goals = goals.rows || [];
+}
+
+async function loadAgenda(type) {
+  const qs = new URLSearchParams({
+    type,
+    startDate: state.agenda.filters.startDate,
+    endDate: state.agenda.filters.endDate,
+  });
+  const data = await api(`/api/agenda?${qs.toString()}`);
+  state.agenda.rows = data.rows || [];
 }
 
 async function loadSectorAudits() {
@@ -1142,7 +1198,7 @@ function renderReports() {
   view.innerHTML = `
     <div class="topbar">
       <div>
-        <h2>RelatÃ³rios</h2>
+        <h2>Relatórios Prevenção</h2>
         <div class="muted">Filtros por data, colaborador, perÃ­odo e atividade</div>
       </div>
       <div class="toolbar">
@@ -1224,6 +1280,138 @@ async function exportReport(format, form) {
   URL.revokeObjectURL(url);
 }
 
+function renderRepoReports() {
+  const scopedSectors = repoSectorsForCurrentUser();
+  const isRepoUser = state.user?.role === "reposicao";
+  view.innerHTML = `
+    <div class="topbar">
+      <div>
+        <h2>Relatórios Reposição</h2>
+        <div class="muted">Checklists, rupturas e validades registradas pela reposição</div>
+      </div>
+      <button class="btn" id="refreshRepoReports">Atualizar</button>
+    </div>
+    <form class="panel grid" id="repoReportsFilterForm">
+      <div class="grid three">
+        <label>Início <input name="startDate" type="date" value="${escapeHtml(state.repo.filters.startDate)}"></label>
+        <label>Fim <input name="endDate" type="date" value="${escapeHtml(state.repo.filters.endDate)}"></label>
+        <label>Setor <select name="sector"><option value="">Todos</option>${repoOptions(scopedSectors || [])}</select></label>
+      </div>
+      <div class="grid two">
+        ${isRepoUser ? `<input type="hidden" name="collaborator" value="">` : `<label>Colaborador <select name="collaborator"><option value="">Todos</option>${repoCollaboratorReportOptions()}</select></label>`}
+        <label>Atividade <select name="activity"><option value="">Todas</option>${repoOptions(["Checklist", "Ruptura", "Verificacao de validades", ...(state.repo.activities || [])])}</select></label>
+      </div>
+      <button class="btn primary" type="submit">Filtrar</button>
+    </form>
+    <section class="panel" style="margin-top:14px">
+      <h3>Registros da reposição</h3>
+      <div class="table-wrap" style="margin-top:12px" id="repoReportTable"></div>
+    </section>
+  `;
+  const form = document.getElementById("repoReportsFilterForm");
+  const draw = () => drawRepoReportTable({
+    sector: form.elements.sector.value,
+    collaborator: form.elements.collaborator.value,
+    activity: form.elements.activity.value,
+  });
+  document.getElementById("refreshRepoReports").addEventListener("click", async () => {
+    await loadReposition();
+    renderRepoReports();
+  });
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    state.repo.filters = {
+      startDate: form.elements.startDate.value,
+      endDate: form.elements.endDate.value,
+    };
+    await loadReposition();
+    draw();
+  });
+  draw();
+  fixVisibleText(view);
+}
+
+function repoCollaboratorReportOptions() {
+  const names = Array.from(new Set((state.repo.tasks || []).map((row) => row.collaborator).filter(Boolean))).sort();
+  return names.map((name) => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join("");
+}
+
+function repoReportRows(filters = {}) {
+  const allowedSectors = state.user?.role === "reposicao" ? repoSectorsForCurrentUser() : [];
+  const allowedSet = new Set(allowedSectors);
+  const tasks = (state.repo.tasks || []).map((row) => ({
+    date: row.date,
+    type: "Checklist",
+    sector: row.sector,
+    collaborator: row.collaborator || "",
+    activity: row.activity,
+    product: "",
+    detail: row.status === "Realizado" ? "Sim" : "Nao",
+    quantity: "",
+    observation: row.observation || "",
+    sentAt: row.sent_at,
+  }));
+  const ruptures = (state.repo.ruptures || []).map((row) => ({
+    date: row.date,
+    type: "Ruptura",
+    sector: row.sector,
+    collaborator: "",
+    activity: "Ruptura",
+    product: row.product || "",
+    detail: row.type || "",
+    quantity: row.quantity || "",
+    observation: row.observation || "",
+    sentAt: row.sent_at,
+  }));
+  const expirations = (state.repo.expirations || []).map((row) => ({
+    date: row.date,
+    type: "Validade",
+    sector: row.sector,
+    collaborator: "",
+    activity: "Verificacao de validades",
+    product: row.product || "",
+    detail: row.expiration_date ? `Validade: ${fmtDate(row.expiration_date)}` : "",
+    quantity: row.quantity || "",
+    observation: row.observation || "",
+    sentAt: row.sent_at,
+  }));
+  return [...tasks, ...ruptures, ...expirations]
+    .filter((row) => state.user?.role !== "reposicao" || allowedSet.has(row.sector))
+    .filter((row) => !filters.sector || row.sector === filters.sector)
+    .filter((row) => !filters.collaborator || row.collaborator === filters.collaborator)
+    .filter((row) => {
+      if (!filters.activity) return true;
+      const selected = withoutAccents(filters.activity).toLowerCase();
+      const activity = withoutAccents(row.activity || "").toLowerCase();
+      const type = withoutAccents(row.type || "").toLowerCase();
+      if (selected === "checklist") return type === "checklist";
+      if (selected.includes("ruptura")) return activity.includes("ruptura") || type.includes("ruptura");
+      if (selected.includes("validade")) return activity.includes("validade") || type.includes("validade");
+      return activity === selected;
+    })
+    .sort((a, b) => String(b.sentAt || b.date).localeCompare(String(a.sentAt || a.date)));
+}
+
+function drawRepoReportTable(filters = {}) {
+  const rows = repoReportRows(filters);
+  document.getElementById("repoReportTable").innerHTML = `
+    <table><thead><tr><th>Data</th><th>Tipo</th><th>Setor</th><th>Colaborador</th><th>Atividade</th><th>Produto</th><th>Detalhe</th><th>Quantidade</th><th>Observação</th><th>Enviado em</th></tr></thead><tbody>
+      ${rows.map((row) => `<tr>
+        <td data-label="Data">${fmtDate(row.date)}</td>
+        <td data-label="Tipo">${escapeHtml(row.type)}</td>
+        <td data-label="Setor">${escapeHtml(row.sector || "-")}</td>
+        <td data-label="Colaborador">${escapeHtml(row.collaborator || "-")}</td>
+        <td data-label="Atividade">${escapeHtml(row.activity || "-")}</td>
+        <td data-label="Produto">${escapeHtml(row.product || "-")}</td>
+        <td data-label="Detalhe">${escapeHtml(row.detail || "-")}</td>
+        <td data-label="Quantidade">${escapeHtml(row.quantity || "-")}</td>
+        <td data-label="Observação">${escapeHtml(row.observation || "-")}</td>
+        <td data-label="Enviado em">${row.sentAt ? new Date(row.sentAt).toLocaleString("pt-BR") : "-"}</td>
+      </tr>`).join("") || `<tr><td colspan="10">Nenhum registro encontrado.</td></tr>`}
+    </tbody></table>
+  `;
+}
+
 function editChecklist(id) {
   const row = state.checklists.find((item) => item.id === id);
   const answer = prompt("Resposta corrigida: Sim ou NÃ£o", row.answer);
@@ -1270,6 +1458,214 @@ async function deleteChecklist(id) {
 
 function repoOptions(items, selected = "") {
   return items.map((item) => `<option value="${escapeHtml(item)}" ${item === selected ? "selected" : ""}>${escapeHtml(withoutAccents(item))}</option>`).join("");
+}
+
+function agendaLabel(type) {
+  return type === "recebimento" ? "Agenda Recebimento" : "Agenda Comercial";
+}
+
+function agendaPublicPath(type) {
+  return type === "recebimento" ? "/agendar/recebimento" : "/agendar/comercial";
+}
+
+async function renderPublicAgenda() {
+  const type = publicAgendaType();
+  const label = agendaLabel(type);
+  if (type === "recebimento") {
+    app.innerHTML = `
+      <section class="login-screen">
+        <div class="login-panel">
+          <div class="brand">
+            <div class="brand-mark">CA</div>
+            <div>
+              <h1>Agenda Recebimento</h1>
+              <div class="muted">O recebimento e controlado internamente pela loja.</div>
+            </div>
+          </div>
+          <p class="muted">Para agendar uma entrega, entre em contato com a equipe do recebimento.</p>
+        </div>
+      </section>
+    `;
+    fixVisibleText(app);
+    return;
+  }
+  try {
+    const data = await api(`/api/public/agenda?type=${type}`);
+    state.agenda.publicRows = data.rows || [];
+  } catch (error) {
+    state.agenda.publicRows = [];
+  }
+  app.innerHTML = `
+    <section class="login-screen">
+      <form class="login-panel" id="publicAgendaForm">
+        <div class="brand">
+          <div class="brand-mark">CA</div>
+          <div>
+            <h1>${label}</h1>
+            <div class="muted">Escolha uma data e horario disponivel</div>
+          </div>
+        </div>
+        <label>Horario
+          <select name="slotId" required>
+            ${state.agenda.publicRows.map((row) => `<option value="${row.id}">${fmtDate(row.date)} - ${escapeHtml(row.start_time)} as ${escapeHtml(row.end_time)}</option>`).join("") || `<option value="">Nenhum horario disponivel</option>`}
+          </select>
+        </label>
+        <label>Nome <input name="name" required autocomplete="name"></label>
+        <label>Empresa / fornecedor <input name="company" required></label>
+        <label>Telefone <input name="phone" required autocomplete="tel"></label>
+        <label>${type === "recebimento" ? "NF / pedido / placa" : "Assunto"} <input name="document"></label>
+        <label>Observacao <textarea name="observation"></textarea></label>
+        <button class="btn primary" type="submit" ${state.agenda.publicRows.length ? "" : "disabled"}>Confirmar agendamento</button>
+      </form>
+    </section>
+  `;
+  document.getElementById("publicAgendaForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    await api("/api/public/agenda/book", {
+      method: "POST",
+      body: JSON.stringify(Object.fromEntries(new FormData(event.currentTarget).entries())),
+    });
+    app.innerHTML = `
+      <section class="login-screen">
+        <div class="login-panel">
+          <div class="brand">
+            <div class="brand-mark">CA</div>
+            <div>
+              <h1>Agendamento confirmado</h1>
+              <div class="muted">Seu horario foi reservado com sucesso.</div>
+            </div>
+          </div>
+        </div>
+      </section>
+    `;
+    fixVisibleText(app);
+  });
+  fixVisibleText(app);
+}
+
+function renderAgenda(type) {
+  const label = agendaLabel(type);
+  const isReceiving = type === "recebimento";
+  const publicLink = `${window.location.origin}${agendaPublicPath(type)}`;
+  const statusOptions = type === "recebimento"
+    ? ["Disponivel", "Agendado", "Recebido", "Atrasado", "Cancelado"]
+    : ["Disponivel", "Agendado", "Atendido", "Cancelado"];
+  view.innerHTML = `
+    <div class="topbar">
+      <div>
+        <h2>${label}</h2>
+        <div class="muted">${isReceiving ? "Controle interno de entregas agendadas" : "Organize horarios e envie o link para vendedores"}</div>
+      </div>
+      <button class="btn" type="button" id="refreshAgenda">Atualizar</button>
+    </div>
+    ${isReceiving ? "" : `<section class="panel agenda-share">
+      <div>
+        <h3>Link para enviar</h3>
+        <div class="muted" style="margin-top:4px">Envie este link pelo WhatsApp para o vendedor escolher um horario disponivel.</div>
+        <div class="agenda-link">${escapeHtml(publicLink)}</div>
+      </div>
+      <div class="toolbar">
+        <button class="btn primary" type="button" id="copyAgendaLink">Copiar link</button>
+        <button class="btn" type="button" id="openAgendaLink">Abrir link</button>
+      </div>
+    </section>`}
+    <div class="grid two" style="margin-top:14px">
+      <form class="panel grid" id="agendaForm">
+        <h3>${isReceiving ? "Novo recebimento agendado" : "Novo horario disponivel"}</h3>
+        <label>Data <input name="date" type="date" value="${todayInputValue()}" required></label>
+        ${isReceiving
+          ? `<label>Horario <input name="startTime" type="time" required></label>`
+          : `<div class="grid two">
+              <label>Inicio <input name="startTime" type="time" required></label>
+              <label>Fim <input name="endTime" type="time" required></label>
+            </div>`}
+        ${isReceiving ? `
+          <label>Fornecedor / empresa <input name="company" required></label>
+          <div class="grid two">
+            <label>Contato / motorista <input name="name"></label>
+            <label>Telefone <input name="phone"></label>
+          </div>
+          <label>NF / pedido / placa <input name="document"></label>
+          <label>Observacao <textarea name="observation"></textarea></label>
+        ` : ""}
+        <button class="btn primary" type="submit">${isReceiving ? "Salvar recebimento" : "Adicionar horario"}</button>
+      </form>
+      <form class="panel grid" id="agendaFilterForm">
+        <h3>Periodo exibido</h3>
+        <label>Inicio <input name="startDate" type="date" value="${escapeHtml(state.agenda.filters.startDate)}"></label>
+        <label>Fim <input name="endDate" type="date" value="${escapeHtml(state.agenda.filters.endDate)}"></label>
+        <button class="btn primary" type="submit">Aplicar periodo</button>
+      </form>
+    </div>
+    <section style="margin-top:14px">
+      <div class="section-title-row">
+        <div>
+          <h3>Horarios e agendamentos</h3>
+          <div class="muted">Acompanhe reservas, telefone e status de atendimento.</div>
+        </div>
+      </div>
+      <div class="agenda-cards">${agendaCards(state.agenda.rows, statusOptions, type)}</div>
+    </section>
+  `;
+  document.getElementById("copyAgendaLink")?.addEventListener("click", async () => {
+    await navigator.clipboard?.writeText(publicLink);
+    toast("Link da agenda copiado.");
+  });
+  document.getElementById("openAgendaLink")?.addEventListener("click", () => window.open(publicLink, "_blank"));
+  document.getElementById("refreshAgenda").addEventListener("click", async () => {
+    await loadAgenda(type);
+    renderAgenda(type);
+  });
+  document.getElementById("agendaForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const body = Object.fromEntries(new FormData(event.currentTarget).entries());
+    if (isReceiving) body.endTime = body.startTime;
+    await api("/api/agenda", { method: "POST", body: JSON.stringify({ type, ...body }) });
+    await loadAgenda(type);
+    renderAgenda(type);
+    toast(isReceiving ? "Recebimento agendado." : "Horario criado.");
+  });
+  document.getElementById("agendaFilterForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    state.agenda.filters = Object.fromEntries(new FormData(event.currentTarget).entries());
+    await loadAgenda(type);
+    renderAgenda(type);
+  });
+  document.querySelectorAll("[data-agenda-status]").forEach((select) => {
+    select.addEventListener("change", async () => {
+      await api(`/api/agenda/${select.dataset.agendaStatus}`, { method: "PUT", body: JSON.stringify({ status: select.value }) });
+      await loadAgenda(type);
+      renderAgenda(type);
+      toast("Status atualizado.");
+    });
+  });
+  fixVisibleText(view);
+}
+
+function agendaCards(rows, statusOptions, type = "comercial") {
+  const isReceiving = type === "recebimento";
+  return `
+    ${rows.map((row) => `
+      <article class="agenda-card">
+        <div class="agenda-card-main">
+          <div>
+            <div class="agenda-date">${fmtDate(row.date)}</div>
+            <strong>${isReceiving ? escapeHtml(row.start_time) : `${escapeHtml(row.start_time)} as ${escapeHtml(row.end_time)}`}</strong>
+          </div>
+          <select data-agenda-status="${row.id}">
+            ${statusOptions.map((status) => `<option value="${status}" ${status === row.status ? "selected" : ""}>${status}</option>`).join("")}
+          </select>
+        </div>
+        <div class="agenda-booking">
+          <div><span>${isReceiving ? "Contato" : "Nome"}</span><strong>${escapeHtml(row.booked_name || (isReceiving ? "-" : "Horario livre"))}</strong></div>
+          <div><span>${isReceiving ? "Fornecedor" : "Empresa"}</span><strong>${escapeHtml(row.booked_company || "-")}</strong></div>
+          <div><span>Telefone</span><strong>${escapeHtml(row.booked_phone || "-")}</strong></div>
+          <div><span>Detalhe</span><strong>${escapeHtml(row.booked_document || "-")}</strong></div>
+        </div>
+        ${row.booked_observation ? `<div class="agenda-note">${escapeHtml(row.booked_observation)}</div>` : ""}
+      </article>
+    `).join("") || `<div class="empty-state">Nenhum horario no periodo.</div>`}
+  `;
 }
 
 function renderCommercial() {
@@ -1515,11 +1911,9 @@ function renderReposition() {
       </div>
       <button class="btn primary" type="submit">Aplicar perÃ­odo</button>
     </form>
-    <div class="grid two" style="margin-top:14px">
+    <div class="grid" style="margin-top:14px">
       <section class="panel">${repoTaskForm()}</section>
-      <section class="panel">${repoIssueForm("ruptures", "Rupturas", "Produto em falta", [["type", "Tipo", ["Ruptura total", "Proximo de ruptura"]], ["quantity", "Quantidade"]])}</section>
     </div>
-    <section class="panel" style="margin-top:14px">${repoIssueForm("expirations", "Validades", "Produto com validade curta", [["expirationDate", "Data de validade", "date"], ["quantity", "Quantidade"]])}</section>
     <div class="grid two" style="margin-top:14px">
       <section class="panel">
         <h3>Indicadores por setor</h3>
@@ -1572,6 +1966,19 @@ function repoTaskForm() {
           <select name="answer" required><option>Sim</option><option>NÃ£o</option></select>
         </label>
       </div>
+      <div class="grid hidden" data-repo-issue-fields>
+        <div class="grid two">
+          <label>Produto <input name="product"></label>
+          <label data-repo-rupture-type>Tipo
+            <select name="type">
+              <option>Ruptura total</option>
+              <option>Proximo de ruptura</option>
+            </select>
+          </label>
+          <label data-repo-expiration-date>Data de validade <input name="expirationDate" type="date"></label>
+          <label>Quantidade <input name="quantity"></label>
+        </div>
+      </div>
       <label>ObservaÃ§Ã£o <textarea name="observation"></textarea></label>
       <button class="btn primary" type="submit">Enviar checklist</button>
     </form>
@@ -1600,6 +2007,20 @@ function repoIssueForm(kind, title, productLabel, fields) {
 
 function bindRepoForms() {
   const taskForm = document.getElementById("repoTaskForm");
+  const syncRepoIssueFields = () => {
+    const activity = withoutAccents(taskForm.elements.activity?.value || "").toLowerCase();
+    const isRupture = activity.includes("ruptura");
+    const isExpiration = activity.includes("validade");
+    const wrapper = taskForm.querySelector("[data-repo-issue-fields]");
+    const product = taskForm.elements.product;
+    const expirationDate = taskForm.elements.expirationDate;
+    if (!wrapper) return;
+    wrapper.classList.toggle("hidden", !isRupture && !isExpiration);
+    taskForm.querySelector("[data-repo-rupture-type]")?.classList.toggle("hidden", !isRupture);
+    taskForm.querySelector("[data-repo-expiration-date]")?.classList.toggle("hidden", !isExpiration);
+    if (product) product.required = isRupture || isExpiration;
+    if (expirationDate) expirationDate.required = isExpiration;
+  };
   const syncRepoTaskSector = () => {
     const collaboratorId = taskForm.elements.collaboratorId?.value;
     const sectorField = taskForm.elements.sector;
@@ -1609,7 +2030,9 @@ function bindRepoForms() {
     sectorField.innerHTML = repoOptions(assigned.length ? assigned : state.repo.sectors);
   };
   taskForm.elements.collaboratorId?.addEventListener("change", syncRepoTaskSector);
+  taskForm.elements.activity?.addEventListener("change", syncRepoIssueFields);
   syncRepoTaskSector();
+  syncRepoIssueFields();
 
   taskForm.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -2087,6 +2510,7 @@ function renderUsers() {
             <option value="prevencao">PrevenÃ§Ã£o</option>
             <option value="encarregada">Gerente</option>
             <option value="reposicao">ReposiÃ§Ã£o</option>
+            <option value="recebimento">Recebimento</option>
             <option value="comercial">Comercial</option>
             <option value="administrador">Administrador</option>
           </select>
