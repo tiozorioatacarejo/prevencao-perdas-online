@@ -636,6 +636,7 @@ async function sectorAuditDashboard(start, end, focus = "abastecimento", sectorF
     lastUpdate: "",
     collaborators: new Set(),
     notes: [],
+    taskObservations: [],
   }]));
   const ensure = (sector) => {
     const key = sector || "Sem setor";
@@ -656,6 +657,7 @@ async function sectorAuditDashboard(start, end, focus = "abastecimento", sectorF
         lastUpdate: "",
         collaborators: new Set(),
         notes: [],
+        taskObservations: [],
       });
     }
     return sectors.get(key);
@@ -685,7 +687,15 @@ async function sectorAuditDashboard(start, end, focus = "abastecimento", sectorF
       row.completedTasks += 1;
     } else {
       row.negativeTasks += 1;
-      row.notes.push(`${task.activity}: ${task.observation || "marcada como N\u00e3o"}`);
+      row.notes.push(`${task.activity}: marcada como N\u00e3o`);
+    }
+    if (String(task.observation || "").trim()) {
+      row.taskObservations.push({
+        collaborator: task.collaborator || "Repositor",
+        date: task.date,
+        activity: task.activity,
+        observation: String(task.observation).trim(),
+      });
     }
     if (task.collaborator) row.collaborators.add(task.collaborator);
     touch(row, task.sent_at);
@@ -761,6 +771,7 @@ async function sectorAuditDashboard(start, end, focus = "abastecimento", sectorF
       commercialPending: row.commercialPending,
       lastUpdate: row.lastUpdate,
       notes: row.notes.slice(0, 6),
+      taskObservations: row.taskObservations.slice(0, 10),
       managerStatus: audit?.manager_status || "Pendente",
       managerObservation: audit?.observation || "",
       actionRequired: audit?.action_required || "",

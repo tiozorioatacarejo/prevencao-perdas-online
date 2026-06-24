@@ -2399,6 +2399,17 @@ function sectorAuditTable() {
               <div class="muted" style="margin:6px 0">${resultDetail}</div>
               ${(row.motives || []).map((item) => `<div>${escapeHtml(item)}</div>`).join("")}
               ${(row.notes || []).length ? `<div class="muted" style="margin-top:6px">${row.notes.map(escapeHtml).join("<br>")}</div>` : ""}
+              ${(row.taskObservations || []).length ? `
+                <div class="repo-observations">
+                  <strong>Observação do repositor</strong>
+                  ${row.taskObservations.map((item) => `
+                    <div class="repo-observation-item">
+                      <span>${escapeHtml(item.collaborator || "Repositor")} · ${item.date ? new Date(`${item.date}T00:00:00`).toLocaleDateString("pt-BR") : ""}</span>
+                      <p>${escapeHtml(item.observation || "")}</p>
+                    </div>
+                  `).join("")}
+                </div>
+              ` : ""}
             </td>
             <td data-label="Validação gerente">
               <div class="grid" style="gap:8px">
