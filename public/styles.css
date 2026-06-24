@@ -719,10 +719,68 @@ textarea {
   margin-bottom: 14px;
 }
 
+.management-filter.without-sector {
+  grid-template-columns: repeat(2, minmax(0, 1fr)) auto;
+}
+
 .management-metrics,
 .management-analysis,
 .management-entry-grid {
   margin-top: 14px;
+}
+
+.management-data-form,
+.management-comparison-detail {
+  margin-top: 14px;
+}
+
+.management-module-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.management-module {
+  display: grid;
+  gap: 8px;
+  min-height: 112px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.management-module:hover {
+  border-color: var(--primary);
+  background: #f4faf7;
+}
+
+.management-module strong {
+  font-size: 16px;
+}
+
+.management-module span {
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.management-comparison-detail strong {
+  display: block;
+  margin-top: 6px;
+  font-size: 22px;
+}
+
+.general-store-observation {
+  margin-top: 14px;
+  border-left: 4px solid var(--primary);
+}
+
+.general-store-observation h3 {
+  margin: 0 0 6px;
 }
 
 .management-analysis h3,
@@ -1003,7 +1061,9 @@ th {
   .agenda-card-main,
   .agenda-booking,
   .metrics,
-  .management-filter {
+  .management-filter,
+  .management-filter.without-sector,
+  .management-module-grid {
     grid-template-columns: 1fr;
   }
 

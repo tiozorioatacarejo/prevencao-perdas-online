@@ -146,6 +146,7 @@ async function initPostgres() {
     CREATE TABLE IF NOT EXISTS management_monthly (
       id SERIAL PRIMARY KEY,
       period TEXT UNIQUE NOT NULL,
+      sold_quantity REAL NOT NULL DEFAULT 0,
       gross_sales REAL NOT NULL DEFAULT 0,
       cancelled_sales REAL NOT NULL DEFAULT 0,
       discounts REAL NOT NULL DEFAULT 0,
@@ -199,6 +200,7 @@ async function initPostgres() {
   `);
   await pool.query("ALTER TABLE collaborators ADD COLUMN IF NOT EXISTS sector TEXT");
   await pool.query("ALTER TABLE checklists ADD COLUMN IF NOT EXISTS sector TEXT");
+  await pool.query("ALTER TABLE management_monthly ADD COLUMN IF NOT EXISTS sold_quantity REAL NOT NULL DEFAULT 0");
   const existing = await pool.query("SELECT COUNT(*) AS total FROM users");
   if (Number(existing.rows[0].total) === 0) {
     await pool.query(

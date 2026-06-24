@@ -260,6 +260,7 @@ def init_db():
         CREATE TABLE IF NOT EXISTS management_monthly (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             period TEXT UNIQUE NOT NULL,
+            sold_quantity REAL NOT NULL DEFAULT 0,
             gross_sales REAL NOT NULL DEFAULT 0,
             cancelled_sales REAL NOT NULL DEFAULT 0,
             discounts REAL NOT NULL DEFAULT 0,
@@ -345,6 +346,10 @@ def init_db():
     expiration_columns = [row["name"] for row in conn.execute("PRAGMA table_info(repo_expirations)").fetchall()]
     if "commercial_updated_by" not in expiration_columns:
         conn.execute("ALTER TABLE repo_expirations ADD COLUMN commercial_updated_by INTEGER")
+
+    management_columns = [row["name"] for row in conn.execute("PRAGMA table_info(management_monthly)").fetchall()]
+    if "sold_quantity" not in management_columns:
+        conn.execute("ALTER TABLE management_monthly ADD COLUMN sold_quantity REAL NOT NULL DEFAULT 0")
 
     if not db_exists and conn.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0:
         conn.executemany(

@@ -17,7 +17,7 @@ let pgPool = null;
 
 const sessions = new Map();
 const loginAttempts = new Map();
-const SESSION_TTL_MS = 8 * 60 * 60 * 1000;
+const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const LOGIN_LOCK_MS = 10 * 60 * 1000;
 const MAX_LOGIN_ATTEMPTS = 5;
 const PRICE_DIVERGENCE_ACTIVITY = "Confer\u00eancia de precifica\u00e7\u00e3o";
@@ -28,6 +28,7 @@ const ENGAGEMENT_EXCLUDED_ACTIVITIES = [
   "Lan\u00e7amento de perdas no sistema",
   "Lan\u00e7amento de consumo interno",
   "Contagem e acompanhamento de vasilhames",
+  "Observa\u00e7\u00e3o geral da loja",
 ];
 
 const repoSectors = [
@@ -80,6 +81,15 @@ const activities = [
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+const SESSION_SECRET_FILE = path.join(DATA_DIR, ".session-secret");
+const SESSION_SECRET = (() => {
+  if (process.env.SESSION_SECRET) return process.env.SESSION_SECRET;
+  if (DATABASE_URL) return crypto.createHash("sha256").update(DATABASE_URL).digest("hex");
+  if (fs.existsSync(SESSION_SECRET_FILE)) return fs.readFileSync(SESSION_SECRET_FILE, "utf8").trim();
+  const secret = crypto.randomBytes(48).toString("base64url");
+  fs.writeFileSync(SESSION_SECRET_FILE, secret, { encoding: "utf8", mode: 0o600 });
+  return secret;
+})();
 
 async function postgresPool() {
   if (!DATABASE_URL) return null;
@@ -297,6 +307,7 @@ async function initPostgres(pool) {
     CREATE TABLE IF NOT EXISTS management_monthly (
       id SERIAL PRIMARY KEY,
       period TEXT UNIQUE NOT NULL,
+      sold_quantity REAL NOT NULL DEFAULT 0,
       gross_sales REAL NOT NULL DEFAULT 0,
       cancelled_sales REAL NOT NULL DEFAULT 0,
       discounts REAL NOT NULL DEFAULT 0,
@@ -352,6 +363,7 @@ async function initPostgres(pool) {
   await pool.query("ALTER TABLE checklists ADD COLUMN IF NOT EXISTS sector TEXT");
   await pool.query("ALTER TABLE repo_ruptures ADD COLUMN IF NOT EXISTS commercial_updated_by INTEGER REFERENCES users(id)");
   await pool.query("ALTER TABLE repo_expirations ADD COLUMN IF NOT EXISTS commercial_updated_by INTEGER REFERENCES users(id)");
+  await pool.query("ALTER TABLE management_monthly ADD COLUMN IF NOT EXISTS sold_quantity REAL NOT NULL DEFAULT 0");
   const existing = await pool.query("SELECT COUNT(*) AS total FROM users");
   if (Number(existing.rows[0].total) === 0) {
     await pool.query(
@@ -422,8 +434,28 @@ function readBody(req) {
   });
 }
 
-function makeToken() {
-  return crypto.randomBytes(32).toString("base64url");
+function makeToken(user) {
+  const payload = Buffer.from(JSON.stringify({
+    user: publicUser(user),
+    expiresAt: Date.now() + SESSION_TTL_MS,
+  })).toString("base64url");
+  const signature = crypto.createHmac("sha256", SESSION_SECRET).update(payload).digest("base64url");
+  return `${payload}.${signature}`;
+}
+
+function signedSession(token) {
+  const [payload, signature] = String(token || "").split(".");
+  if (!payload || !signature) return null;
+  const expected = crypto.createHmac("sha256", SESSION_SECRET).update(payload).digest();
+  const received = Buffer.from(signature, "base64url");
+  if (expected.length !== received.length || !crypto.timingSafeEqual(expected, received)) return null;
+  try {
+    const session = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+    if (!session.user || Number(session.expiresAt || 0) <= Date.now()) return null;
+    return session;
+  } catch {
+    return null;
+  }
 }
 
 function isPasswordHash(value) {
@@ -455,12 +487,14 @@ function currentUser(req) {
   const auth = req.headers.authorization || "";
   const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
   const session = sessions.get(token);
-  if (!session) return null;
-  if (session.expiresAt <= Date.now()) {
-    sessions.delete(token);
-    return null;
+  if (session) {
+    if (session.expiresAt <= Date.now()) {
+      sessions.delete(token);
+      return null;
+    }
+    return session.user;
   }
-  return session.user;
+  return signedSession(token)?.user || null;
 }
 
 function requireUser(req, res) {
@@ -1067,9 +1101,15 @@ function managementMonthlyCalculated(row = {}) {
   return {
     ...row,
     average_ticket: numberValue(row.average_ticket) || (coupons ? netSales / coupons : 0),
+    cancellation_rate: coupons ? intValue(row.cancelled_coupons) / coupons : 0,
+    discount_rate: numberValue(row.gross_sales) ? numberValue(row.discounts) / numberValue(row.gross_sales) : 0,
+    green_unidentified_coupons: Math.max(0, intValue(row.green_coupons) - intValue(row.identified_green_coupons)),
     green_identification_rate: intValue(row.green_coupons) ? intValue(row.identified_green_coupons) / intValue(row.green_coupons) : 0,
     delivery_total: deliveryTotal,
     delivery_participation: netSales ? deliveryTotal / netSales : 0,
+    delivery_average_ticket: intValue(row.delivery_coupons) ? deliveryNet / intValue(row.delivery_coupons) : 0,
+    delivery_cancellation_rate: intValue(row.delivery_coupons) ? intValue(row.delivery_cancelled_coupons) / intValue(row.delivery_coupons) : 0,
+    delivery_discount_rate: deliveryNet ? numberValue(row.delivery_discounts) / deliveryNet : 0,
     delivery_result_normal: deliveryTotal - numberValue(row.delivery_goal_normal),
     delivery_result_plus: deliveryTotal - numberValue(row.delivery_goal_plus),
     quotation_profit: quotationProfit,
@@ -1160,24 +1200,47 @@ async function managementReportData(period, comparePeriod = previousPeriod(perio
     const previous = previousSectorMap.get(sector) || managementSectorCalculated({ period: comparePeriod, sector });
     return {
       ...row,
-      previous,
+      previous: {
+        ...previous,
+        participation: numberValue(previousMonthly.net_sales) ? numberValue(previous.net_sales) / numberValue(previousMonthly.net_sales) : 0,
+        cancellation_rate: intValue(previous.coupons) ? intValue(previous.cancelled_coupons) / intValue(previous.coupons) : 0,
+      },
       comparison: managementComparison(row, previous, ["sales", "losses", "consumption", "loss_rate", "sales_per_employee"]),
     };
   });
-  const operators = (await query("SELECT * FROM management_operators WHERE period = ? ORDER BY net_sales DESC, operator_name", [period]))
-    .map((row) => ({
+  const operatorRows = await query(
+    "SELECT * FROM management_operators WHERE period IN (?, ?) ORDER BY operator_name",
+    [period, comparePeriod]
+  );
+  const currentOperatorMap = new Map(operatorRows.filter((row) => row.period === period).map((row) => [row.operator_name, row]));
+  const previousOperatorMap = new Map(operatorRows.filter((row) => row.period === comparePeriod).map((row) => [row.operator_name, row]));
+  const operatorNames = [...new Set([...currentOperatorMap.keys(), ...previousOperatorMap.keys()])].sort((a, b) => a.localeCompare(b, "pt-BR"));
+  const operators = operatorNames.map((operatorName) => {
+    const row = currentOperatorMap.get(operatorName) || { period, operator_name: operatorName };
+    const previous = previousOperatorMap.get(operatorName) || { period: comparePeriod, operator_name: operatorName };
+    return {
       ...row,
+      previous,
+      comparison: managementComparison(row, previous, ["net_sales", "coupons", "cancelled_coupons", "vip"]),
       participation: numberValue(currentMonthly.net_sales) ? numberValue(row.net_sales) / numberValue(currentMonthly.net_sales) : 0,
       cancellation_rate: intValue(row.coupons) ? intValue(row.cancelled_coupons) / intValue(row.coupons) : 0,
-    }));
+    };
+  }).sort((a, b) => numberValue(b.net_sales) - numberValue(a.net_sales));
   return {
     period,
     comparePeriod,
     monthly: currentMonthly,
     previousMonthly,
     monthlyComparison: managementComparison(currentMonthly, previousMonthly, [
-      "gross_sales", "cancelled_sales", "discounts", "net_sales", "coupons", "average_ticket",
-      "delivery_total", "quotation_sales", "quotation_profit",
+      "sold_quantity", "gross_sales", "cancelled_sales", "discounts", "net_sales", "coupons",
+      "average_ticket", "cancelled_coupons", "cancellation_rate", "discount_rate",
+      "green_coupons", "identified_green_coupons", "green_unidentified_coupons", "green_identification_rate",
+      "delivery_net_sales", "delivery_cancelled_sales", "delivery_discounts", "delivery_coupons",
+      "delivery_cancelled_coupons", "delivery_other_checkouts", "delivery_total",
+      "delivery_participation", "delivery_average_ticket", "delivery_cancellation_rate",
+      "delivery_discount_rate", "delivery_result_normal", "delivery_result_plus",
+      "quotation_cost", "quotation_sales", "quotation_profit", "quotation_margin_sales",
+      "quotation_margin_cost", "quotation_participation",
     ]),
     sectors,
     operators,
@@ -1209,11 +1272,10 @@ async function api(req, res, url) {
       await execute("UPDATE users SET password = ? WHERE id = ?", [hashPassword(body.password), users[0].id]);
     }
     clearLoginFailures(attemptKey);
-    const token = makeToken();
     const safeUser = publicUser(users[0]);
-    sessions.set(token, { user: safeUser, expiresAt: Date.now() + SESSION_TTL_MS });
+    const token = makeToken(safeUser);
     await logAudit(safeUser, "login", "users", safeUser.id);
-    return send(res, 200, { token, user: safeUser });
+    return send(res, 200, { token, user: safeUser, expiresAt: Date.now() + SESSION_TTL_MS });
   }
 
   if (method === "GET" && url.pathname === "/api/public/agenda") {
@@ -1253,6 +1315,13 @@ async function api(req, res, url) {
   const user = requireUser(req, res);
   if (!user) return;
 
+  if (method === "POST" && url.pathname === "/api/session/refresh") {
+    return send(res, 200, {
+      token: makeToken(user),
+      expiresAt: Date.now() + SESSION_TTL_MS,
+    });
+  }
+
   if (method === "GET" && url.pathname === "/api/me") {
     return send(res, 200, { user, activities, sectors: repoSectors });
   }
@@ -1269,23 +1338,33 @@ async function api(req, res, url) {
     const body = await readBody(req);
     const period = String(body.period || "").trim();
     if (!/^\d{4}-\d{2}$/.test(period)) return send(res, 400, { error: "Informe um mês válido." });
-    const fields = [
-      "grossSales", "cancelledSales", "discounts", "netSales", "coupons", "averageTicket",
-      "cancelledCoupons", "greenCoupons", "identifiedGreenCoupons", "deliveryNetSales",
-      "deliveryCancelledSales", "deliveryDiscounts", "deliveryCoupons", "deliveryCancelledCoupons",
-      "deliveryOtherCheckouts", "deliveryGoalNormal", "deliveryGoalPlus", "quotationCost", "quotationSales",
+    const fieldMap = [
+      ["soldQuantity", "sold_quantity"], ["grossSales", "gross_sales"], ["cancelledSales", "cancelled_sales"], ["discounts", "discounts"],
+      ["netSales", "net_sales"], ["coupons", "coupons"], ["averageTicket", "average_ticket"],
+      ["cancelledCoupons", "cancelled_coupons"], ["greenCoupons", "green_coupons"],
+      ["identifiedGreenCoupons", "identified_green_coupons"], ["deliveryNetSales", "delivery_net_sales"],
+      ["deliveryCancelledSales", "delivery_cancelled_sales"], ["deliveryDiscounts", "delivery_discounts"],
+      ["deliveryCoupons", "delivery_coupons"], ["deliveryCancelledCoupons", "delivery_cancelled_coupons"],
+      ["deliveryOtherCheckouts", "delivery_other_checkouts"], ["deliveryGoalNormal", "delivery_goal_normal"],
+      ["deliveryGoalPlus", "delivery_goal_plus"], ["quotationCost", "quotation_cost"],
+      ["quotationSales", "quotation_sales"],
     ];
-    const values = fields.map((field) => field.includes("Coupons") || field === "coupons" ? intValue(body[field]) : numberValue(body[field]));
+    const current = (await query("SELECT * FROM management_monthly WHERE period = ?", [period]))[0] || {};
+    const integerFields = new Set(["coupons", "cancelledCoupons", "greenCoupons", "identifiedGreenCoupons", "deliveryCoupons", "deliveryCancelledCoupons", "deliveryOtherCheckouts"]);
+    const values = fieldMap.map(([bodyField, databaseField]) => {
+      const value = Object.prototype.hasOwnProperty.call(body, bodyField) ? body[bodyField] : current[databaseField];
+      return integerFields.has(bodyField) ? intValue(value) : numberValue(value);
+    });
     await execute(
       `INSERT INTO management_monthly (
-        period, gross_sales, cancelled_sales, discounts, net_sales, coupons, average_ticket,
+        period, sold_quantity, gross_sales, cancelled_sales, discounts, net_sales, coupons, average_ticket,
         cancelled_coupons, green_coupons, identified_green_coupons, delivery_net_sales,
         delivery_cancelled_sales, delivery_discounts, delivery_coupons, delivery_cancelled_coupons,
         delivery_other_checkouts, delivery_goal_normal, delivery_goal_plus, quotation_cost,
         quotation_sales, updated_by, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(period) DO UPDATE SET
-        gross_sales=excluded.gross_sales, cancelled_sales=excluded.cancelled_sales,
+        sold_quantity=excluded.sold_quantity, gross_sales=excluded.gross_sales, cancelled_sales=excluded.cancelled_sales,
         discounts=excluded.discounts, net_sales=excluded.net_sales, coupons=excluded.coupons,
         average_ticket=excluded.average_ticket, cancelled_coupons=excluded.cancelled_coupons,
         green_coupons=excluded.green_coupons, identified_green_coupons=excluded.identified_green_coupons,
@@ -1302,12 +1381,48 @@ async function api(req, res, url) {
     return send(res, 200, { ok: true });
   }
 
+  if (method === "DELETE" && url.pathname === "/api/management-indicators/monthly") {
+    if (!canAccessManagementIndicators(user)) return send(res, 403, { error: "Acesso restrito aos indicadores administrativos." });
+    const period = String(url.searchParams.get("period") || "").trim();
+    const type = String(url.searchParams.get("type") || "").trim();
+    if (!/^\d{4}-\d{2}$/.test(period)) return send(res, 400, { error: "Informe um mês válido." });
+    const fieldsByType = {
+      store: [
+        "sold_quantity", "gross_sales", "cancelled_sales", "discounts", "net_sales", "coupons",
+        "average_ticket", "cancelled_coupons", "green_coupons", "identified_green_coupons",
+      ],
+      delivery: [
+        "delivery_net_sales", "delivery_cancelled_sales", "delivery_discounts",
+        "delivery_coupons", "delivery_cancelled_coupons", "delivery_other_checkouts",
+        "delivery_goal_normal", "delivery_goal_plus",
+      ],
+      quotations: ["quotation_cost", "quotation_sales"],
+    };
+    const fields = fieldsByType[type];
+    if (!fields) return send(res, 400, { error: "Tipo de lançamento inválido." });
+    await execute(
+      `UPDATE management_monthly SET ${fields.map((field) => `${field} = 0`).join(", ")}, updated_by = ?, updated_at = ? WHERE period = ?`,
+      [user.id, nowIso(), period]
+    );
+    await logAudit(user, "delete", `management_monthly_${type}`, period);
+    return send(res, 200, { ok: true });
+  }
+
   if (method === "POST" && url.pathname === "/api/management-indicators/sector") {
     if (!canAccessManagementIndicators(user)) return send(res, 403, { error: "Acesso restrito aos indicadores administrativos." });
     const body = await readBody(req);
     const period = String(body.period || "").trim();
     const sector = String(body.sector || "").trim();
     if (!/^\d{4}-\d{2}$/.test(period) || !sector) return send(res, 400, { error: "Informe mês e setor." });
+    const current = (await query("SELECT * FROM management_sectors WHERE period = ? AND sector = ?", [period, sector]))[0] || {};
+    const merged = {
+      sales: Object.prototype.hasOwnProperty.call(body, "sales") ? numberValue(body.sales) : numberValue(current.sales),
+      losses: Object.prototype.hasOwnProperty.call(body, "losses") ? numberValue(body.losses) : numberValue(current.losses),
+      consumption: Object.prototype.hasOwnProperty.call(body, "consumption") ? numberValue(body.consumption) : numberValue(current.consumption),
+      employeeCount: Object.prototype.hasOwnProperty.call(body, "employeeCount") ? intValue(body.employeeCount) : intValue(current.employee_count),
+      productivityTarget: Object.prototype.hasOwnProperty.call(body, "productivityTarget") ? numberValue(body.productivityTarget) : numberValue(current.productivity_target),
+      inventories: Object.prototype.hasOwnProperty.call(body, "inventories") ? intValue(body.inventories) : intValue(current.inventories),
+    };
     await execute(
       `INSERT INTO management_sectors (
         period, sector, sales, losses, consumption, employee_count, productivity_target, inventories, updated_by, updated_at
@@ -1317,12 +1432,35 @@ async function api(req, res, url) {
         employee_count=excluded.employee_count, productivity_target=excluded.productivity_target,
         inventories=excluded.inventories, updated_by=excluded.updated_by, updated_at=excluded.updated_at`,
       [
-        period, sector, numberValue(body.sales), numberValue(body.losses), numberValue(body.consumption),
-        intValue(body.employeeCount), numberValue(body.productivityTarget), intValue(body.inventories),
+        period, sector, merged.sales, merged.losses, merged.consumption,
+        merged.employeeCount, merged.productivityTarget, merged.inventories,
         user.id, nowIso(),
       ]
     );
     await logAudit(user, "upsert", "management_sectors", `${period}|${sector}`);
+    return send(res, 200, { ok: true });
+  }
+
+  if (method === "DELETE" && url.pathname === "/api/management-indicators/sector") {
+    if (!canAccessManagementIndicators(user)) return send(res, 403, { error: "Acesso restrito aos indicadores administrativos." });
+    const period = String(url.searchParams.get("period") || "").trim();
+    const sector = String(url.searchParams.get("sector") || "").trim();
+    const type = String(url.searchParams.get("type") || "").trim();
+    if (!/^\d{4}-\d{2}$/.test(period) || !sector) return send(res, 400, { error: "Informe mês e setor." });
+    if (type === "losses") {
+      await execute(
+        "UPDATE management_sectors SET losses = 0, consumption = 0, updated_by = ?, updated_at = ? WHERE period = ? AND sector = ?",
+        [user.id, nowIso(), period, sector]
+      );
+    } else if (type === "productivity") {
+      await execute(
+        "UPDATE management_sectors SET sales = 0, employee_count = 0, productivity_target = 0, inventories = 0, updated_by = ?, updated_at = ? WHERE period = ? AND sector = ?",
+        [user.id, nowIso(), period, sector]
+      );
+    } else {
+      return send(res, 400, { error: "Tipo de lançamento inválido." });
+    }
+    await logAudit(user, "delete", `management_sector_${type}`, `${period}|${sector}`);
     return send(res, 200, { ok: true });
   }
 
@@ -1349,48 +1487,107 @@ async function api(req, res, url) {
     return send(res, 200, { ok: true });
   }
 
+  if (method === "DELETE" && url.pathname === "/api/management-indicators/operator") {
+    if (!canAccessManagementIndicators(user)) return send(res, 403, { error: "Acesso restrito aos indicadores administrativos." });
+    const period = String(url.searchParams.get("period") || "").trim();
+    const operatorName = String(url.searchParams.get("operatorName") || "").trim();
+    if (!/^\d{4}-\d{2}$/.test(period) || !operatorName) return send(res, 400, { error: "Informe mês e operador." });
+    await execute("DELETE FROM management_operators WHERE period = ? AND operator_name = ?", [period, operatorName]);
+    await logAudit(user, "delete", "management_operators", `${period}|${operatorName}`);
+    return send(res, 200, { ok: true });
+  }
+
   if (method === "GET" && url.pathname === "/api/management-indicators/pdf") {
     if (!canAccessManagementIndicators(user)) return send(res, 403, { error: "Acesso restrito aos indicadores administrativos." });
     const period = url.searchParams.get("period") || today().slice(0, 7);
     const comparePeriod = url.searchParams.get("comparePeriod") || previousPeriod(period);
     const sectorFilter = url.searchParams.get("sector") || "";
+    const reportType = url.searchParams.get("type") || "all";
     const report = await managementReportData(period, comparePeriod);
     const currency = (value) => `R$ ${numberValue(value).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     const percent = (value) => `${(numberValue(value) * 100).toFixed(2)}%`;
     const sectors = sectorFilter ? report.sectors.filter((row) => row.sector === sectorFilter) : report.sectors;
-    const lines = [
-      "INDICADORES GERENCIAIS - CONTROLE ATACAREJO",
+    const header = [
+      "CONTROLE ATACAREJO - INDICADORES GERENCIAIS",
       `Periodo: ${period} | Comparativo: ${comparePeriod}`,
       `Gerado em: ${new Date().toLocaleString("pt-BR")}`,
       "",
-      "RESUMO DA LOJA",
+    ];
+    const storeLines = [
+      "VENDA DA LOJA",
+      `Quantidade vendida: ${numberValue(report.monthly.sold_quantity).toLocaleString("pt-BR")} | Anterior: ${numberValue(report.previousMonthly.sold_quantity).toLocaleString("pt-BR")}`,
+      `Venda bruta: ${currency(report.monthly.gross_sales)} | Anterior: ${currency(report.previousMonthly.gross_sales)}`,
       `Venda liquida: ${currency(report.monthly.net_sales)} | Variacao: ${currency(report.monthlyComparison.net_sales.difference)} (${percent(report.monthlyComparison.net_sales.percent)})`,
-      `Venda bruta: ${currency(report.monthly.gross_sales)} | Descontos: ${currency(report.monthly.discounts)}`,
-      `Cupons: ${report.monthly.coupons || 0} | Cupom medio: ${currency(report.monthly.average_ticket)}`,
-      `Cupons verdes identificados: ${percent(report.monthly.green_identification_rate)}`,
-      "",
+      `Cancelada: ${currency(report.monthly.cancelled_sales)} | Descontos: ${currency(report.monthly.discounts)} (${percent(report.monthly.discount_rate)})`,
+      `Cupons: ${report.monthly.coupons || 0} | Ticket medio: ${currency(report.monthly.average_ticket)} | Cancelados: ${report.monthly.cancelled_coupons || 0}`,
+      `Taxa cancelamento: ${percent(report.monthly.cancellation_rate)} | Anterior: ${percent(report.previousMonthly.cancellation_rate)}`,
+      `Cupons verdes: ${report.monthly.green_coupons || 0} | Identificados: ${report.monthly.identified_green_coupons || 0} | Nao identificados: ${report.monthly.green_unidentified_coupons || 0}`,
+      `Identificacao: ${percent(report.monthly.green_identification_rate)} | Anterior: ${percent(report.previousMonthly.green_identification_rate)}`,
+    ];
+    const deliveryLines = [
       "DELIVERY",
-      `Total: ${currency(report.monthly.delivery_total)} | Participacao: ${percent(report.monthly.delivery_participation)}`,
+      `Total atual: ${currency(report.monthly.delivery_total)} | Anterior: ${currency(report.previousMonthly.delivery_total)}`,
+      `Variacao: ${currency(report.monthlyComparison.delivery_total.difference)} (${percent(report.monthlyComparison.delivery_total.percent)})`,
+      `Participacao atual: ${percent(report.monthly.delivery_participation)} | Anterior: ${percent(report.previousMonthly.delivery_participation)}`,
+      `Venda liquida: ${currency(report.monthly.delivery_net_sales)} | Cancelada: ${currency(report.monthly.delivery_cancelled_sales)}`,
+      `Ticket medio: ${currency(report.monthly.delivery_average_ticket)} | Descontos: ${currency(report.monthly.delivery_discounts)} (${percent(report.monthly.delivery_discount_rate)})`,
+      `Cupons: ${report.monthly.delivery_coupons || 0} | Cancelados: ${report.monthly.delivery_cancelled_coupons || 0} | Taxa: ${percent(report.monthly.delivery_cancellation_rate)}`,
+      `Outros caixas: ${currency(report.monthly.delivery_other_checkouts)}`,
       `Resultado meta normal: ${currency(report.monthly.delivery_result_normal)} | Meta plus: ${currency(report.monthly.delivery_result_plus)}`,
-      "",
+    ];
+    const quotationLines = [
       "COTACOES",
-      `Venda: ${currency(report.monthly.quotation_sales)} | Custo: ${currency(report.monthly.quotation_cost)}`,
-      `Lucro: ${currency(report.monthly.quotation_profit)} | Margem sobre venda: ${percent(report.monthly.quotation_margin_sales)}`,
-      "",
+      `Venda atual: ${currency(report.monthly.quotation_sales)} | Anterior: ${currency(report.previousMonthly.quotation_sales)}`,
+      `Variacao: ${currency(report.monthlyComparison.quotation_sales.difference)} (${percent(report.monthlyComparison.quotation_sales.percent)})`,
+      `Custo: ${currency(report.monthly.quotation_cost)} | Custo anterior: ${currency(report.previousMonthly.quotation_cost)}`,
+      `Lucro: ${currency(report.monthly.quotation_profit)} | Anterior: ${currency(report.previousMonthly.quotation_profit)}`,
+      `Participacao: ${percent(report.monthly.quotation_participation)} | Anterior: ${percent(report.previousMonthly.quotation_participation)}`,
+      `Margem custo: ${percent(report.monthly.quotation_margin_cost)} | Margem venda: ${percent(report.monthly.quotation_margin_sales)}`,
+    ];
+    const lossLines = [
+      "PERDAS E CONSUMO POR SETOR",
+      ...sectors.flatMap((row) => [
+        `${row.sector}: perdas atual ${currency(row.losses)} | anterior ${currency(row.previous.losses)} | variacao ${percent(row.comparison.losses.percent)}`,
+        `  Percentual perda ${percent(row.loss_rate)} | anterior ${percent(row.previous.loss_rate)} | Inventarios ${row.inventories || 0}/${row.previous.inventories || 0}`,
+        `  Consumo atual ${currency(row.consumption)} | anterior ${currency(row.previous.consumption)} | percentual ${percent(row.consumption_rate)}`,
+      ]),
+    ];
+    const productivityLines = [
+      "PRODUTIVIDADE POR SETOR",
+      ...sectors.flatMap((row) => [
+        `${row.sector}: venda atual ${currency(row.sales)} | anterior ${currency(row.previous.sales)} | variacao ${percent(row.comparison.sales.percent)}`,
+        `  Meta/funcionario ${currency(row.productivity_target)} | Equipe ${row.employee_count || 0}/${row.previous.employee_count || 0}`,
+        `  Venda/funcionario ${currency(row.sales_per_employee)} | Equipe sugerida ${numberValue(row.suggested_employees).toFixed(1)} | Diferenca ${numberValue(row.staffing_difference).toFixed(1)}`,
+      ]),
+    ];
+    const sectorLines = [
       "COMPARATIVO POR SETOR",
       ...sectors.flatMap((row) => [
         `${row.sector}: venda ${currency(row.sales)} | anterior ${currency(row.previous.sales)} | variacao ${currency(row.comparison.sales.difference)}`,
         `  Perdas ${currency(row.losses)} (${percent(row.loss_rate)}) | Consumo ${currency(row.consumption)} | Funcionarios ${row.employee_count || 0} | Sugerido ${numberValue(row.suggested_employees).toFixed(1)}`,
       ]),
-      "",
+    ];
+    const operatorLines = [
       "DESEMPENHO DOS OPERADORES",
       ...report.operators.map((row) =>
-        `${row.operator_name}: ${currency(row.net_sales)} | Participacao ${percent(row.participation)} | Cupons ${row.coupons || 0} | Cancelados ${row.cancelled_coupons || 0}`
+        `${row.operator_name}: venda ${currency(row.net_sales)}/${currency(row.previous.net_sales)} | participacao ${percent(row.participation)}/${percent(row.previous.participation)} | cupons ${row.coupons || 0}/${row.previous.coupons || 0} | cancelados ${row.cancelled_coupons || 0}/${row.previous.cancelled_coupons || 0} | VIP ${row.vip || 0}/${row.previous.vip || 0}`
       ),
     ];
+    const typeLines = {
+      store: storeLines,
+      delivery: deliveryLines,
+      quotations: quotationLines,
+      sectors: sectorLines,
+      losses: lossLines,
+      productivity: productivityLines,
+      operators: operatorLines,
+    };
+    const lines = reportType === "all"
+      ? [...header, ...storeLines, "", ...deliveryLines, "", ...quotationLines, "", ...sectorLines, "", ...operatorLines]
+      : [...header, ...(typeLines[reportType] || storeLines)];
     return send(res, 200, simplePdf(lines), {
       "Content-Type": "application/pdf",
-      "Content-Disposition": `attachment; filename=indicadores-gerenciais-${period}.pdf`,
+      "Content-Disposition": `attachment; filename=indicadores-${reportType}-${period}.pdf`,
     });
   }
 
@@ -2192,7 +2389,7 @@ async function api(req, res, url) {
       JOIN collaborators col ON col.id = u.collaborator_id
       LEFT JOIN checklists c ON c.collaborator_id = col.id
         AND c.date BETWEEN ? AND ?
-        AND c.activity NOT IN (?, ?, ?)
+        AND c.activity NOT IN (${ENGAGEMENT_EXCLUDED_ACTIVITIES.map(() => "?").join(", ")})
       WHERE col.status = 'ativo'
         AND u.status = 'ativo'
         AND u.role IN ('prevencao', 'colaborador')
