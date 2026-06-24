@@ -420,6 +420,10 @@ h3 {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
+.grid.five {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
 label {
   display: grid;
   gap: 6px;
@@ -709,6 +713,30 @@ th {
   text-transform: uppercase;
 }
 
+.audit-result {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 9px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.audit-result.yes {
+  color: #11663c;
+  background: #def3e7;
+}
+
+.audit-result.no {
+  color: #a52b2b;
+  background: #f9e1e1;
+}
+
+.audit-result strong {
+  font-size: 14px;
+}
+
 .toast {
   position: fixed;
   right: 18px;
@@ -824,6 +852,7 @@ th {
   .grid.two,
   .grid.three,
   .grid.four,
+  .grid.five,
   .agenda-share,
   .agenda-card-main,
   .agenda-booking,

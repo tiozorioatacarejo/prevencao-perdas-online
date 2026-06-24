@@ -21,6 +21,7 @@
     endDate: new Date().toISOString().slice(0, 10),
     focus: "abastecimento",
     sector: "",
+    completion: "",
   },
   dashboard: null,
   repo: {
@@ -2280,8 +2281,9 @@ function auditStatusClass(status) {
 
 function renderSectorAudit() {
   const auditSummary = state.sectorAuditSummary || { evaluatedByUser: 0, evaluatedTotal: 0 };
-  const managerMetricLabel = state.user?.role === "encarregada" ? "Avaliações feitas por você" : "Avaliações registradas";
-  const managerMetricValue = state.user?.role === "encarregada" ? auditSummary.evaluatedByUser : auditSummary.evaluatedTotal;
+  const isManager = ["gerente", "encarregada"].includes(state.user?.role);
+  const managerMetricLabel = isManager ? "Avaliações feitas por você" : "Avaliações registradas";
+  const managerMetricValue = isManager ? auditSummary.evaluatedByUser : auditSummary.evaluatedTotal;
   view.innerHTML = `
     <div class="topbar">
       <div>
@@ -2291,7 +2293,7 @@ function renderSectorAudit() {
       <button class="btn" id="refreshSectorAudit">Atualizar</button>
     </div>
     <form class="panel grid" id="sectorAuditFilterForm" style="margin-bottom:14px">
-      <div class="grid four">
+      <div class="grid five">
         <label>Início <input name="startDate" type="date" value="${escapeHtml(state.auditFilters.startDate)}"></label>
         <label>Fim <input name="endDate" type="date" value="${escapeHtml(state.auditFilters.endDate)}"></label>
         <label>O que deseja conferir?
@@ -2303,6 +2305,13 @@ function renderSectorAudit() {
           <select name="sector">
             <option value="">Todos</option>
             ${repoOptions(state.repo.sectors || [], state.auditFilters.sector || "")}
+          </select>
+        </label>
+        <label>Situação da atividade
+          <select name="completion">
+            <option value="" ${!state.auditFilters.completion ? "selected" : ""}>Todas</option>
+            <option value="realizada" ${state.auditFilters.completion === "realizada" ? "selected" : ""}>Realizadas</option>
+            <option value="nao-realizada" ${state.auditFilters.completion === "nao-realizada" ? "selected" : ""}>Não realizadas</option>
           </select>
         </label>
       </div>
@@ -2336,7 +2345,13 @@ function renderSectorAudit() {
 }
 
 function sectorAuditTable() {
-  const rows = state.sectorAudits || [];
+  const completionFilter = state.auditFilters.completion || "";
+  const rows = (state.sectorAudits || []).filter((row) => {
+    if (!completionFilter) return true;
+    const performed = Number(row.completedTasks || 0) > 0
+      || Number(row.ruptures || 0) + Number(row.expirations || 0) + Number(row.damages || 0) > 0;
+    return completionFilter === "realizada" ? performed : !performed;
+  });
   return `
     <table>
       <thead>
@@ -2344,13 +2359,28 @@ function sectorAuditTable() {
           <th>Setor</th>
           <th>Conferência</th>
           <th>Apontamentos</th>
-          <th>Responsáveis</th>
           <th>Validação gerente</th>
           <th>Ação</th>
         </tr>
       </thead>
       <tbody>
-        ${rows.map((row) => `
+        ${rows.map((row) => {
+          const hasExpectedTasks = Number(row.expectedTasks || 0) > 0;
+          const performed = Number(row.completedTasks || 0) > 0;
+          const occurrenceCount = Number(row.ruptures || 0) + Number(row.expirations || 0) + Number(row.damages || 0);
+          const hasOccurrence = occurrenceCount > 0;
+          const resultLabel = hasExpectedTasks
+            ? (performed ? "Sim" : "Não")
+            : (hasOccurrence ? "Sim" : "Não");
+          const resultClass = resultLabel === "Sim" ? "yes" : "no";
+          const resultDetail = hasExpectedTasks
+            ? `${row.completedTasks || 0}/${row.expectedTasks || 0} atividade(s) realizada(s)`
+            : `${occurrenceCount} apontamento(s) registrado(s)`;
+          const combinedObservation = [
+            row.managerObservation || "",
+            row.actionRequired ? `Ação cobrada: ${row.actionRequired}` : "",
+          ].filter(Boolean).join("\n");
+          return `
           <tr>
             <td data-label="Setor">
               <strong>${escapeHtml(row.sector)}</strong>
@@ -2358,28 +2388,27 @@ function sectorAuditTable() {
             </td>
             <td data-label="Conferência">${escapeHtml(row.focusLabel || "")}</td>
             <td data-label="Apontamentos">
-              <div class="muted" style="margin-bottom:6px">${row.expectedTasks ? `${row.completedTasks || 0}/${row.expectedTasks || 0} registros esperados` : "Conferência por ocorrência"}</div>
+              <div class="audit-result ${resultClass}">
+                <span>Atividade realizada</span>
+                <strong>${resultLabel}</strong>
+              </div>
+              <div class="muted" style="margin:6px 0">${resultDetail}</div>
               ${(row.motives || []).map((item) => `<div>${escapeHtml(item)}</div>`).join("")}
               ${(row.notes || []).length ? `<div class="muted" style="margin-top:6px">${row.notes.map(escapeHtml).join("<br>")}</div>` : ""}
             </td>
-            <td data-label="Responsáveis">${escapeHtml(row.responsible || "-")}</td>
             <td data-label="Validação gerente">
               <div class="grid" style="gap:8px">
                 <select data-audit-status="${escapeHtml(row.sector)}">
                   ${["Pendente", "Confere", "N\u00e3o confere", "Corrigir"].map((status) => `<option ${status === row.managerStatus ? "selected" : ""}>${status}</option>`).join("")}
                 </select>
-                <textarea data-audit-observation="${escapeHtml(row.sector)}" placeholder="Observação da gerente">${escapeHtml(row.managerObservation || "")}</textarea>
-                <input data-audit-action="${escapeHtml(row.sector)}" value="${escapeHtml(row.actionRequired || "")}" placeholder="Ação cobrada">
-                <div class="grid two">
-                  <input data-audit-responsible="${escapeHtml(row.sector)}" value="${escapeHtml(row.auditResponsible || "")}" placeholder="Responsável acionado">
-                  <input data-audit-due="${escapeHtml(row.sector)}" type="date" value="${escapeHtml(row.dueDate || "")}">
-                </div>
+                <textarea data-audit-observation="${escapeHtml(row.sector)}" placeholder="Observação e ação necessária">${escapeHtml(combinedObservation)}</textarea>
                 <div class="muted">${row.auditedAt ? `Última validação: ${new Date(row.auditedAt).toLocaleString("pt-BR")} por ${escapeHtml(row.auditedBy || "-")}` : "Ainda não validado pela gerente."}</div>
               </div>
             </td>
             <td data-label="Ação"><button class="btn primary" type="button" data-save-sector-audit="${escapeHtml(row.sector)}">Salvar</button></td>
           </tr>
-        `).join("") || `<tr><td colspan="6">Sem setores para conferência.</td></tr>`}
+        `;
+        }).join("") || `<tr><td colspan="5">Sem setores para conferência.</td></tr>`}
       </tbody>
     </table>
   `;
@@ -2395,9 +2424,9 @@ function bindSectorAuditButtons() {
         focus: state.auditFilters.focus || "abastecimento",
         managerStatus: document.querySelector(`[data-audit-status="${CSS.escape(sector)}"]`).value,
         observation: document.querySelector(`[data-audit-observation="${CSS.escape(sector)}"]`).value,
-        actionRequired: document.querySelector(`[data-audit-action="${CSS.escape(sector)}"]`).value,
-        responsible: document.querySelector(`[data-audit-responsible="${CSS.escape(sector)}"]`).value,
-        dueDate: document.querySelector(`[data-audit-due="${CSS.escape(sector)}"]`).value,
+        actionRequired: "",
+        responsible: "",
+        dueDate: "",
       };
       await api("/api/sector-audits", { method: "POST", body: JSON.stringify(body) });
       await loadSectorAudits();
