@@ -52,6 +52,7 @@
   },
   management: {
     data: null,
+    entryData: null,
     filters: {
       period: new Date().toISOString().slice(0, 7),
       comparePeriod: (() => {
@@ -753,7 +754,20 @@ async function loadManagementIndicators() {
     period: filters.period,
     comparePeriod: filters.comparePeriod,
   });
-  state.management.data = await api(`/api/management-indicators?${qs.toString()}`);
+  const entryQs = new URLSearchParams({
+    period: filters.entryPeriod,
+    comparePeriod: filters.entryPeriod,
+  });
+  [state.management.data, state.management.entryData] = await Promise.all([
+    api(`/api/management-indicators?${qs.toString()}`),
+    api(`/api/management-indicators?${entryQs.toString()}`),
+  ]);
+}
+
+async function loadManagementEntryPeriod() {
+  const period = state.management.filters.entryPeriod;
+  const qs = new URLSearchParams({ period, comparePeriod: period });
+  state.management.entryData = await api(`/api/management-indicators?${qs.toString()}`);
 }
 
 async function loadReposition() {
@@ -3091,23 +3105,15 @@ function managementScreenHeader(title, subtitle, type, includeSector = false) {
 
 function managementEntryPeriodField() {
   const filters = state.management.filters;
-  const entryPeriod = [filters.period, filters.comparePeriod].includes(filters.entryPeriod) ? filters.entryPeriod : filters.period;
-  filters.entryPeriod = entryPeriod;
   return `
     <label>Mes que deseja cadastrar ou editar
-      <select name="period" data-management-entry-period>
-        <option value="${escapeHtml(filters.period)}" ${entryPeriod === filters.period ? "selected" : ""}>${escapeHtml(managementMonthLabel(filters.period))}</option>
-        <option value="${escapeHtml(filters.comparePeriod)}" ${entryPeriod === filters.comparePeriod ? "selected" : ""}>${escapeHtml(managementMonthLabel(filters.comparePeriod))}</option>
-      </select>
+      <input type="month" name="period" value="${escapeHtml(filters.entryPeriod)}" data-management-entry-period required>
     </label>
   `;
 }
 
 function managementEntryMonthlyData() {
-  const data = state.management.data || {};
-  return state.management.filters.entryPeriod === state.management.filters.comparePeriod
-    ? (data.previousMonthly || {})
-    : (data.monthly || {});
+  return state.management.entryData?.monthly || {};
 }
 
 function managementComparisonCard(label, current, previous, comparison, format = fmtMoney, inverted = false) {
@@ -3167,13 +3173,13 @@ function bindManagementScreen(renderFunction, pdfType, includeSector = false) {
     state.management.filters.period = form.get("period");
     state.management.filters.comparePeriod = form.get("comparePeriod");
     if (includeSector) state.management.filters.sector = form.get("sector");
-    state.management.filters.entryPeriod = state.management.filters.period;
     await loadManagementIndicators();
     renderFunction();
   });
   document.querySelectorAll("[data-management-entry-period]").forEach((select) => {
-    select.addEventListener("change", () => {
+    select.addEventListener("change", async () => {
       state.management.filters.entryPeriod = select.value;
+      await loadManagementEntryPeriod();
       renderFunction();
     });
   });
@@ -3310,7 +3316,7 @@ function renderManagementStore() {
       { label: "Percentual identificado", current: monthly.green_identification_rate, previous: previous.green_identification_rate, comparison: comparison.green_identification_rate, format: managementPercent },
     ])}
     <form class="panel grid management-data-form" id="managementStoreForm">
-      <div><h3>Lancamento mensal da loja</h3><div class="muted">Selecione qual dos dois meses deseja cadastrar ou corrigir.</div></div>
+      <div><h3>Lancamento mensal da loja</h3><div class="muted">Selecione qualquer mes que deseja cadastrar ou corrigir.</div></div>
       ${managementEntryPeriodField()}
       <div class="grid three">
         ${managementNumberInput("soldQuantity", "Quantidade vendida", entry.sold_quantity, "0.001")}
@@ -3379,7 +3385,7 @@ function renderManagementDelivery() {
       </div>
     </section>
     <form class="panel grid management-data-form" id="managementDeliveryForm">
-      <div><h3>Lancamento de Delivery</h3><div class="muted">Escolha o mes atual ou o mes anterior antes de salvar.</div></div>
+      <div><h3>Lancamento de Delivery</h3><div class="muted">Escolha qualquer mes que deseja cadastrar ou editar.</div></div>
       ${managementEntryPeriodField()}
       <div class="grid three">
         ${managementNumberInput("deliveryNetSales", "Venda liquida", entry.delivery_net_sales)}
@@ -3453,13 +3459,17 @@ function renderManagementQuotations() {
 function renderManagementSectors() {
   const data = state.management.data;
   if (!data) return;
-  const allSectors = [...new Set([...MANAGEMENT_SECTORS, ...(data.sectors || []).map((row) => row.sector)])].sort();
+  const entryData = state.management.entryData || { sectors: [] };
+  const allSectors = [...new Set([
+    ...MANAGEMENT_SECTORS,
+    ...(data.sectors || []).map((row) => row.sector),
+    ...(entryData.sectors || []).map((row) => row.sector),
+  ])].sort();
   const rows = state.management.filters.sector
     ? (data.sectors || []).filter((row) => row.sector === state.management.filters.sector)
     : (data.sectors || []);
   const selectedSector = state.management.filters.sector || allSectors[0] || "";
-  const selectedRow = (data.sectors || []).find((row) => row.sector === selectedSector) || { sector: selectedSector, previous: {} };
-  const entry = state.management.filters.entryPeriod === state.management.filters.comparePeriod ? (selectedRow.previous || {}) : selectedRow;
+  const entry = (entryData.sectors || []).find((row) => row.sector === selectedSector) || { sector: selectedSector };
   view.innerHTML = `
     ${managementScreenHeader("Perdas e Consumo", "Compare perdas e consumo do mesmo setor entre dois meses.", "losses", true)}
     <section class="panel management-analysis">
@@ -3527,13 +3537,17 @@ function renderManagementSectors() {
 function renderManagementProductivity() {
   const data = state.management.data;
   if (!data) return;
-  const allSectors = [...new Set([...MANAGEMENT_SECTORS, ...(data.sectors || []).map((row) => row.sector)])].sort();
+  const entryData = state.management.entryData || { sectors: [] };
+  const allSectors = [...new Set([
+    ...MANAGEMENT_SECTORS,
+    ...(data.sectors || []).map((row) => row.sector),
+    ...(entryData.sectors || []).map((row) => row.sector),
+  ])].sort();
   const rows = state.management.filters.sector
     ? (data.sectors || []).filter((row) => row.sector === state.management.filters.sector)
     : (data.sectors || []);
   const selectedSector = state.management.filters.sector || allSectors[0] || "";
-  const selectedRow = (data.sectors || []).find((row) => row.sector === selectedSector) || { sector: selectedSector, previous: {} };
-  const entry = state.management.filters.entryPeriod === state.management.filters.comparePeriod ? (selectedRow.previous || {}) : selectedRow;
+  const entry = (entryData.sectors || []).find((row) => row.sector === selectedSector) || { sector: selectedSector };
   view.innerHTML = `
     ${managementScreenHeader("Produtividade por Setor", "Compare vendas, equipe e produtividade do mesmo setor entre dois meses.", "productivity", true)}
     <section class="panel management-analysis">
@@ -3602,11 +3616,13 @@ function renderManagementProductivity() {
 function renderManagementOperators() {
   const data = state.management.data;
   if (!data) return;
+  const entryData = state.management.entryData || { operators: [] };
   const operatorName = state.management.filters.operatorName;
-  const selectedOperator = (data.operators || []).find((row) => row.operator_name === operatorName) || {};
-  const operatorEntry = state.management.filters.entryPeriod === state.management.filters.comparePeriod
-    ? (selectedOperator.previous || {})
-    : selectedOperator;
+  const operatorEntry = (entryData.operators || []).find((row) => row.operator_name === operatorName) || {};
+  const operatorNames = [...new Set([
+    ...(data.operators || []).map((row) => row.operator_name),
+    ...(entryData.operators || []).map((row) => row.operator_name),
+  ])].sort();
   view.innerHTML = `
     ${managementScreenHeader("Operadores", "Compare a venda do mesmo operador entre dois meses.", "operators")}
     <section class="panel management-analysis">
@@ -3640,7 +3656,7 @@ function renderManagementOperators() {
       <div><h3>Lancamento por operador</h3><div class="muted">Use exatamente o mesmo nome nos dois meses para formar o comparativo.</div></div>
       ${managementEntryPeriodField()}
       <label>Operador <input name="operatorName" value="${escapeHtml(operatorName)}" required list="managementOperatorNames"></label>
-      <datalist id="managementOperatorNames">${(data.operators || []).map((row) => `<option value="${escapeHtml(row.operator_name)}">`).join("")}</datalist>
+      <datalist id="managementOperatorNames">${operatorNames.map((name) => `<option value="${escapeHtml(name)}">`).join("")}</datalist>
       <div class="grid two">
         ${managementNumberInput("netSales", "Venda liquida", operatorEntry.net_sales)}
         ${managementNumberInput("coupons", "Cupons", operatorEntry.coupons, "1")}
@@ -3655,9 +3671,10 @@ function renderManagementOperators() {
   `;
   bindManagementScreen(renderManagementOperators, "operators");
   document.querySelectorAll("[data-edit-management-operator]").forEach((button) => {
-    button.addEventListener("click", () => {
+    button.addEventListener("click", async () => {
       state.management.filters.operatorName = button.dataset.editManagementOperator;
       state.management.filters.entryPeriod = button.dataset.period;
+      await loadManagementEntryPeriod();
       renderManagementOperators();
       document.getElementById("managementOperatorForm").scrollIntoView({ behavior: "smooth", block: "start" });
     });
