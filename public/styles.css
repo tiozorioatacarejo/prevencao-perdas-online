@@ -537,6 +537,35 @@ textarea {
   background: #f8fbf8;
 }
 
+.agenda-mode {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface-2);
+}
+
+.agenda-mode button {
+  min-height: 40px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.agenda-mode button.active {
+  background: var(--primary);
+  color: #fff;
+}
+
+.agenda-manual-fields {
+  padding-top: 4px;
+}
+
 .agenda-link {
   margin-top: 12px;
   padding: 12px 14px;
@@ -682,6 +711,83 @@ textarea {
   color: var(--muted);
   font-size: 13px;
   margin-top: 6px;
+}
+
+.management-filter {
+  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+  align-items: end;
+  margin-bottom: 14px;
+}
+
+.management-metrics,
+.management-analysis,
+.management-entry-grid {
+  margin-top: 14px;
+}
+
+.management-analysis h3,
+.management-entry h4 {
+  margin: 0 0 10px;
+}
+
+.management-entry-grid {
+  display: grid;
+  gap: 14px;
+}
+
+.management-entry {
+  padding: 0;
+  overflow: hidden;
+}
+
+.management-entry summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 17px 18px;
+  font-weight: 800;
+  background: var(--surface-2);
+  border-bottom: 1px solid transparent;
+}
+
+.management-entry summary::-webkit-details-marker {
+  display: none;
+}
+
+.management-entry summary::after {
+  content: "+";
+  float: right;
+  color: var(--primary);
+  font-size: 20px;
+}
+
+.management-entry[open] summary {
+  border-bottom-color: var(--line);
+}
+
+.management-entry[open] summary::after {
+  content: "−";
+}
+
+.management-entry form {
+  padding: 18px;
+}
+
+.management-variation {
+  display: inline-flex;
+  padding: 3px 7px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.management-variation.positive {
+  color: var(--ok);
+  background: #dff4e9;
+}
+
+.management-variation.negative {
+  color: var(--danger);
+  background: #f8dddd;
 }
 
 .table-wrap {
@@ -896,7 +1002,8 @@ th {
   .agenda-share,
   .agenda-card-main,
   .agenda-booking,
-  .metrics {
+  .metrics,
+  .management-filter {
     grid-template-columns: 1fr;
   }
 

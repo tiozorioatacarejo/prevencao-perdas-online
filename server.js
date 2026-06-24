@@ -293,6 +293,60 @@ async function initPostgres(pool) {
       details TEXT,
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
+
+    CREATE TABLE IF NOT EXISTS management_monthly (
+      id SERIAL PRIMARY KEY,
+      period TEXT UNIQUE NOT NULL,
+      gross_sales REAL NOT NULL DEFAULT 0,
+      cancelled_sales REAL NOT NULL DEFAULT 0,
+      discounts REAL NOT NULL DEFAULT 0,
+      net_sales REAL NOT NULL DEFAULT 0,
+      coupons INTEGER NOT NULL DEFAULT 0,
+      average_ticket REAL NOT NULL DEFAULT 0,
+      cancelled_coupons INTEGER NOT NULL DEFAULT 0,
+      green_coupons INTEGER NOT NULL DEFAULT 0,
+      identified_green_coupons INTEGER NOT NULL DEFAULT 0,
+      delivery_net_sales REAL NOT NULL DEFAULT 0,
+      delivery_cancelled_sales REAL NOT NULL DEFAULT 0,
+      delivery_discounts REAL NOT NULL DEFAULT 0,
+      delivery_coupons INTEGER NOT NULL DEFAULT 0,
+      delivery_cancelled_coupons INTEGER NOT NULL DEFAULT 0,
+      delivery_other_checkouts REAL NOT NULL DEFAULT 0,
+      delivery_goal_normal REAL NOT NULL DEFAULT 0,
+      delivery_goal_plus REAL NOT NULL DEFAULT 0,
+      quotation_cost REAL NOT NULL DEFAULT 0,
+      quotation_sales REAL NOT NULL DEFAULT 0,
+      updated_by INTEGER REFERENCES users(id),
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS management_sectors (
+      id SERIAL PRIMARY KEY,
+      period TEXT NOT NULL,
+      sector TEXT NOT NULL,
+      sales REAL NOT NULL DEFAULT 0,
+      losses REAL NOT NULL DEFAULT 0,
+      consumption REAL NOT NULL DEFAULT 0,
+      employee_count INTEGER NOT NULL DEFAULT 0,
+      productivity_target REAL NOT NULL DEFAULT 0,
+      inventories INTEGER NOT NULL DEFAULT 0,
+      updated_by INTEGER REFERENCES users(id),
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(period, sector)
+    );
+
+    CREATE TABLE IF NOT EXISTS management_operators (
+      id SERIAL PRIMARY KEY,
+      period TEXT NOT NULL,
+      operator_name TEXT NOT NULL,
+      net_sales REAL NOT NULL DEFAULT 0,
+      coupons INTEGER NOT NULL DEFAULT 0,
+      cancelled_coupons INTEGER NOT NULL DEFAULT 0,
+      vip INTEGER NOT NULL DEFAULT 0,
+      updated_by INTEGER REFERENCES users(id),
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(period, operator_name)
+    );
   `);
   await pool.query("ALTER TABLE collaborators ADD COLUMN IF NOT EXISTS sector TEXT");
   await pool.query("ALTER TABLE checklists ADD COLUMN IF NOT EXISTS sector TEXT");
@@ -494,6 +548,10 @@ function canViewRepoGoals(user) {
 
 function canAccessSectorAudit(user) {
   return ["administrador", "gerente", "encarregada"].includes(user.role);
+}
+
+function canAccessManagementIndicators(user) {
+  return user.role === "administrador";
 }
 
 function normalizeAgendaType(value) {
@@ -982,6 +1040,150 @@ function pdfEscape(value) {
     .replace(/[()\\]/g, " ");
 }
 
+function numberValue(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function intValue(value) {
+  return Math.max(0, Math.round(numberValue(value)));
+}
+
+function previousPeriod(period) {
+  const [year, month] = String(period || today().slice(0, 7)).split("-").map(Number);
+  const date = new Date(year, (month || 1) - 2, 1);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function managementMonthlyCalculated(row = {}) {
+  const netSales = numberValue(row.net_sales);
+  const coupons = intValue(row.coupons);
+  const deliveryNet = numberValue(row.delivery_net_sales);
+  const deliveryOther = numberValue(row.delivery_other_checkouts);
+  const deliveryTotal = deliveryNet + deliveryOther;
+  const quotationCost = numberValue(row.quotation_cost);
+  const quotationSales = numberValue(row.quotation_sales);
+  const quotationProfit = quotationSales - quotationCost;
+  return {
+    ...row,
+    average_ticket: numberValue(row.average_ticket) || (coupons ? netSales / coupons : 0),
+    green_identification_rate: intValue(row.green_coupons) ? intValue(row.identified_green_coupons) / intValue(row.green_coupons) : 0,
+    delivery_total: deliveryTotal,
+    delivery_participation: netSales ? deliveryTotal / netSales : 0,
+    delivery_result_normal: deliveryTotal - numberValue(row.delivery_goal_normal),
+    delivery_result_plus: deliveryTotal - numberValue(row.delivery_goal_plus),
+    quotation_profit: quotationProfit,
+    quotation_margin_sales: quotationSales ? quotationProfit / quotationSales : 0,
+    quotation_margin_cost: quotationCost ? quotationProfit / quotationCost : 0,
+    quotation_participation: netSales ? quotationSales / netSales : 0,
+  };
+}
+
+function managementSectorCalculated(row = {}) {
+  const sales = numberValue(row.sales);
+  const losses = numberValue(row.losses);
+  const consumption = numberValue(row.consumption);
+  const employeeCount = intValue(row.employee_count);
+  const productivityTarget = numberValue(row.productivity_target);
+  return {
+    ...row,
+    loss_rate: sales ? losses / sales : 0,
+    consumption_rate: sales ? consumption / sales : 0,
+    sales_per_employee: employeeCount ? sales / employeeCount : 0,
+    suggested_employees: productivityTarget ? sales / productivityTarget : 0,
+    staffing_difference: employeeCount - (productivityTarget ? sales / productivityTarget : 0),
+  };
+}
+
+function managementComparison(current, previous, fields) {
+  return Object.fromEntries(fields.map((field) => [
+    field,
+    {
+      value: numberValue(current?.[field]),
+      previous: numberValue(previous?.[field]),
+      difference: numberValue(current?.[field]) - numberValue(previous?.[field]),
+      percent: numberValue(previous?.[field])
+        ? (numberValue(current?.[field]) - numberValue(previous?.[field])) / Math.abs(numberValue(previous?.[field]))
+        : 0,
+    },
+  ]));
+}
+
+function simplePdf(lines) {
+  const pageLines = 48;
+  const pages = [];
+  for (let index = 0; index < lines.length; index += pageLines) pages.push(lines.slice(index, index + pageLines));
+  if (!pages.length) pages.push(["Sem dados."]);
+  const objects = [];
+  const pageIds = [];
+  const fontId = 3 + pages.length * 2;
+  pages.forEach((page, index) => {
+    const pageId = 3 + index * 2;
+    const contentId = pageId + 1;
+    pageIds.push(`${pageId} 0 R`);
+    const text = page.map((line, lineIndex) => `BT /F1 9 Tf 36 ${806 - lineIndex * 16} Td (${pdfEscape(String(line).slice(0, 115))}) Tj ET`).join("\n");
+    const stream = Buffer.from(text, "latin1");
+    objects[pageId] = `${pageId} 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 ${fontId} 0 R >> >> /Contents ${contentId} 0 R >> endobj`;
+    objects[contentId] = `${contentId} 0 obj << /Length ${stream.length} >> stream\n${stream.toString("latin1")}\nendstream endobj`;
+  });
+  objects[1] = "1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj";
+  objects[2] = `2 0 obj << /Type /Pages /Kids [${pageIds.join(" ")}] /Count ${pages.length} >> endobj`;
+  objects[fontId] = `${fontId} 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj`;
+  let pdf = "%PDF-1.4\n";
+  const offsets = [0];
+  for (let id = 1; id <= fontId; id += 1) {
+    offsets[id] = Buffer.byteLength(pdf, "latin1");
+    pdf += `${objects[id]}\n`;
+  }
+  const xref = Buffer.byteLength(pdf, "latin1");
+  pdf += `xref\n0 ${fontId + 1}\n0000000000 65535 f \n`;
+  for (let id = 1; id <= fontId; id += 1) pdf += `${String(offsets[id]).padStart(10, "0")} 00000 n \n`;
+  pdf += `trailer << /Size ${fontId + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
+  return Buffer.from(pdf, "latin1");
+}
+
+async function managementReportData(period, comparePeriod = previousPeriod(period)) {
+  const monthlyRows = await query("SELECT * FROM management_monthly WHERE period IN (?, ?)", [period, comparePeriod]);
+  const currentMonthly = managementMonthlyCalculated(monthlyRows.find((row) => row.period === period) || { period });
+  const previousMonthly = managementMonthlyCalculated(monthlyRows.find((row) => row.period === comparePeriod) || { period: comparePeriod });
+  const sectorRows = await query(
+    "SELECT * FROM management_sectors WHERE period IN (?, ?) ORDER BY sector",
+    [period, comparePeriod]
+  );
+  const currentSectorMap = new Map(
+    sectorRows.filter((row) => row.period === period).map((row) => [row.sector, managementSectorCalculated(row)])
+  );
+  const previousSectorMap = new Map(sectorRows.filter((row) => row.period === comparePeriod).map((row) => [row.sector, managementSectorCalculated(row)]));
+  const sectorNames = [...new Set([...currentSectorMap.keys(), ...previousSectorMap.keys()])].sort((a, b) => a.localeCompare(b, "pt-BR"));
+  const sectors = sectorNames.map((sector) => {
+    const row = currentSectorMap.get(sector) || managementSectorCalculated({ period, sector });
+    const previous = previousSectorMap.get(sector) || managementSectorCalculated({ period: comparePeriod, sector });
+    return {
+      ...row,
+      previous,
+      comparison: managementComparison(row, previous, ["sales", "losses", "consumption", "loss_rate", "sales_per_employee"]),
+    };
+  });
+  const operators = (await query("SELECT * FROM management_operators WHERE period = ? ORDER BY net_sales DESC, operator_name", [period]))
+    .map((row) => ({
+      ...row,
+      participation: numberValue(currentMonthly.net_sales) ? numberValue(row.net_sales) / numberValue(currentMonthly.net_sales) : 0,
+      cancellation_rate: intValue(row.coupons) ? intValue(row.cancelled_coupons) / intValue(row.coupons) : 0,
+    }));
+  return {
+    period,
+    comparePeriod,
+    monthly: currentMonthly,
+    previousMonthly,
+    monthlyComparison: managementComparison(currentMonthly, previousMonthly, [
+      "gross_sales", "cancelled_sales", "discounts", "net_sales", "coupons", "average_ticket",
+      "delivery_total", "quotation_sales", "quotation_profit",
+    ]),
+    sectors,
+    operators,
+  };
+}
+
 async function api(req, res, url) {
   const method = req.method;
 
@@ -1055,6 +1257,143 @@ async function api(req, res, url) {
     return send(res, 200, { user, activities, sectors: repoSectors });
   }
 
+  if (method === "GET" && url.pathname === "/api/management-indicators") {
+    if (!canAccessManagementIndicators(user)) return send(res, 403, { error: "Acesso restrito aos indicadores administrativos." });
+    const period = url.searchParams.get("period") || today().slice(0, 7);
+    const comparePeriod = url.searchParams.get("comparePeriod") || previousPeriod(period);
+    return send(res, 200, await managementReportData(period, comparePeriod));
+  }
+
+  if (method === "POST" && url.pathname === "/api/management-indicators/monthly") {
+    if (!canAccessManagementIndicators(user)) return send(res, 403, { error: "Acesso restrito aos indicadores administrativos." });
+    const body = await readBody(req);
+    const period = String(body.period || "").trim();
+    if (!/^\d{4}-\d{2}$/.test(period)) return send(res, 400, { error: "Informe um mês válido." });
+    const fields = [
+      "grossSales", "cancelledSales", "discounts", "netSales", "coupons", "averageTicket",
+      "cancelledCoupons", "greenCoupons", "identifiedGreenCoupons", "deliveryNetSales",
+      "deliveryCancelledSales", "deliveryDiscounts", "deliveryCoupons", "deliveryCancelledCoupons",
+      "deliveryOtherCheckouts", "deliveryGoalNormal", "deliveryGoalPlus", "quotationCost", "quotationSales",
+    ];
+    const values = fields.map((field) => field.includes("Coupons") || field === "coupons" ? intValue(body[field]) : numberValue(body[field]));
+    await execute(
+      `INSERT INTO management_monthly (
+        period, gross_sales, cancelled_sales, discounts, net_sales, coupons, average_ticket,
+        cancelled_coupons, green_coupons, identified_green_coupons, delivery_net_sales,
+        delivery_cancelled_sales, delivery_discounts, delivery_coupons, delivery_cancelled_coupons,
+        delivery_other_checkouts, delivery_goal_normal, delivery_goal_plus, quotation_cost,
+        quotation_sales, updated_by, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(period) DO UPDATE SET
+        gross_sales=excluded.gross_sales, cancelled_sales=excluded.cancelled_sales,
+        discounts=excluded.discounts, net_sales=excluded.net_sales, coupons=excluded.coupons,
+        average_ticket=excluded.average_ticket, cancelled_coupons=excluded.cancelled_coupons,
+        green_coupons=excluded.green_coupons, identified_green_coupons=excluded.identified_green_coupons,
+        delivery_net_sales=excluded.delivery_net_sales, delivery_cancelled_sales=excluded.delivery_cancelled_sales,
+        delivery_discounts=excluded.delivery_discounts, delivery_coupons=excluded.delivery_coupons,
+        delivery_cancelled_coupons=excluded.delivery_cancelled_coupons,
+        delivery_other_checkouts=excluded.delivery_other_checkouts,
+        delivery_goal_normal=excluded.delivery_goal_normal, delivery_goal_plus=excluded.delivery_goal_plus,
+        quotation_cost=excluded.quotation_cost, quotation_sales=excluded.quotation_sales,
+        updated_by=excluded.updated_by, updated_at=excluded.updated_at`,
+      [period, ...values, user.id, nowIso()]
+    );
+    await logAudit(user, "upsert", "management_monthly", period);
+    return send(res, 200, { ok: true });
+  }
+
+  if (method === "POST" && url.pathname === "/api/management-indicators/sector") {
+    if (!canAccessManagementIndicators(user)) return send(res, 403, { error: "Acesso restrito aos indicadores administrativos." });
+    const body = await readBody(req);
+    const period = String(body.period || "").trim();
+    const sector = String(body.sector || "").trim();
+    if (!/^\d{4}-\d{2}$/.test(period) || !sector) return send(res, 400, { error: "Informe mês e setor." });
+    await execute(
+      `INSERT INTO management_sectors (
+        period, sector, sales, losses, consumption, employee_count, productivity_target, inventories, updated_by, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(period, sector) DO UPDATE SET
+        sales=excluded.sales, losses=excluded.losses, consumption=excluded.consumption,
+        employee_count=excluded.employee_count, productivity_target=excluded.productivity_target,
+        inventories=excluded.inventories, updated_by=excluded.updated_by, updated_at=excluded.updated_at`,
+      [
+        period, sector, numberValue(body.sales), numberValue(body.losses), numberValue(body.consumption),
+        intValue(body.employeeCount), numberValue(body.productivityTarget), intValue(body.inventories),
+        user.id, nowIso(),
+      ]
+    );
+    await logAudit(user, "upsert", "management_sectors", `${period}|${sector}`);
+    return send(res, 200, { ok: true });
+  }
+
+  if (method === "POST" && url.pathname === "/api/management-indicators/operator") {
+    if (!canAccessManagementIndicators(user)) return send(res, 403, { error: "Acesso restrito aos indicadores administrativos." });
+    const body = await readBody(req);
+    const period = String(body.period || "").trim();
+    const operatorName = String(body.operatorName || "").trim();
+    if (!/^\d{4}-\d{2}$/.test(period) || !operatorName) return send(res, 400, { error: "Informe mês e operador." });
+    await execute(
+      `INSERT INTO management_operators (
+        period, operator_name, net_sales, coupons, cancelled_coupons, vip, updated_by, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(period, operator_name) DO UPDATE SET
+        net_sales=excluded.net_sales, coupons=excluded.coupons,
+        cancelled_coupons=excluded.cancelled_coupons, vip=excluded.vip,
+        updated_by=excluded.updated_by, updated_at=excluded.updated_at`,
+      [
+        period, operatorName, numberValue(body.netSales), intValue(body.coupons),
+        intValue(body.cancelledCoupons), intValue(body.vip), user.id, nowIso(),
+      ]
+    );
+    await logAudit(user, "upsert", "management_operators", `${period}|${operatorName}`);
+    return send(res, 200, { ok: true });
+  }
+
+  if (method === "GET" && url.pathname === "/api/management-indicators/pdf") {
+    if (!canAccessManagementIndicators(user)) return send(res, 403, { error: "Acesso restrito aos indicadores administrativos." });
+    const period = url.searchParams.get("period") || today().slice(0, 7);
+    const comparePeriod = url.searchParams.get("comparePeriod") || previousPeriod(period);
+    const sectorFilter = url.searchParams.get("sector") || "";
+    const report = await managementReportData(period, comparePeriod);
+    const currency = (value) => `R$ ${numberValue(value).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    const percent = (value) => `${(numberValue(value) * 100).toFixed(2)}%`;
+    const sectors = sectorFilter ? report.sectors.filter((row) => row.sector === sectorFilter) : report.sectors;
+    const lines = [
+      "INDICADORES GERENCIAIS - CONTROLE ATACAREJO",
+      `Periodo: ${period} | Comparativo: ${comparePeriod}`,
+      `Gerado em: ${new Date().toLocaleString("pt-BR")}`,
+      "",
+      "RESUMO DA LOJA",
+      `Venda liquida: ${currency(report.monthly.net_sales)} | Variacao: ${currency(report.monthlyComparison.net_sales.difference)} (${percent(report.monthlyComparison.net_sales.percent)})`,
+      `Venda bruta: ${currency(report.monthly.gross_sales)} | Descontos: ${currency(report.monthly.discounts)}`,
+      `Cupons: ${report.monthly.coupons || 0} | Cupom medio: ${currency(report.monthly.average_ticket)}`,
+      `Cupons verdes identificados: ${percent(report.monthly.green_identification_rate)}`,
+      "",
+      "DELIVERY",
+      `Total: ${currency(report.monthly.delivery_total)} | Participacao: ${percent(report.monthly.delivery_participation)}`,
+      `Resultado meta normal: ${currency(report.monthly.delivery_result_normal)} | Meta plus: ${currency(report.monthly.delivery_result_plus)}`,
+      "",
+      "COTACOES",
+      `Venda: ${currency(report.monthly.quotation_sales)} | Custo: ${currency(report.monthly.quotation_cost)}`,
+      `Lucro: ${currency(report.monthly.quotation_profit)} | Margem sobre venda: ${percent(report.monthly.quotation_margin_sales)}`,
+      "",
+      "COMPARATIVO POR SETOR",
+      ...sectors.flatMap((row) => [
+        `${row.sector}: venda ${currency(row.sales)} | anterior ${currency(row.previous.sales)} | variacao ${currency(row.comparison.sales.difference)}`,
+        `  Perdas ${currency(row.losses)} (${percent(row.loss_rate)}) | Consumo ${currency(row.consumption)} | Funcionarios ${row.employee_count || 0} | Sugerido ${numberValue(row.suggested_employees).toFixed(1)}`,
+      ]),
+      "",
+      "DESEMPENHO DOS OPERADORES",
+      ...report.operators.map((row) =>
+        `${row.operator_name}: ${currency(row.net_sales)} | Participacao ${percent(row.participation)} | Cupons ${row.coupons || 0} | Cancelados ${row.cancelled_coupons || 0}`
+      ),
+    ];
+    return send(res, 200, simplePdf(lines), {
+      "Content-Type": "application/pdf",
+      "Content-Disposition": `attachment; filename=indicadores-gerenciais-${period}.pdf`,
+    });
+  }
+
   if (method === "GET" && url.pathname === "/api/reposition/options") {
     if (!canAccessReposition(user)) return send(res, 403, { error: "Acesso restrito ao módulo de reposição." });
     const repoUsers = await query(
@@ -1096,14 +1435,18 @@ async function api(req, res, url) {
     const startTime = String(body.startTime || "").trim();
     const endTime = String(body.endTime || body.startTime || "").trim();
     if (!date || !startTime || !endTime) return send(res, 400, { error: type === "recebimento" ? "Informe data e horário." : "Informe data, início e fim." });
-    const status = type === "recebimento" ? "Agendado" : "Disponivel";
+    const isManualCommercial = type === "comercial" && body.bookingMode === "manual";
+    const status = type === "recebimento" || isManualCommercial ? "Agendado" : "Disponivel";
+    if (isManualCommercial && (!String(body.name || "").trim() || !String(body.company || "").trim() || !String(body.phone || "").trim())) {
+      return send(res, 400, { error: "Informe vendedor, empresa e telefone para o agendamento manual." });
+    }
     try {
       await execute(
         `INSERT INTO agenda_slots (
           agenda_type, date, start_time, end_time, status, booked_name, booked_company, booked_phone,
-          booked_document, booked_observation, created_by, updated_at
+          booked_document, booked_observation, booked_at, created_by, updated_at
         )
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           type,
           date,
@@ -1115,6 +1458,7 @@ async function api(req, res, url) {
           body.phone || "",
           body.document || "",
           body.observation || "",
+          status === "Agendado" ? nowIso() : null,
           user.id,
           nowIso(),
         ]

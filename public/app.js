@@ -50,6 +50,18 @@
       endDate: new Date().toISOString().slice(0, 10),
     },
   },
+  management: {
+    data: null,
+    filters: {
+      period: new Date().toISOString().slice(0, 7),
+      comparePeriod: (() => {
+        const date = new Date();
+        date.setMonth(date.getMonth() - 1);
+        return date.toISOString().slice(0, 7);
+      })(),
+      sector: "",
+    },
+  },
   openNavGroup: "",
 };
 
@@ -388,6 +400,7 @@ function tabIcon(id) {
     repoReports: "&#128202;",
     reposition: "&#128230;",
     commercial: "&#128179;",
+    managementIndicators: "&#128202;",
     sectorAudit: "&#128269;",
     pendencies: "&#9888;",
     collaborators: "&#128101;",
@@ -519,7 +532,7 @@ function navGroups(tabs) {
       id: "admin",
       label: "Administração",
       icon: "⚙",
-      tabs: ["collaborators", "users"],
+      tabs: ["managementIndicators", "collaborators", "users"],
     },
   ];
   const used = new Set();
@@ -548,6 +561,7 @@ async function refreshForTab() {
   if (state.tab === "reports") await loadChecklists();
   if (state.tab === "pendencies") await loadPendencies();
   if (state.tab === "users") await Promise.all([loadUsers(), loadCollaborators()]);
+  if (state.tab === "managementIndicators") await loadManagementIndicators();
 }
 
 function renderView() {
@@ -570,6 +584,7 @@ function renderView() {
     pendencies: renderPendencies,
     collaborators: renderCollaborators,
     users: renderUsers,
+    managementIndicators: renderManagementIndicators,
   };
   map[state.tab]();
   fixVisibleText(app);
@@ -619,6 +634,7 @@ function allowedTabs() {
     ["reports", "Relatórios Prevenção"],
     ["pendencies", "PendÃªncias"],
     ["collaborators", "Colaboradores"],
+    ["managementIndicators", "Indicadores Gerenciais"],
   ];
   tabs.push(["users", "Acessos"]);
   return tabs;
@@ -670,6 +686,15 @@ async function loadPendencies() {
 async function loadUsers() {
   const data = await api("/api/users");
   state.users = data.rows;
+}
+
+async function loadManagementIndicators() {
+  const filters = state.management.filters;
+  const qs = new URLSearchParams({
+    period: filters.period,
+    comparePeriod: filters.comparePeriod,
+  });
+  state.management.data = await api(`/api/management-indicators?${qs.toString()}`);
 }
 
 async function loadReposition() {
@@ -1654,6 +1679,13 @@ function renderAgenda(type) {
     <div class="grid two" style="margin-top:14px">
       <form class="panel grid" id="agendaForm">
         <h3>${isReceiving ? "Novo recebimento agendado" : "Novo horario disponivel"}</h3>
+        ${isReceiving ? "" : `
+          <div class="agenda-mode" role="group" aria-label="Tipo de cadastro">
+            <button class="active" type="button" data-agenda-mode="available">Horario disponivel</button>
+            <button type="button" data-agenda-mode="manual">Agendamento manual</button>
+          </div>
+          <input type="hidden" name="bookingMode" value="available">
+        `}
         <label>Data <input name="date" type="date" value="${todayInputValue()}" required></label>
         ${isReceiving
           ? `<label>Horario <input name="startTime" type="time" required></label>`
@@ -1669,7 +1701,15 @@ function renderAgenda(type) {
           </div>
           <label>NF / pedido / placa <input name="document"></label>
           <label>Observacao <textarea name="observation"></textarea></label>
-        ` : ""}
+        ` : `
+          <div class="grid agenda-manual-fields hidden" data-agenda-manual-fields>
+            <label>Vendedor <input name="name" autocomplete="name"></label>
+            <label>Empresa / fornecedor <input name="company"></label>
+            <label>Telefone <input name="phone" autocomplete="tel"></label>
+            <label>Assunto <input name="document"></label>
+            <label>Observacao <textarea name="observation"></textarea></label>
+          </div>
+        `}
         <button class="btn primary" type="submit">${isReceiving ? "Salvar recebimento" : "Adicionar horario"}</button>
       </form>
       <form class="panel grid" id="agendaFilterForm">
@@ -1694,6 +1734,27 @@ function renderAgenda(type) {
     toast("Link da agenda copiado.");
   });
   document.getElementById("openAgendaLink")?.addEventListener("click", () => window.open(publicLink, "_blank"));
+  if (!isReceiving) {
+    const agendaForm = document.getElementById("agendaForm");
+    const manualFields = agendaForm.querySelector("[data-agenda-manual-fields]");
+    const submitButton = agendaForm.querySelector('button[type="submit"]');
+    const modeInput = agendaForm.elements.bookingMode;
+    const setAgendaMode = (mode) => {
+      const isManual = mode === "manual";
+      modeInput.value = mode;
+      agendaForm.querySelectorAll("[data-agenda-mode]").forEach((button) => {
+        button.classList.toggle("active", button.dataset.agendaMode === mode);
+      });
+      manualFields.classList.toggle("hidden", !isManual);
+      ["name", "company", "phone"].forEach((name) => {
+        agendaForm.elements[name].required = isManual;
+      });
+      submitButton.textContent = isManual ? "Salvar agendamento" : "Adicionar horario";
+    };
+    agendaForm.querySelectorAll("[data-agenda-mode]").forEach((button) => {
+      button.addEventListener("click", () => setAgendaMode(button.dataset.agendaMode));
+    });
+  }
   document.getElementById("refreshAgenda").addEventListener("click", async () => {
     await loadAgenda(type);
     renderAgenda(type);
@@ -1705,7 +1766,7 @@ function renderAgenda(type) {
     await api("/api/agenda", { method: "POST", body: JSON.stringify({ type, ...body }) });
     await loadAgenda(type);
     renderAgenda(type);
-    toast(isReceiving ? "Recebimento agendado." : "Horario criado.");
+    toast(isReceiving ? "Recebimento agendado." : (body.bookingMode === "manual" ? "Agendamento cadastrado." : "Horario criado."));
   });
   document.getElementById("agendaFilterForm").addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -2604,6 +2665,274 @@ function renderCollaborators() {
     });
   });
   fixVisibleText(view);
+}
+
+const MANAGEMENT_SECTORS = [
+  "Acougue", "Avariado deposito", "Avariado loja", "Bazar", "Bebidas",
+  "FLV e Granjeiro", "Frente de loja", "Frios", "Inventario", "Limpeza",
+  "Mercearia doce", "Mercearia salgada", "Mercearia seca", "Ovos de aves",
+  "Padaria", "Pereciveis", "Perfumaria", "Rota Fortaleza", "Rota Solonopole",
+  "Vencido", "Loja", "Outros",
+];
+
+function managementPercent(value) {
+  return `${(Number(value || 0) * 100).toFixed(1)}%`;
+}
+
+function managementVariation(comparison, inverted = false) {
+  const value = Number(comparison?.percent || 0);
+  const good = inverted ? value <= 0 : value >= 0;
+  const signal = value > 0 ? "+" : "";
+  return `<span class="management-variation ${good ? "positive" : "negative"}">${signal}${(value * 100).toFixed(1)}%</span>`;
+}
+
+function managementNumberInput(name, label, value, step = "0.01") {
+  return `<label>${label}<input type="number" name="${name}" value="${Number(value || 0)}" min="0" step="${step}"></label>`;
+}
+
+function renderManagementIndicators() {
+  const data = state.management.data;
+  const view = document.getElementById("view");
+  if (!data) {
+    view.innerHTML = `<div class="empty-state">Carregando indicadores gerenciais...</div>`;
+    return;
+  }
+  const monthly = data.monthly || {};
+  const comparison = data.monthlyComparison || {};
+  const allSectors = [...new Set([...MANAGEMENT_SECTORS, ...(data.sectors || []).map((row) => row.sector)])].sort();
+  const filteredSectors = state.management.filters.sector
+    ? (data.sectors || []).filter((row) => row.sector === state.management.filters.sector)
+    : (data.sectors || []);
+  const totalLosses = (data.sectors || []).reduce((sum, row) => sum + Number(row.losses || 0), 0);
+  const selectedSector = (data.sectors || []).find((row) => row.sector === state.management.filters.sector) || {};
+
+  view.innerHTML = `
+    <div class="topbar">
+      <div>
+        <h2>Indicadores Gerenciais</h2>
+        <div class="muted">Vendas, perdas, consumo e produtividade com comparativo mensal por setor</div>
+      </div>
+      <button class="btn" type="button" id="managementPdf">PDF</button>
+    </div>
+
+    <form class="panel grid management-filter" id="managementFilter">
+      <label>Mes analisado
+        <input type="month" name="period" value="${escapeHtml(state.management.filters.period)}" required>
+      </label>
+      <label>Comparar com
+        <input type="month" name="comparePeriod" value="${escapeHtml(state.management.filters.comparePeriod)}" required>
+      </label>
+      <label>Setor
+        <select name="sector">
+          <option value="">Todos os setores</option>
+          ${allSectors.map((sector) => `<option value="${escapeHtml(sector)}" ${state.management.filters.sector === sector ? "selected" : ""}>${escapeHtml(sector)}</option>`).join("")}
+        </select>
+      </label>
+      <button class="btn primary" type="submit">Aplicar comparativo</button>
+    </form>
+
+    <div class="metrics management-metrics">
+      <div class="metric"><span>Venda liquida</span><strong>${fmtMoney(monthly.net_sales)}</strong><small>Comparativo ${managementVariation(comparison.net_sales)}</small></div>
+      <div class="metric"><span>Delivery</span><strong>${fmtMoney(monthly.delivery_total)}</strong><small>${managementPercent(monthly.delivery_participation)} da venda liquida</small></div>
+      <div class="metric"><span>Venda cotacoes</span><strong>${fmtMoney(monthly.quotation_sales)}</strong><small>Lucro ${fmtMoney(monthly.quotation_profit)}</small></div>
+      <div class="metric"><span>Perdas dos setores</span><strong>${fmtMoney(totalLosses)}</strong><small>Mes selecionado</small></div>
+    </div>
+
+    <section class="panel management-analysis">
+      <div class="section-heading">
+        <div>
+          <h3>Comparativo por setor</h3>
+          <div class="muted">O filtro acima tambem limita esta tabela e o relatorio em PDF.</div>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Setor</th><th>Venda atual</th><th>Venda anterior</th><th>Variacao</th><th>Perdas</th><th>Consumo</th><th>Produtividade</th><th>Equipe</th></tr></thead>
+          <tbody>
+            ${filteredSectors.map((row) => `
+              <tr>
+                <td data-label="Setor"><strong>${escapeHtml(row.sector)}</strong></td>
+                <td data-label="Venda atual">${fmtMoney(row.sales)}</td>
+                <td data-label="Venda anterior">${fmtMoney(row.previous?.sales)}</td>
+                <td data-label="Variacao">${managementVariation(row.comparison?.sales)}</td>
+                <td data-label="Perdas">${fmtMoney(row.losses)} <small class="muted">(${managementPercent(row.loss_rate)})</small></td>
+                <td data-label="Consumo">${fmtMoney(row.consumption)} <small class="muted">(${managementPercent(row.consumption_rate)})</small></td>
+                <td data-label="Produtividade">${fmtMoney(row.sales_per_employee)} / funcionario</td>
+                <td data-label="Equipe">${Number(row.employee_count || 0)} atual / ${Number(row.suggested_employees || 0).toFixed(1)} sugerido</td>
+              </tr>
+            `).join("") || `<tr><td colspan="8">Nenhum setor lancado neste mes.</td></tr>`}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel management-analysis">
+      <h3>Desempenho dos operadores</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Operador</th><th>Venda liquida</th><th>Participacao</th><th>Cupons</th><th>Cancelados</th><th>Taxa cancelamento</th><th>VIP</th></tr></thead>
+          <tbody>
+            ${(data.operators || []).map((row) => `
+              <tr>
+                <td data-label="Operador"><strong>${escapeHtml(row.operator_name)}</strong></td>
+                <td data-label="Venda liquida">${fmtMoney(row.net_sales)}</td>
+                <td data-label="Participacao">${managementPercent(row.participation)}</td>
+                <td data-label="Cupons">${Number(row.coupons || 0)}</td>
+                <td data-label="Cancelados">${Number(row.cancelled_coupons || 0)}</td>
+                <td data-label="Taxa">${managementPercent(row.cancellation_rate)}</td>
+                <td data-label="VIP">${Number(row.vip || 0)}</td>
+              </tr>
+            `).join("") || `<tr><td colspan="7">Nenhum operador lancado neste mes.</td></tr>`}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <div class="management-entry-grid">
+      <details class="panel management-entry">
+        <summary>Registrar resumo mensal da loja</summary>
+        <form class="grid" id="managementMonthlyForm">
+          <input type="hidden" name="period" value="${escapeHtml(state.management.filters.period)}">
+          <h4>Venda da loja</h4>
+          <div class="grid three">
+            ${managementNumberInput("grossSales", "Venda bruta", monthly.gross_sales)}
+            ${managementNumberInput("cancelledSales", "Venda cancelada", monthly.cancelled_sales)}
+            ${managementNumberInput("discounts", "Descontos", monthly.discounts)}
+            ${managementNumberInput("netSales", "Venda liquida", monthly.net_sales)}
+            ${managementNumberInput("coupons", "Cupons", monthly.coupons, "1")}
+            ${managementNumberInput("averageTicket", "Cupom medio", monthly.average_ticket)}
+            ${managementNumberInput("cancelledCoupons", "Cupons cancelados", monthly.cancelled_coupons, "1")}
+            ${managementNumberInput("greenCoupons", "Cupons verdes", monthly.green_coupons, "1")}
+            ${managementNumberInput("identifiedGreenCoupons", "Cupons verdes identificados", monthly.identified_green_coupons, "1")}
+          </div>
+          <h4>Delivery</h4>
+          <div class="grid three">
+            ${managementNumberInput("deliveryNetSales", "Venda liquida", monthly.delivery_net_sales)}
+            ${managementNumberInput("deliveryCancelledSales", "Venda cancelada", monthly.delivery_cancelled_sales)}
+            ${managementNumberInput("deliveryDiscounts", "Descontos", monthly.delivery_discounts)}
+            ${managementNumberInput("deliveryCoupons", "Cupons", monthly.delivery_coupons, "1")}
+            ${managementNumberInput("deliveryCancelledCoupons", "Cupons cancelados", monthly.delivery_cancelled_coupons, "1")}
+            ${managementNumberInput("deliveryOtherCheckouts", "Outros checkouts", monthly.delivery_other_checkouts, "1")}
+            ${managementNumberInput("deliveryGoalNormal", "Meta normal", monthly.delivery_goal_normal)}
+            ${managementNumberInput("deliveryGoalPlus", "Meta plus", monthly.delivery_goal_plus)}
+          </div>
+          <h4>Cotacoes</h4>
+          <div class="grid two">
+            ${managementNumberInput("quotationCost", "Custo", monthly.quotation_cost)}
+            ${managementNumberInput("quotationSales", "Venda", monthly.quotation_sales)}
+          </div>
+          <button class="btn primary" type="submit">Salvar resumo mensal</button>
+        </form>
+      </details>
+
+      <details class="panel management-entry" ${state.management.filters.sector ? "open" : ""}>
+        <summary>Registrar indicadores de um setor</summary>
+        <form class="grid" id="managementSectorForm">
+          <input type="hidden" name="period" value="${escapeHtml(state.management.filters.period)}">
+          <label>Setor
+            <select name="sector" required>
+              <option value="">Selecione</option>
+              ${allSectors.map((sector) => `<option value="${escapeHtml(sector)}" ${selectedSector.sector === sector ? "selected" : ""}>${escapeHtml(sector)}</option>`).join("")}
+            </select>
+          </label>
+          <div class="grid two">
+            ${managementNumberInput("sales", "Venda do setor", selectedSector.sales)}
+            ${managementNumberInput("losses", "Perdas", selectedSector.losses)}
+            ${managementNumberInput("consumption", "Consumo", selectedSector.consumption)}
+            ${managementNumberInput("employeeCount", "Quantidade de funcionarios", selectedSector.employee_count, "1")}
+            ${managementNumberInput("productivityTarget", "Meta de venda por funcionario", selectedSector.productivity_target)}
+            ${managementNumberInput("inventories", "Inventarios realizados", selectedSector.inventories, "1")}
+          </div>
+          <button class="btn primary" type="submit">Salvar setor</button>
+        </form>
+      </details>
+
+      <details class="panel management-entry">
+        <summary>Registrar venda por operador</summary>
+        <form class="grid" id="managementOperatorForm">
+          <input type="hidden" name="period" value="${escapeHtml(state.management.filters.period)}">
+          <label>Operador <input name="operatorName" required></label>
+          <div class="grid two">
+            ${managementNumberInput("netSales", "Venda liquida", 0)}
+            ${managementNumberInput("coupons", "Cupons", 0, "1")}
+            ${managementNumberInput("cancelledCoupons", "Cupons cancelados", 0, "1")}
+            ${managementNumberInput("vip", "Identificacoes VIP", 0, "1")}
+          </div>
+          <button class="btn primary" type="submit">Salvar operador</button>
+        </form>
+      </details>
+    </div>
+  `;
+
+  document.getElementById("managementFilter").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    state.management.filters.period = form.get("period");
+    state.management.filters.comparePeriod = form.get("comparePeriod");
+    state.management.filters.sector = form.get("sector");
+    await loadManagementIndicators();
+    renderManagementIndicators();
+  });
+
+  document.getElementById("managementMonthlyForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    await api("/api/management-indicators/monthly", {
+      method: "POST",
+      body: JSON.stringify(Object.fromEntries(new FormData(event.currentTarget).entries())),
+    });
+    await loadManagementIndicators();
+    renderManagementIndicators();
+    toast("Resumo mensal salvo.");
+  });
+
+  const sectorForm = document.getElementById("managementSectorForm");
+  sectorForm.sector.addEventListener("change", () => {
+    const row = (data.sectors || []).find((item) => item.sector === sectorForm.sector.value) || {};
+    ["sales", "losses", "consumption"].forEach((name) => { sectorForm[name].value = Number(row[name] || 0); });
+    sectorForm.employeeCount.value = Number(row.employee_count || 0);
+    sectorForm.productivityTarget.value = Number(row.productivity_target || 0);
+    sectorForm.inventories.value = Number(row.inventories || 0);
+  });
+  sectorForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    await api("/api/management-indicators/sector", {
+      method: "POST",
+      body: JSON.stringify(Object.fromEntries(new FormData(event.currentTarget).entries())),
+    });
+    await loadManagementIndicators();
+    renderManagementIndicators();
+    toast("Indicadores do setor salvos.");
+  });
+
+  document.getElementById("managementOperatorForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    await api("/api/management-indicators/operator", {
+      method: "POST",
+      body: JSON.stringify(Object.fromEntries(new FormData(event.currentTarget).entries())),
+    });
+    await loadManagementIndicators();
+    renderManagementIndicators();
+    toast("Venda do operador salva.");
+  });
+
+  document.getElementById("managementPdf").addEventListener("click", async () => {
+    const qs = new URLSearchParams({
+      period: state.management.filters.period,
+      comparePeriod: state.management.filters.comparePeriod,
+      sector: state.management.filters.sector,
+    });
+    const response = await fetch(`/api/management-indicators/pdf?${qs.toString()}`, {
+      headers: { Authorization: `Bearer ${state.token}` },
+    });
+    if (!response.ok) throw new Error("Nao foi possivel gerar o PDF.");
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `indicadores-gerenciais-${state.management.filters.period}.pdf`;
+    link.click();
+    URL.revokeObjectURL(url);
+  });
 }
 
 function renderUsers() {

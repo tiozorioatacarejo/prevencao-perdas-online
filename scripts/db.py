@@ -256,6 +256,63 @@ def init_db():
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (user_id) REFERENCES users(id)
         );
+
+        CREATE TABLE IF NOT EXISTS management_monthly (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            period TEXT UNIQUE NOT NULL,
+            gross_sales REAL NOT NULL DEFAULT 0,
+            cancelled_sales REAL NOT NULL DEFAULT 0,
+            discounts REAL NOT NULL DEFAULT 0,
+            net_sales REAL NOT NULL DEFAULT 0,
+            coupons INTEGER NOT NULL DEFAULT 0,
+            average_ticket REAL NOT NULL DEFAULT 0,
+            cancelled_coupons INTEGER NOT NULL DEFAULT 0,
+            green_coupons INTEGER NOT NULL DEFAULT 0,
+            identified_green_coupons INTEGER NOT NULL DEFAULT 0,
+            delivery_net_sales REAL NOT NULL DEFAULT 0,
+            delivery_cancelled_sales REAL NOT NULL DEFAULT 0,
+            delivery_discounts REAL NOT NULL DEFAULT 0,
+            delivery_coupons INTEGER NOT NULL DEFAULT 0,
+            delivery_cancelled_coupons INTEGER NOT NULL DEFAULT 0,
+            delivery_other_checkouts REAL NOT NULL DEFAULT 0,
+            delivery_goal_normal REAL NOT NULL DEFAULT 0,
+            delivery_goal_plus REAL NOT NULL DEFAULT 0,
+            quotation_cost REAL NOT NULL DEFAULT 0,
+            quotation_sales REAL NOT NULL DEFAULT 0,
+            updated_by INTEGER,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (updated_by) REFERENCES users(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS management_sectors (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            period TEXT NOT NULL,
+            sector TEXT NOT NULL,
+            sales REAL NOT NULL DEFAULT 0,
+            losses REAL NOT NULL DEFAULT 0,
+            consumption REAL NOT NULL DEFAULT 0,
+            employee_count INTEGER NOT NULL DEFAULT 0,
+            productivity_target REAL NOT NULL DEFAULT 0,
+            inventories INTEGER NOT NULL DEFAULT 0,
+            updated_by INTEGER,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(period, sector),
+            FOREIGN KEY (updated_by) REFERENCES users(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS management_operators (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            period TEXT NOT NULL,
+            operator_name TEXT NOT NULL,
+            net_sales REAL NOT NULL DEFAULT 0,
+            coupons INTEGER NOT NULL DEFAULT 0,
+            cancelled_coupons INTEGER NOT NULL DEFAULT 0,
+            vip INTEGER NOT NULL DEFAULT 0,
+            updated_by INTEGER,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(period, operator_name),
+            FOREIGN KEY (updated_by) REFERENCES users(id)
+        );
         """
     )
 

@@ -142,6 +142,60 @@ async function initPostgres() {
       details TEXT,
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
+
+    CREATE TABLE IF NOT EXISTS management_monthly (
+      id SERIAL PRIMARY KEY,
+      period TEXT UNIQUE NOT NULL,
+      gross_sales REAL NOT NULL DEFAULT 0,
+      cancelled_sales REAL NOT NULL DEFAULT 0,
+      discounts REAL NOT NULL DEFAULT 0,
+      net_sales REAL NOT NULL DEFAULT 0,
+      coupons INTEGER NOT NULL DEFAULT 0,
+      average_ticket REAL NOT NULL DEFAULT 0,
+      cancelled_coupons INTEGER NOT NULL DEFAULT 0,
+      green_coupons INTEGER NOT NULL DEFAULT 0,
+      identified_green_coupons INTEGER NOT NULL DEFAULT 0,
+      delivery_net_sales REAL NOT NULL DEFAULT 0,
+      delivery_cancelled_sales REAL NOT NULL DEFAULT 0,
+      delivery_discounts REAL NOT NULL DEFAULT 0,
+      delivery_coupons INTEGER NOT NULL DEFAULT 0,
+      delivery_cancelled_coupons INTEGER NOT NULL DEFAULT 0,
+      delivery_other_checkouts REAL NOT NULL DEFAULT 0,
+      delivery_goal_normal REAL NOT NULL DEFAULT 0,
+      delivery_goal_plus REAL NOT NULL DEFAULT 0,
+      quotation_cost REAL NOT NULL DEFAULT 0,
+      quotation_sales REAL NOT NULL DEFAULT 0,
+      updated_by INTEGER REFERENCES users(id),
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS management_sectors (
+      id SERIAL PRIMARY KEY,
+      period TEXT NOT NULL,
+      sector TEXT NOT NULL,
+      sales REAL NOT NULL DEFAULT 0,
+      losses REAL NOT NULL DEFAULT 0,
+      consumption REAL NOT NULL DEFAULT 0,
+      employee_count INTEGER NOT NULL DEFAULT 0,
+      productivity_target REAL NOT NULL DEFAULT 0,
+      inventories INTEGER NOT NULL DEFAULT 0,
+      updated_by INTEGER REFERENCES users(id),
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(period, sector)
+    );
+
+    CREATE TABLE IF NOT EXISTS management_operators (
+      id SERIAL PRIMARY KEY,
+      period TEXT NOT NULL,
+      operator_name TEXT NOT NULL,
+      net_sales REAL NOT NULL DEFAULT 0,
+      coupons INTEGER NOT NULL DEFAULT 0,
+      cancelled_coupons INTEGER NOT NULL DEFAULT 0,
+      vip INTEGER NOT NULL DEFAULT 0,
+      updated_by INTEGER REFERENCES users(id),
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(period, operator_name)
+    );
   `);
   await pool.query("ALTER TABLE collaborators ADD COLUMN IF NOT EXISTS sector TEXT");
   await pool.query("ALTER TABLE checklists ADD COLUMN IF NOT EXISTS sector TEXT");
