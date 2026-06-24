@@ -476,6 +476,10 @@ function canManageRepoGoals(user) {
   return ["administrador", "encarregada"].includes(user.role);
 }
 
+function canViewRepoGoals(user) {
+  return ["administrador", "encarregada", "reposicao"].includes(user.role);
+}
+
 function canAccessSectorAudit(user) {
   return ["administrador", "gerente", "encarregada"].includes(user.role);
 }
@@ -1251,14 +1255,14 @@ async function api(req, res, url) {
   }
 
   if (method === "GET" && url.pathname === "/api/reposition/goals") {
-    if (!canAccessReposition(user) && !canManageRepoGoals(user)) return send(res, 403, { error: "Acesso restrito às metas da reposição." });
+    if (!canViewRepoGoals(user)) return send(res, 403, { error: "Acesso restrito às metas da reposição." });
     return send(res, 200, {
       rows: await query("SELECT * FROM repo_goals WHERE goal_type = 'checklist' ORDER BY sector"),
     });
   }
 
   if (method === "POST" && url.pathname === "/api/reposition/goals") {
-    if (!canManageRepoGoals(user)) return send(res, 403, { error: "Apenas administrador ou gerente pode salvar metas." });
+    if (!canManageRepoGoals(user)) return send(res, 403, { error: "Apenas administrador ou encarregada pode salvar metas." });
     const body = await readBody(req);
     const sector = String(body.sector || "").trim();
     const targetDaily = Math.max(0, Number.parseInt(body.targetDaily, 10) || 0);

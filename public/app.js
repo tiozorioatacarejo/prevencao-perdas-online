@@ -551,6 +551,8 @@ async function refreshForTab() {
 }
 
 function renderView() {
+  const permittedTabs = new Set(allowedTabs().map(([id]) => id));
+  if (!permittedTabs.has(state.tab)) state.tab = defaultTab();
   const map = {
     dashboard: renderDashboard,
     repoDashboard: renderRepoDashboard,
@@ -678,7 +680,9 @@ async function loadReposition() {
     api(`/api/reposition/ruptures?${qs.toString()}`),
     api(`/api/reposition/expirations?${qs.toString()}`),
   ]);
-  const goals = await api("/api/reposition/goals");
+  const goals = state.user?.role === "gerente"
+    ? { rows: [] }
+    : await api("/api/reposition/goals");
   state.repo.dashboard = dashboard;
   state.repo.tasks = tasks.rows;
   state.repo.ruptures = ruptures.rows;
