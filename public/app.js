@@ -255,7 +255,7 @@ if (typeof MutationObserver !== "undefined") {
 function loginAreaMatches(area, role) {
   const areaRoles = {
     prevencao: ["prevencao", "colaborador"],
-    gerente: ["gerente", "encarregada"],
+    gerente: ["gerente"],
     reposicao: ["reposicao"],
     recebimento: ["recebimento"],
     comercial: ["comercial"],

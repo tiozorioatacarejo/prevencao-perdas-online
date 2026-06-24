@@ -464,6 +464,18 @@ function isAdmin(user) {
   return user.role === "administrador";
 }
 
+function loginAreaMatches(area, role) {
+  const areaRoles = {
+    prevencao: ["prevencao", "colaborador"],
+    gerente: ["gerente"],
+    reposicao: ["reposicao"],
+    recebimento: ["recebimento"],
+    comercial: ["comercial"],
+    administrador: ["administrador"],
+  };
+  return (areaRoles[area] || []).includes(role);
+}
+
 function canAccessPrevention(user) {
   return ["administrador", "prevencao", "colaborador", "encarregada"].includes(user.role);
 }
@@ -975,6 +987,10 @@ async function api(req, res, url) {
     if (!users[0] || !verifyPassword(body.password, users[0].password)) {
       recordLoginFailure(attemptKey);
       return send(res, 401, { error: "Usu\u00e1rio ou senha inv\u00e1lidos." });
+    }
+    if (!loginAreaMatches(body.accessArea, users[0].role)) {
+      recordLoginFailure(attemptKey);
+      return send(res, 403, { error: "Este usuário não pertence à área de acesso selecionada." });
     }
     if (!isPasswordHash(users[0].password)) {
       await execute("UPDATE users SET password = ? WHERE id = ?", [hashPassword(body.password), users[0].id]);
