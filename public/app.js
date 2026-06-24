@@ -2404,6 +2404,7 @@ function sectorAuditTable() {
                   <strong>Observação do repositor</strong>
                   ${row.taskObservations.map((item) => `
                     <div class="repo-observation-item">
+                      <strong class="repo-observation-activity">${escapeHtml(item.activity || row.focusLabel || "Atividade")}</strong>
                       <span>${escapeHtml(item.collaborator || "Repositor")} · ${item.date ? new Date(`${item.date}T00:00:00`).toLocaleDateString("pt-BR") : ""}</span>
                       <p>${escapeHtml(item.observation || "")}</p>
                     </div>
