@@ -1675,7 +1675,7 @@ async function api(req, res, url) {
       ["quotationSales", "quotation_sales"],
     ];
     const current = (await query("SELECT * FROM management_monthly WHERE period = ?", [period]))[0] || {};
-    const integerFields = new Set(["coupons", "cancelledCoupons", "greenCoupons", "identifiedGreenCoupons", "deliveryCoupons", "deliveryCancelledCoupons", "deliveryOtherCheckouts"]);
+    const integerFields = new Set(["coupons", "cancelledCoupons", "greenCoupons", "identifiedGreenCoupons", "deliveryCoupons", "deliveryCancelledCoupons"]);
     const values = fieldMap.map(([bodyField, databaseField]) => {
       const value = Object.prototype.hasOwnProperty.call(body, bodyField) ? body[bodyField] : current[databaseField];
       return integerFields.has(bodyField) ? intValue(value) : numberValue(value);

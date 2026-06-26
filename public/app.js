@@ -642,6 +642,7 @@ function renderView() {
     managementOperators: renderManagementOperators,
   };
   map[state.tab]();
+  bindMoneyInputs(app);
   fixVisibleText(app);
 }
 
@@ -2835,7 +2836,52 @@ function managementVariation(comparison, inverted = false) {
   return `<span class="management-variation ${good ? "positive" : "negative"}">${signal}${(value * 100).toFixed(1)}%</span>`;
 }
 
+const MANAGEMENT_MONEY_FIELDS = new Set([
+  "grossSales", "cancelledSales", "discounts", "netSales", "averageTicket",
+  "deliveryNetSales", "deliveryCancelledSales", "deliveryDiscounts", "deliveryOtherCheckouts",
+  "deliveryGoalNormal", "deliveryGoalPlus", "quotationCost", "quotationSales",
+  "sales", "losses", "consumption", "productivityTarget",
+]);
+
+function formatMoneyInputValue(value) {
+  const numeric = Number(value || 0);
+  if (!numeric) return "";
+  return numeric.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function normalizeMoneyValue(value) {
+  const raw = String(value || "").replace(/[R$\s]/g, "").trim();
+  if (!raw) return "";
+  if (raw.includes(",")) return raw.replace(/\./g, "").replace(",", ".");
+  const onlyDigits = raw.replace(/[^\d.-]/g, "");
+  return onlyDigits || "";
+}
+
+function managementFormValues(form) {
+  const values = Object.fromEntries(new FormData(form).entries());
+  form.querySelectorAll("[data-money-input]").forEach((input) => {
+    values[input.name] = normalizeMoneyValue(input.value);
+  });
+  return values;
+}
+
+function bindMoneyInputs(container = document) {
+  container.querySelectorAll("[data-money-input]").forEach((input) => {
+    input.addEventListener("focus", () => {
+      if (input.value === "0,00") input.value = "";
+      input.select();
+    });
+    input.addEventListener("blur", () => {
+      const normalized = normalizeMoneyValue(input.value);
+      input.value = normalized === "" ? "" : formatMoneyInputValue(normalized);
+    });
+  });
+}
+
 function managementNumberInput(name, label, value, step = "0.01") {
+  if (MANAGEMENT_MONEY_FIELDS.has(name)) {
+    return `<label>${label}<input type="text" inputmode="decimal" name="${name}" value="${formatMoneyInputValue(value)}" data-money-input placeholder="0,00"></label>`;
+  }
   return `<label>${label}<input type="number" name="${name}" value="${Number(value || 0)}" min="0" step="${step}"></label>`;
 }
 
@@ -2961,7 +3007,7 @@ function renderManagementLegacy() {
             ${managementNumberInput("deliveryDiscounts", "Descontos", monthly.delivery_discounts)}
             ${managementNumberInput("deliveryCoupons", "Cupons", monthly.delivery_coupons, "1")}
             ${managementNumberInput("deliveryCancelledCoupons", "Cupons cancelados", monthly.delivery_cancelled_coupons, "1")}
-            ${managementNumberInput("deliveryOtherCheckouts", "Outros checkouts", monthly.delivery_other_checkouts, "1")}
+            ${managementNumberInput("deliveryOtherCheckouts", "Outros checkouts", monthly.delivery_other_checkouts)}
             ${managementNumberInput("deliveryGoalNormal", "Meta normal", monthly.delivery_goal_normal)}
             ${managementNumberInput("deliveryGoalPlus", "Meta plus", monthly.delivery_goal_plus)}
           </div>
@@ -3027,7 +3073,7 @@ function renderManagementLegacy() {
     event.preventDefault();
     await api("/api/management-indicators/monthly", {
       method: "POST",
-      body: JSON.stringify(Object.fromEntries(new FormData(event.currentTarget).entries())),
+      body: JSON.stringify(managementFormValues(event.currentTarget)),
     });
     await loadManagementIndicators();
     renderManagementIndicators();
@@ -3037,16 +3083,16 @@ function renderManagementLegacy() {
   const sectorForm = document.getElementById("managementSectorForm");
   sectorForm.sector.addEventListener("change", () => {
     const row = (data.sectors || []).find((item) => item.sector === sectorForm.sector.value) || {};
-    ["sales", "losses", "consumption"].forEach((name) => { sectorForm[name].value = Number(row[name] || 0); });
+    ["sales", "losses", "consumption"].forEach((name) => { sectorForm[name].value = formatMoneyInputValue(row[name]); });
     sectorForm.employeeCount.value = Number(row.employee_count || 0);
-    sectorForm.productivityTarget.value = Number(row.productivity_target || 0);
+    sectorForm.productivityTarget.value = formatMoneyInputValue(row.productivity_target);
     sectorForm.inventories.value = Number(row.inventories || 0);
   });
   sectorForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     await api("/api/management-indicators/sector", {
       method: "POST",
-      body: JSON.stringify(Object.fromEntries(new FormData(event.currentTarget).entries())),
+      body: JSON.stringify(managementFormValues(event.currentTarget)),
     });
     await loadManagementIndicators();
     renderManagementIndicators();
@@ -3057,7 +3103,7 @@ function renderManagementLegacy() {
     event.preventDefault();
     await api("/api/management-indicators/operator", {
       method: "POST",
-      body: JSON.stringify(Object.fromEntries(new FormData(event.currentTarget).entries())),
+      body: JSON.stringify(managementFormValues(event.currentTarget)),
     });
     await loadManagementIndicators();
     renderManagementIndicators();
@@ -3242,7 +3288,7 @@ async function saveManagementMonthlyForm(event, renderFunction, message) {
   event.preventDefault();
   await api("/api/management-indicators/monthly", {
     method: "POST",
-    body: JSON.stringify(Object.fromEntries(new FormData(event.currentTarget).entries())),
+    body: JSON.stringify(managementFormValues(event.currentTarget)),
   });
   await loadManagementIndicators();
   renderFunction();
@@ -3382,6 +3428,7 @@ function renderManagementDelivery() {
   const totalComparison = managementDirectComparison(current, previous, "delivery_total");
   const participationComparison = managementDirectComparison(current, previous, "delivery_participation");
   const couponsComparison = managementDirectComparison(current, previous, "delivery_coupons");
+  const ticketComparison = managementDirectComparison(current, previous, "delivery_average_ticket");
   const entry = managementEntryMonthlyData();
   view.innerHTML = `
     ${managementScreenHeader("Delivery", "Delivery de um periodo comparado diretamente com o Delivery de outro periodo.", "delivery")}
@@ -3389,6 +3436,7 @@ function renderManagementDelivery() {
       ${managementComparisonCard("Venda Delivery", current.delivery_total, previous.delivery_total, totalComparison)}
       ${managementComparisonCard("Participacao na loja", current.delivery_participation, previous.delivery_participation, participationComparison, managementPercent)}
       ${managementComparisonCard("Cupons Delivery", current.delivery_coupons, previous.delivery_coupons, couponsComparison, (value) => Number(value || 0).toLocaleString("pt-BR"))}
+      ${managementComparisonCard("Ticket medio Delivery", current.delivery_average_ticket, previous.delivery_average_ticket, ticketComparison)}
       ${managementComparisonCard("Venda cancelada", current.delivery_cancelled_sales, previous.delivery_cancelled_sales, managementDirectComparison(current, previous, "delivery_cancelled_sales"), fmtMoney, true)}
     </div>
     ${managementComparisonTable([
@@ -3422,7 +3470,7 @@ function renderManagementDelivery() {
         ${managementNumberInput("deliveryDiscounts", "Descontos", entry.delivery_discounts)}
         ${managementNumberInput("deliveryCoupons", "Cupons", entry.delivery_coupons, "1")}
         ${managementNumberInput("deliveryCancelledCoupons", "Cupons cancelados", entry.delivery_cancelled_coupons, "1")}
-        ${managementNumberInput("deliveryOtherCheckouts", "Outros checkouts", entry.delivery_other_checkouts, "1")}
+        ${managementNumberInput("deliveryOtherCheckouts", "Outros checkouts", entry.delivery_other_checkouts)}
         ${managementNumberInput("deliveryGoalNormal", "Meta normal", entry.delivery_goal_normal)}
         ${managementNumberInput("deliveryGoalPlus", "Meta plus", entry.delivery_goal_plus)}
       </div>
@@ -3552,7 +3600,7 @@ function renderManagementSectors() {
     event.preventDefault();
     await api("/api/management-indicators/sector", {
       method: "POST",
-      body: JSON.stringify(Object.fromEntries(new FormData(event.currentTarget).entries())),
+      body: JSON.stringify(managementFormValues(event.currentTarget)),
     });
     await loadManagementIndicators();
     renderManagementSectors();
@@ -3631,7 +3679,7 @@ function renderManagementProductivity() {
     event.preventDefault();
     await api("/api/management-indicators/sector", {
       method: "POST",
-      body: JSON.stringify(Object.fromEntries(new FormData(event.currentTarget).entries())),
+      body: JSON.stringify(managementFormValues(event.currentTarget)),
     });
     await loadManagementIndicators();
     renderManagementProductivity();
@@ -3712,7 +3760,7 @@ function renderManagementOperators() {
     event.preventDefault();
     await api("/api/management-indicators/operator", {
       method: "POST",
-      body: JSON.stringify(Object.fromEntries(new FormData(event.currentTarget).entries())),
+      body: JSON.stringify(managementFormValues(event.currentTarget)),
     });
     await loadManagementIndicators();
     renderManagementOperators();
