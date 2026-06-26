@@ -1271,6 +1271,9 @@ function managementMonthlyCalculated(row = {}) {
   const deliveryNet = numberValue(row.delivery_net_sales);
   const deliveryOther = numberValue(row.delivery_other_checkouts);
   const deliveryTotal = deliveryNet + deliveryOther;
+  const deliveryCoupons = intValue(row.delivery_coupons);
+  const deliveryCancelledCoupons = intValue(row.delivery_cancelled_coupons);
+  const deliveryValidCoupons = Math.max(0, deliveryCoupons - deliveryCancelledCoupons);
   const quotationCost = numberValue(row.quotation_cost);
   const quotationSales = numberValue(row.quotation_sales);
   const quotationProfit = quotationSales - quotationCost;
@@ -1283,8 +1286,9 @@ function managementMonthlyCalculated(row = {}) {
     green_identification_rate: intValue(row.green_coupons) ? intValue(row.identified_green_coupons) / intValue(row.green_coupons) : 0,
     delivery_total: deliveryTotal,
     delivery_participation: netSales ? deliveryTotal / netSales : 0,
-    delivery_average_ticket: intValue(row.delivery_coupons) ? deliveryNet / intValue(row.delivery_coupons) : 0,
-    delivery_cancellation_rate: intValue(row.delivery_coupons) ? intValue(row.delivery_cancelled_coupons) / intValue(row.delivery_coupons) : 0,
+    delivery_valid_coupons: deliveryValidCoupons,
+    delivery_average_ticket: deliveryValidCoupons ? deliveryNet / deliveryValidCoupons : 0,
+    delivery_cancellation_rate: deliveryCoupons ? deliveryCancelledCoupons / deliveryCoupons : 0,
     delivery_discount_rate: deliveryNet ? numberValue(row.delivery_discounts) / deliveryNet : 0,
     delivery_result_normal: deliveryTotal - numberValue(row.delivery_goal_normal),
     delivery_result_plus: deliveryTotal - numberValue(row.delivery_goal_plus),
@@ -1413,7 +1417,7 @@ async function managementReportData(period, comparePeriod = previousPeriod(perio
       "green_coupons", "identified_green_coupons", "green_unidentified_coupons", "green_identification_rate",
       "delivery_net_sales", "delivery_cancelled_sales", "delivery_discounts", "delivery_coupons",
       "delivery_cancelled_coupons", "delivery_other_checkouts", "delivery_total",
-      "delivery_participation", "delivery_average_ticket", "delivery_cancellation_rate",
+      "delivery_participation", "delivery_valid_coupons", "delivery_average_ticket", "delivery_cancellation_rate",
       "delivery_discount_rate", "delivery_result_normal", "delivery_result_plus",
       "quotation_cost", "quotation_sales", "quotation_profit", "quotation_margin_sales",
       "quotation_margin_cost", "quotation_participation",
@@ -1455,7 +1459,7 @@ function managementPdf(report, reportType = "all", sectorFilter = "") {
     cards: [
       { label: "Total delivery", value: currency(report.monthly.delivery_total), note: variationNote(report.monthlyComparison.delivery_total) },
       { label: "Participacao", value: percent(report.monthly.delivery_participation), note: `Anterior ${percent(report.previousMonthly.delivery_participation)}` },
-      { label: "Ticket medio", value: currency(report.monthly.delivery_average_ticket), note: `${report.monthly.delivery_coupons || 0} cupons` },
+      { label: "Ticket medio", value: currency(report.monthly.delivery_average_ticket), note: `Venda liquida / ${report.monthly.delivery_valid_coupons || 0} cupons validos` },
       { label: "Cancelada", value: currency(report.monthly.delivery_cancelled_sales), note: `${percent(report.monthly.delivery_cancellation_rate)} taxa` },
       { label: "Meta normal", value: currency(report.monthly.delivery_goal_normal), note: `Resultado ${currency(report.monthly.delivery_result_normal)}` },
       { label: "Meta plus", value: currency(report.monthly.delivery_goal_plus), note: `Resultado ${currency(report.monthly.delivery_result_plus)}` },
@@ -1465,10 +1469,11 @@ function managementPdf(report, reportType = "all", sectorFilter = "") {
       widths: [150, 120, 120, 133],
       rows: [
         ["Venda liquida", currency(report.monthly.delivery_net_sales), currency(report.previousMonthly.delivery_net_sales), variationNote(report.monthlyComparison.delivery_net_sales)],
-        ["Outros caixas", currency(report.monthly.delivery_other_checkouts), currency(report.previousMonthly.delivery_other_checkouts), variationNote(report.monthlyComparison.delivery_other_checkouts)],
+        ["Outros checkouts sem cupons", currency(report.monthly.delivery_other_checkouts), currency(report.previousMonthly.delivery_other_checkouts), variationNote(report.monthlyComparison.delivery_other_checkouts)],
         ["Total", currency(report.monthly.delivery_total), currency(report.previousMonthly.delivery_total), variationNote(report.monthlyComparison.delivery_total)],
         ["Descontos", currency(report.monthly.delivery_discounts), currency(report.previousMonthly.delivery_discounts), variationNote(report.monthlyComparison.delivery_discounts)],
         ["Cupons", report.monthly.delivery_coupons || 0, report.previousMonthly.delivery_coupons || 0, `${numberValue(report.monthlyComparison.delivery_coupons.difference).toLocaleString("pt-BR")}`],
+        ["Cupons validos", report.monthly.delivery_valid_coupons || 0, report.previousMonthly.delivery_valid_coupons || 0, `${numberValue(report.monthlyComparison.delivery_valid_coupons.difference).toLocaleString("pt-BR")}`],
       ],
     },
   };

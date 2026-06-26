@@ -3435,20 +3435,21 @@ function renderManagementDelivery() {
     <div class="metrics management-metrics">
       ${managementComparisonCard("Venda Delivery", current.delivery_total, previous.delivery_total, totalComparison)}
       ${managementComparisonCard("Participacao na loja", current.delivery_participation, previous.delivery_participation, participationComparison, managementPercent)}
-      ${managementComparisonCard("Cupons Delivery", current.delivery_coupons, previous.delivery_coupons, couponsComparison, (value) => Number(value || 0).toLocaleString("pt-BR"))}
+      ${managementComparisonCard("Cupons validos Delivery", current.delivery_valid_coupons, previous.delivery_valid_coupons, managementDirectComparison(current, previous, "delivery_valid_coupons"), (value) => Number(value || 0).toLocaleString("pt-BR"))}
       ${managementComparisonCard("Ticket medio Delivery", current.delivery_average_ticket, previous.delivery_average_ticket, ticketComparison)}
       ${managementComparisonCard("Venda cancelada", current.delivery_cancelled_sales, previous.delivery_cancelled_sales, managementDirectComparison(current, previous, "delivery_cancelled_sales"), fmtMoney, true)}
     </div>
     ${managementComparisonTable([
       { label: "Venda liquida Delivery", current: current.delivery_net_sales, previous: previous.delivery_net_sales, comparison: data.monthlyComparison.delivery_net_sales },
       { label: "Venda cancelada", current: current.delivery_cancelled_sales, previous: previous.delivery_cancelled_sales, comparison: data.monthlyComparison.delivery_cancelled_sales, inverted: true },
-      { label: "Ticket medio", current: current.delivery_average_ticket, previous: previous.delivery_average_ticket, comparison: data.monthlyComparison.delivery_average_ticket },
+      { label: "Ticket medio sobre cupons validos", current: current.delivery_average_ticket, previous: previous.delivery_average_ticket, comparison: data.monthlyComparison.delivery_average_ticket },
       { label: "Valor de descontos", current: current.delivery_discounts, previous: previous.delivery_discounts, comparison: data.monthlyComparison.delivery_discounts, inverted: true },
       { label: "Percentual de descontos", current: current.delivery_discount_rate, previous: previous.delivery_discount_rate, comparison: data.monthlyComparison.delivery_discount_rate, format: managementPercent, inverted: true },
       { label: "Quantidade de cupons", current: current.delivery_coupons, previous: previous.delivery_coupons, comparison: data.monthlyComparison.delivery_coupons, format: (value) => Number(value || 0).toLocaleString("pt-BR") },
       { label: "Cupons cancelados", current: current.delivery_cancelled_coupons, previous: previous.delivery_cancelled_coupons, comparison: data.monthlyComparison.delivery_cancelled_coupons, format: (value) => Number(value || 0).toLocaleString("pt-BR"), inverted: true },
+      { label: "Cupons validos", current: current.delivery_valid_coupons, previous: previous.delivery_valid_coupons, comparison: data.monthlyComparison.delivery_valid_coupons, format: (value) => Number(value || 0).toLocaleString("pt-BR") },
       { label: "Taxa de cancelamento", current: current.delivery_cancellation_rate, previous: previous.delivery_cancellation_rate, comparison: data.monthlyComparison.delivery_cancellation_rate, format: managementPercent, inverted: true },
-      { label: "Compras em outros caixas", current: current.delivery_other_checkouts, previous: previous.delivery_other_checkouts, comparison: data.monthlyComparison.delivery_other_checkouts },
+      { label: "Venda em outros checkouts sem cupons", current: current.delivery_other_checkouts, previous: previous.delivery_other_checkouts, comparison: data.monthlyComparison.delivery_other_checkouts },
       { label: "Total Delivery", current: current.delivery_total, previous: previous.delivery_total, comparison: data.monthlyComparison.delivery_total },
       { label: "Participacao na venda da loja", current: current.delivery_participation, previous: previous.delivery_participation, comparison: data.monthlyComparison.delivery_participation, format: managementPercent },
       { label: "Resultado sobre meta normal", current: current.delivery_result_normal, previous: previous.delivery_result_normal, comparison: data.monthlyComparison.delivery_result_normal },
@@ -3456,6 +3457,7 @@ function renderManagementDelivery() {
     ])}
     <section class="panel management-comparison-detail">
       <h3>Metas do periodo analisado</h3>
+      <div class="muted">Ticket medio calculado por venda liquida Delivery dividida pelos cupons validos (cupons Delivery menos cupons cancelados). Outros checkouts entram no total, mas nao entram no ticket medio por nao terem quantidade de cupons.</div>
       <div class="grid two">
         <div><span class="muted">Resultado sobre meta normal</span><strong>${fmtMoney(current.delivery_result_normal)}</strong></div>
         <div><span class="muted">Resultado sobre meta plus</span><strong>${fmtMoney(current.delivery_result_plus)}</strong></div>
