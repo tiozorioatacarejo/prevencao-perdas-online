@@ -1047,10 +1047,10 @@ function wrapPdfText(value, maxChars, maxLines = 4) {
   return lines.length ? lines : [""];
 }
 
-function structuredPdf({ title, subtitle, meta = [], sections = [] }) {
-  const width = 595;
-  const height = 842;
-  const margin = 36;
+function structuredPdf({ title, subtitle, meta = [], sections = [], landscape = false, compact = false }) {
+  const width = landscape ? 842 : 595;
+  const height = landscape ? 595 : 842;
+  const margin = compact ? 24 : 36;
   const inner = width - margin * 2;
   const colors = {
     dark: "#0f1512",
@@ -1073,13 +1073,14 @@ function structuredPdf({ title, subtitle, meta = [], sections = [] }) {
     cmd(`BT /${font} ${size} Tf ${fill(color)} ${x} ${textY} Td (${pdfText(value)}) Tj ET`);
   };
   const addHeader = () => {
-    rect(0, height - 92, width, 92, colors.dark);
-    rect(margin, height - 62, 32, 32, colors.green);
-    text("CA", margin + 8, height - 51, 11, colors.white, "F2");
-    text(title, margin + 44, height - 43, 17, colors.white, "F2");
-    text(subtitle, margin + 44, height - 62, 9, "#b9c7c0", "F1");
-    meta.slice(0, 3).forEach((item, index) => text(item, width - margin - 190, height - 38 - index * 14, 8.5, "#d7e1dc"));
-    y = height - 116;
+    const headerH = compact ? 58 : 92;
+    rect(0, height - headerH, width, headerH, colors.dark);
+    rect(margin, height - (compact ? 40 : 48), compact ? 22 : 26, compact ? 22 : 26, colors.green);
+    text("CA", margin + (compact ? 6 : 7), height - (compact ? 32 : 39), compact ? 8 : 9.5, colors.white, "F2");
+    text(title, margin + (compact ? 32 : 38), height - (compact ? 27 : 33), compact ? 13 : 17, colors.white, "F2");
+    text(subtitle, margin + (compact ? 32 : 38), height - (compact ? 43 : 50), compact ? 7.3 : 8.2, "#b9c7c0", "F1");
+    meta.slice(0, 3).forEach((item, index) => text(item, width - margin - 205, height - (compact ? 24 : 30) - index * (compact ? 10 : 12), compact ? 6.6 : 7.5, "#d7e1dc"));
+    y = height - headerH - (compact ? 12 : 24);
   };
   const newPage = () => {
     if (ops.length) pages.push(ops);
@@ -1087,59 +1088,60 @@ function structuredPdf({ title, subtitle, meta = [], sections = [] }) {
     addHeader();
   };
   const ensure = (space) => {
-    if (y - space < 58) newPage();
+    if (y - space < (compact ? 42 : 58)) newPage();
   };
   newPage();
   const sectionTitle = (label) => {
-    ensure(34);
-    text(label, margin, y, 13, colors.text, "F2");
-    line(margin, y - 9, width - margin, y - 9, colors.line, 0.7);
-    y -= 28;
+    ensure(compact ? 24 : 34);
+    text(label, margin, y, compact ? 11 : 13, colors.text, "F2");
+    line(margin, y - 7, width - margin, y - 7, colors.line, 0.7);
+    y -= compact ? 19 : 28;
   };
   const cards = (items) => {
-    const columns = 3;
-    const gap = 10;
+    const columns = compact && items.length <= 6 ? 6 : 3;
+    const gap = compact ? 6 : 10;
     const cardW = (inner - gap * (columns - 1)) / columns;
-    const cardH = 72;
+    const cardH = compact ? 42 : 72;
     for (let index = 0; index < items.length; index += columns) {
-      ensure(cardH + 14);
+      ensure(cardH + (compact ? 8 : 14));
       items.slice(index, index + columns).forEach((item, col) => {
         const x = margin + col * (cardW + gap);
         rect(x, y - cardH + 8, cardW, cardH, "#f7faf8");
         cmd(`${stroke(colors.line)} 0.7 w ${x} ${y - cardH + 8} ${cardW} ${cardH} re S`);
-        text(item.label, x + 12, y - 14, 8.5, colors.muted, "F2");
-        text(item.value, x + 12, y - 39, 15, colors.text, "F2");
-        if (item.note) text(item.note, x + 12, y - 58, 8, colors.muted);
+        text(item.label, x + 8, y - 10, compact ? 6.5 : 8.5, colors.muted, "F2");
+        text(item.value, x + 8, y - (compact ? 25 : 39), compact ? 8.5 : 15, colors.text, "F2");
+        if (item.note) text(item.note, x + 8, y - (compact ? 36 : 58), compact ? 5.8 : 8, colors.muted);
       });
-      y -= cardH + 12;
+      y -= cardH + (compact ? 6 : 12);
     }
   };
   const table = (headers, rows, widths) => {
     if (!rows.length) rows = [["Sem dados para o filtro selecionado."]];
     const normalizedWidths = widths || headers.map(() => inner / headers.length);
-    ensure(36);
-    rect(margin, y - 24, inner, 24, colors.pale);
+    const headerH = compact ? 16 : 24;
+    ensure(headerH + 10);
+    rect(margin, y - headerH, inner, headerH, colors.pale);
     let x = margin;
     headers.forEach((header, index) => {
-      text(header, x + 6, y - 16, 7.6, colors.muted, "F2");
+      text(header, x + 5, y - (compact ? 11 : 16), compact ? 6.2 : 7.6, colors.muted, "F2");
       x += normalizedWidths[index] || 80;
     });
-    y -= 24;
+    y -= headerH;
     rows.forEach((row, rowIndex) => {
       const cells = headers.map((_, index) => row[index] ?? "");
-      const wrapped = cells.map((cell, index) => wrapPdfText(cell, Math.max(8, Math.floor((normalizedWidths[index] || 80) / 4.6)), 4));
-      const rowH = Math.max(28, Math.max(...wrapped.map((lines) => lines.length)) * 11 + 14);
+      const wrapped = cells.map((cell, index) => wrapPdfText(cell, Math.max(8, Math.floor((normalizedWidths[index] || 80) / (compact ? 4 : 4.6))), compact ? 2 : 4));
+      const rowH = Math.max(compact ? 16 : 28, Math.max(...wrapped.map((lines) => lines.length)) * (compact ? 7 : 11) + (compact ? 7 : 14));
       ensure(rowH);
       if (rowIndex % 2 === 1) rect(margin, y - rowH, inner, rowH, "#fbfcfb");
       line(margin, y - rowH, width - margin, y - rowH, colors.line, 0.4);
       x = margin;
       wrapped.forEach((lines, cellIndex) => {
-        lines.forEach((cellLine, lineIndex) => text(cellLine, x + 6, y - 13 - lineIndex * 11, 7.6, colors.text));
+        lines.forEach((cellLine, lineIndex) => text(cellLine, x + 5, y - (compact ? 10 : 13) - lineIndex * (compact ? 7 : 11), compact ? 6.3 : 7.6, colors.text));
         x += normalizedWidths[cellIndex] || 80;
       });
       y -= rowH;
     });
-    y -= 12;
+    y -= compact ? 6 : 12;
   };
   sections.forEach((section) => {
     sectionTitle(section.title);
@@ -1429,8 +1431,19 @@ async function managementReportData(period, comparePeriod = previousPeriod(perio
 
 function managementPdf(report, reportType = "all", sectorFilter = "") {
   const currency = (value) => `R$ ${numberValue(value).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-  const percent = (value) => `${(numberValue(value) * 100).toFixed(2)}%`;
+  const percent = (value) => `${(numberValue(value) * 100).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`;
   const variationNote = (comparison) => `Variacao ${currency(comparison?.difference)} (${percent(comparison?.percent)})`;
+  const moneyRow = (label, current, previous, comparison) => [label, currency(current), currency(previous), currency(comparison?.difference), percent(comparison?.percent)];
+  const percentRow = (label, current, previous, comparison) => [label, percent(current), percent(previous), percent(comparison?.difference), percent(comparison?.percent)];
+  const countRow = (label, current, previous, comparison, digits = 0) => [
+    label,
+    numberValue(current).toLocaleString("pt-BR", { maximumFractionDigits: digits }),
+    numberValue(previous).toLocaleString("pt-BR", { maximumFractionDigits: digits }),
+    numberValue(comparison?.difference).toLocaleString("pt-BR", { maximumFractionDigits: digits }),
+    percent(comparison?.percent),
+  ];
+  const comparisonHeaders = ["Indicador", "Atual", "Anterior", "Diferenca", "Variacao"];
+  const comparisonWidths = [210, 140, 140, 140, 90];
   const sectors = sectorFilter ? report.sectors.filter((row) => row.sector === sectorFilter) : report.sectors;
   const store = {
     title: "Venda da loja",
@@ -1443,23 +1456,23 @@ function managementPdf(report, reportType = "all", sectorFilter = "") {
       { label: "Cupons verdes", value: report.monthly.green_coupons || 0, note: `${percent(report.monthly.green_identification_rate)} identificados` },
     ],
     table: {
-      headers: ["Indicador", "Atual", "Anterior", "Variacao"],
-      widths: [150, 120, 120, 133],
+      headers: comparisonHeaders,
+      widths: comparisonWidths,
       rows: [
-        ["Quantidade vendida", numberValue(report.monthly.sold_quantity).toLocaleString("pt-BR", { maximumFractionDigits: 3 }), numberValue(report.previousMonthly.sold_quantity).toLocaleString("pt-BR", { maximumFractionDigits: 3 }), `${numberValue(report.monthlyComparison.sold_quantity.difference).toLocaleString("pt-BR", { maximumFractionDigits: 3 })} (${percent(report.monthlyComparison.sold_quantity.percent)})`],
-        ["Venda bruta", currency(report.monthly.gross_sales), currency(report.previousMonthly.gross_sales), variationNote(report.monthlyComparison.gross_sales)],
-        ["Venda cancelada", currency(report.monthly.cancelled_sales), currency(report.previousMonthly.cancelled_sales), variationNote(report.monthlyComparison.cancelled_sales)],
-        ["Descontos", currency(report.monthly.discounts), currency(report.previousMonthly.discounts), variationNote(report.monthlyComparison.discounts)],
-        ["Percentual de descontos", percent(report.monthly.discount_rate), percent(report.previousMonthly.discount_rate), percent(report.monthlyComparison.discount_rate.percent)],
-        ["Venda liquida", currency(report.monthly.net_sales), currency(report.previousMonthly.net_sales), variationNote(report.monthlyComparison.net_sales)],
-        ["Quantidade de cupons", report.monthly.coupons || 0, report.previousMonthly.coupons || 0, `${numberValue(report.monthlyComparison.coupons.difference).toLocaleString("pt-BR")} (${percent(report.monthlyComparison.coupons.percent)})`],
-        ["Ticket medio", currency(report.monthly.average_ticket), currency(report.previousMonthly.average_ticket), variationNote(report.monthlyComparison.average_ticket)],
-        ["Cupons cancelados", report.monthly.cancelled_coupons || 0, report.previousMonthly.cancelled_coupons || 0, `${numberValue(report.monthlyComparison.cancelled_coupons.difference).toLocaleString("pt-BR")} (${percent(report.monthlyComparison.cancelled_coupons.percent)})`],
-        ["Taxa de cancelamento", percent(report.monthly.cancellation_rate), percent(report.previousMonthly.cancellation_rate), percent(report.monthlyComparison.cancellation_rate.percent)],
-        ["Cupons verdes", report.monthly.green_coupons || 0, report.previousMonthly.green_coupons || 0, `${numberValue(report.monthlyComparison.green_coupons.difference).toLocaleString("pt-BR")} (${percent(report.monthlyComparison.green_coupons.percent)})`],
-        ["Cupons verdes identificados", report.monthly.identified_green_coupons || 0, report.previousMonthly.identified_green_coupons || 0, `${numberValue(report.monthlyComparison.identified_green_coupons.difference).toLocaleString("pt-BR")} (${percent(report.monthlyComparison.identified_green_coupons.percent)})`],
-        ["Cupons verdes nao identificados", report.monthly.green_unidentified_coupons || 0, report.previousMonthly.green_unidentified_coupons || 0, `${numberValue(report.monthlyComparison.green_unidentified_coupons.difference).toLocaleString("pt-BR")} (${percent(report.monthlyComparison.green_unidentified_coupons.percent)})`],
-        ["Identificacao verde", percent(report.monthly.green_identification_rate), percent(report.previousMonthly.green_identification_rate), percent(report.monthlyComparison.green_identification_rate.percent)],
+        countRow("Quantidade vendida", report.monthly.sold_quantity, report.previousMonthly.sold_quantity, report.monthlyComparison.sold_quantity, 3),
+        moneyRow("Venda bruta", report.monthly.gross_sales, report.previousMonthly.gross_sales, report.monthlyComparison.gross_sales),
+        moneyRow("Venda cancelada", report.monthly.cancelled_sales, report.previousMonthly.cancelled_sales, report.monthlyComparison.cancelled_sales),
+        moneyRow("Descontos", report.monthly.discounts, report.previousMonthly.discounts, report.monthlyComparison.discounts),
+        percentRow("Percentual de descontos", report.monthly.discount_rate, report.previousMonthly.discount_rate, report.monthlyComparison.discount_rate),
+        moneyRow("Venda liquida", report.monthly.net_sales, report.previousMonthly.net_sales, report.monthlyComparison.net_sales),
+        countRow("Quantidade de cupons", report.monthly.coupons, report.previousMonthly.coupons, report.monthlyComparison.coupons),
+        moneyRow("Ticket medio", report.monthly.average_ticket, report.previousMonthly.average_ticket, report.monthlyComparison.average_ticket),
+        countRow("Cupons cancelados", report.monthly.cancelled_coupons, report.previousMonthly.cancelled_coupons, report.monthlyComparison.cancelled_coupons),
+        percentRow("Taxa de cancelamento", report.monthly.cancellation_rate, report.previousMonthly.cancellation_rate, report.monthlyComparison.cancellation_rate),
+        countRow("Cupons verdes", report.monthly.green_coupons, report.previousMonthly.green_coupons, report.monthlyComparison.green_coupons),
+        countRow("Cupons verdes identificados", report.monthly.identified_green_coupons, report.previousMonthly.identified_green_coupons, report.monthlyComparison.identified_green_coupons),
+        countRow("Cupons verdes nao identificados", report.monthly.green_unidentified_coupons, report.previousMonthly.green_unidentified_coupons, report.monthlyComparison.green_unidentified_coupons),
+        percentRow("Identificacao verde", report.monthly.green_identification_rate, report.previousMonthly.green_identification_rate, report.monthlyComparison.green_identification_rate),
       ],
     },
   };
@@ -1474,23 +1487,23 @@ function managementPdf(report, reportType = "all", sectorFilter = "") {
       { label: "Meta plus", value: currency(report.monthly.delivery_goal_plus), note: `Resultado ${currency(report.monthly.delivery_result_plus)}` },
     ],
     table: {
-      headers: ["Indicador", "Atual", "Anterior", "Variacao"],
-      widths: [150, 120, 120, 133],
+      headers: comparisonHeaders,
+      widths: comparisonWidths,
       rows: [
-        ["Venda liquida", currency(report.monthly.delivery_net_sales), currency(report.previousMonthly.delivery_net_sales), variationNote(report.monthlyComparison.delivery_net_sales)],
-        ["Venda cancelada", currency(report.monthly.delivery_cancelled_sales), currency(report.previousMonthly.delivery_cancelled_sales), variationNote(report.monthlyComparison.delivery_cancelled_sales)],
-        ["Ticket medio sobre cupons validos", currency(report.monthly.delivery_average_ticket), currency(report.previousMonthly.delivery_average_ticket), variationNote(report.monthlyComparison.delivery_average_ticket)],
-        ["Descontos", currency(report.monthly.delivery_discounts), currency(report.previousMonthly.delivery_discounts), variationNote(report.monthlyComparison.delivery_discounts)],
-        ["Percentual de descontos", percent(report.monthly.delivery_discount_rate), percent(report.previousMonthly.delivery_discount_rate), percent(report.monthlyComparison.delivery_discount_rate.percent)],
-        ["Quantidade de cupons", report.monthly.delivery_coupons || 0, report.previousMonthly.delivery_coupons || 0, `${numberValue(report.monthlyComparison.delivery_coupons.difference).toLocaleString("pt-BR")} (${percent(report.monthlyComparison.delivery_coupons.percent)})`],
-        ["Cupons cancelados", report.monthly.delivery_cancelled_coupons || 0, report.previousMonthly.delivery_cancelled_coupons || 0, `${numberValue(report.monthlyComparison.delivery_cancelled_coupons.difference).toLocaleString("pt-BR")} (${percent(report.monthlyComparison.delivery_cancelled_coupons.percent)})`],
-        ["Cupons validos", report.monthly.delivery_valid_coupons || 0, report.previousMonthly.delivery_valid_coupons || 0, `${numberValue(report.monthlyComparison.delivery_valid_coupons.difference).toLocaleString("pt-BR")} (${percent(report.monthlyComparison.delivery_valid_coupons.percent)})`],
-        ["Taxa de cancelamento", percent(report.monthly.delivery_cancellation_rate), percent(report.previousMonthly.delivery_cancellation_rate), percent(report.monthlyComparison.delivery_cancellation_rate.percent)],
-        ["Outros checkouts sem cupons", currency(report.monthly.delivery_other_checkouts), currency(report.previousMonthly.delivery_other_checkouts), variationNote(report.monthlyComparison.delivery_other_checkouts)],
-        ["Total", currency(report.monthly.delivery_total), currency(report.previousMonthly.delivery_total), variationNote(report.monthlyComparison.delivery_total)],
-        ["Participacao na venda da loja", percent(report.monthly.delivery_participation), percent(report.previousMonthly.delivery_participation), percent(report.monthlyComparison.delivery_participation.percent)],
-        ["Resultado sobre meta normal", currency(report.monthly.delivery_result_normal), currency(report.previousMonthly.delivery_result_normal), variationNote(report.monthlyComparison.delivery_result_normal)],
-        ["Resultado sobre meta plus", currency(report.monthly.delivery_result_plus), currency(report.previousMonthly.delivery_result_plus), variationNote(report.monthlyComparison.delivery_result_plus)],
+        moneyRow("Venda liquida", report.monthly.delivery_net_sales, report.previousMonthly.delivery_net_sales, report.monthlyComparison.delivery_net_sales),
+        moneyRow("Venda cancelada", report.monthly.delivery_cancelled_sales, report.previousMonthly.delivery_cancelled_sales, report.monthlyComparison.delivery_cancelled_sales),
+        moneyRow("Ticket medio sobre cupons validos", report.monthly.delivery_average_ticket, report.previousMonthly.delivery_average_ticket, report.monthlyComparison.delivery_average_ticket),
+        moneyRow("Descontos", report.monthly.delivery_discounts, report.previousMonthly.delivery_discounts, report.monthlyComparison.delivery_discounts),
+        percentRow("Percentual de descontos", report.monthly.delivery_discount_rate, report.previousMonthly.delivery_discount_rate, report.monthlyComparison.delivery_discount_rate),
+        countRow("Quantidade de cupons", report.monthly.delivery_coupons, report.previousMonthly.delivery_coupons, report.monthlyComparison.delivery_coupons),
+        countRow("Cupons cancelados", report.monthly.delivery_cancelled_coupons, report.previousMonthly.delivery_cancelled_coupons, report.monthlyComparison.delivery_cancelled_coupons),
+        countRow("Cupons validos", report.monthly.delivery_valid_coupons, report.previousMonthly.delivery_valid_coupons, report.monthlyComparison.delivery_valid_coupons),
+        percentRow("Taxa de cancelamento", report.monthly.delivery_cancellation_rate, report.previousMonthly.delivery_cancellation_rate, report.monthlyComparison.delivery_cancellation_rate),
+        moneyRow("Outros checkouts sem cupons", report.monthly.delivery_other_checkouts, report.previousMonthly.delivery_other_checkouts, report.monthlyComparison.delivery_other_checkouts),
+        moneyRow("Total", report.monthly.delivery_total, report.previousMonthly.delivery_total, report.monthlyComparison.delivery_total),
+        percentRow("Participacao na venda da loja", report.monthly.delivery_participation, report.previousMonthly.delivery_participation, report.monthlyComparison.delivery_participation),
+        moneyRow("Resultado sobre meta normal", report.monthly.delivery_result_normal, report.previousMonthly.delivery_result_normal, report.monthlyComparison.delivery_result_normal),
+        moneyRow("Resultado sobre meta plus", report.monthly.delivery_result_plus, report.previousMonthly.delivery_result_plus, report.monthlyComparison.delivery_result_plus),
       ],
     },
   };
@@ -1505,15 +1518,15 @@ function managementPdf(report, reportType = "all", sectorFilter = "") {
       { label: "Margem custo", value: percent(report.monthly.quotation_margin_cost), note: "Lucro sobre custo" },
     ],
     table: {
-      headers: ["Indicador", "Atual", "Anterior", "Variacao"],
-      widths: [150, 120, 120, 133],
+      headers: comparisonHeaders,
+      widths: comparisonWidths,
       rows: [
-        ["Venda", currency(report.monthly.quotation_sales), currency(report.previousMonthly.quotation_sales), variationNote(report.monthlyComparison.quotation_sales)],
-        ["Custo", currency(report.monthly.quotation_cost), currency(report.previousMonthly.quotation_cost), variationNote(report.monthlyComparison.quotation_cost)],
-        ["Lucro", currency(report.monthly.quotation_profit), currency(report.previousMonthly.quotation_profit), variationNote(report.monthlyComparison.quotation_profit)],
-        ["Participacao", percent(report.monthly.quotation_participation), percent(report.previousMonthly.quotation_participation), percent(report.monthlyComparison.quotation_participation.percent)],
-        ["Margem sobre custo", percent(report.monthly.quotation_margin_cost), percent(report.previousMonthly.quotation_margin_cost), percent(report.monthlyComparison.quotation_margin_cost.percent)],
-        ["Margem sobre venda", percent(report.monthly.quotation_margin_sales), percent(report.previousMonthly.quotation_margin_sales), percent(report.monthlyComparison.quotation_margin_sales.percent)],
+        moneyRow("Venda", report.monthly.quotation_sales, report.previousMonthly.quotation_sales, report.monthlyComparison.quotation_sales),
+        moneyRow("Custo", report.monthly.quotation_cost, report.previousMonthly.quotation_cost, report.monthlyComparison.quotation_cost),
+        moneyRow("Lucro", report.monthly.quotation_profit, report.previousMonthly.quotation_profit, report.monthlyComparison.quotation_profit),
+        percentRow("Participacao", report.monthly.quotation_participation, report.previousMonthly.quotation_participation, report.monthlyComparison.quotation_participation),
+        percentRow("Margem sobre custo", report.monthly.quotation_margin_cost, report.previousMonthly.quotation_margin_cost, report.monthlyComparison.quotation_margin_cost),
+        percentRow("Margem sobre venda", report.monthly.quotation_margin_sales, report.previousMonthly.quotation_margin_sales, report.monthlyComparison.quotation_margin_sales),
       ],
     },
   };
@@ -1593,6 +1606,8 @@ function managementPdf(report, reportType = "all", sectorFilter = "") {
     subtitle: `Periodo ${report.period} comparado com ${report.comparePeriod}`,
     meta: [`Gerado em ${new Date().toLocaleString("pt-BR")}`, sectorFilter ? `Setor ${sectorFilter}` : "Todos os setores", `Relatorio ${reportType}`],
     sections: byType[reportType] || byType.all,
+    landscape: true,
+    compact: true,
   });
 }
 
