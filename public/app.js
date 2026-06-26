@@ -73,6 +73,7 @@ const app = document.getElementById("app");
 const PRICE_DIVERGENCE_ACTIVITY = "Confer\u00eancia de precifica\u00e7\u00e3o";
 const EXPIRED_PRODUCTS_ACTIVITY = "Verifica\u00e7\u00e3o de validades";
 const SECTOR_REQUIRED_ACTIVITY_TERMS = ["validade", "ruptura", "precificacao", "preco"];
+const PHOTO_REQUIRED_ACTIVITY_TERMS = ["cotacao", "precificacao", "preco"];
 const AUDIT_FOCUS_OPTIONS = [
   ["limpeza", "Limpeza"],
   ["organizacao", "Organização"],
@@ -1150,6 +1151,14 @@ function activityNeedsProductSector(activity) {
   return SECTOR_REQUIRED_ACTIVITY_TERMS.some((term) => normalized.includes(term));
 }
 
+function checklistNeedsPhoto(activity) {
+  const normalized = normalizeText(activity)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+  return PHOTO_REQUIRED_ACTIVITY_TERMS.some((term) => normalized.includes(term));
+}
+
 function renderChecklist() {
   const availableActivities = checklistActivitiesForUser();
   const linkedCollaborator = state.user?.collaborator_id
@@ -1191,6 +1200,10 @@ function renderChecklist() {
       <label data-product-sector-field>Setor do produto
         <select name="sector">${repoOptions(state.repo.sectors || [])}</select>
       </label>
+      <label data-checklist-photo-field>Foto da conferencia
+        <input name="photoFile" type="file" accept="image/*" capture="environment">
+        <span class="field-help">Use para acompanhamento de cotacoes e conferencia de precificacao.</span>
+      </label>
       <label>ObservaÃ§Ã£o
         <textarea name="observation"></textarea>
       </label>
@@ -1231,21 +1244,26 @@ function renderChecklist() {
   const priceField = checklistForm.querySelector("[data-price-divergence-field]");
   const expiredField = checklistForm.querySelector("[data-expired-products-field]");
   const sectorField = checklistForm.querySelector("[data-product-sector-field]");
+  const photoField = checklistForm.querySelector("[data-checklist-photo-field]");
   const syncChecklistSpecificFields = () => {
     const activity = activitySelect.value;
     const showPrice = activity === PRICE_DIVERGENCE_ACTIVITY;
     const showExpired = activity === EXPIRED_PRODUCTS_ACTIVITY;
     const showSector = activityNeedsProductSector(activity);
+    const showPhoto = checklistNeedsPhoto(activity);
     priceField.hidden = !showPrice;
     expiredField.hidden = !showExpired;
     sectorField.hidden = !showSector;
+    photoField.hidden = !showPhoto;
     priceField.classList.toggle("hidden", !showPrice);
     expiredField.classList.toggle("hidden", !showExpired);
     sectorField.classList.toggle("hidden", !showSector);
+    photoField.classList.toggle("hidden", !showPhoto);
     checklistForm.elements.sector.required = showSector;
     if (!showPrice) checklistForm.elements.priceDivergenceProducts.value = "";
     if (!showExpired) checklistForm.elements.expiredProducts.value = "";
     if (!showSector) checklistForm.elements.sector.value = "";
+    if (!showPhoto) checklistForm.elements.photoFile.value = "";
   };
   activitySelect.addEventListener("change", syncChecklistSpecificFields);
   syncChecklistSpecificFields();
@@ -1253,6 +1271,16 @@ function renderChecklist() {
     event.preventDefault();
     const form = event.currentTarget;
     const body = Object.fromEntries(new FormData(form).entries());
+    delete body.photoFile;
+    const photoFile = form.elements.photoFile?.files?.[0];
+    if (photoFile) {
+      if (photoFile.size > 8 * 1024 * 1024) {
+        toast("Foto muito grande. Envie uma imagem de ate 8 MB.");
+        return;
+      }
+      body.photoName = photoFile.name;
+      body.photoDataUrl = await fileToDataUrl(photoFile);
+    }
     await api("/api/checklists", { method: "POST", body: JSON.stringify(body) });
     form.reset();
     syncChecklistSpecificFields();
@@ -1461,7 +1489,7 @@ function checklistProductDetails(row) {
 function drawReportTable() {
   const showActions = state.checklists.some((row) => canEditChecklist(row) || canDeleteChecklist());
   document.getElementById("reportTable").innerHTML = `
-    <table><thead><tr><th>Data</th><th>Colaborador</th><th>Atividade</th><th>Setor</th><th>Produtos identificados</th><th>Resposta</th><th>ObservaÃ§Ã£o</th><th>Enviado em</th>${showActions ? "<th>AÃ§Ãµes</th>" : ""}</tr></thead><tbody>
+    <table><thead><tr><th>Data</th><th>Colaborador</th><th>Atividade</th><th>Setor</th><th>Produtos identificados</th><th>Foto</th><th>Resposta</th><th>ObservaÃ§Ã£o</th><th>Enviado em</th>${showActions ? "<th>AÃ§Ãµes</th>" : ""}</tr></thead><tbody>
       ${state.checklists.map((row) => `
         <tr>
           <td data-label="Data">${fmtDate(row.date)}</td>
@@ -1469,6 +1497,7 @@ function drawReportTable() {
           <td data-label="Atividade">${escapeHtml(row.activity)}</td>
           <td data-label="Setor">${escapeHtml(row.sector || "-")}</td>
           <td data-label="Produtos identificados">${escapeHtml(checklistProductDetails(row) || "-")}</td>
+          <td data-label="Foto">${row.photo_path ? `<a class="report-photo" href="${escapeHtml(row.photo_path)}" target="_blank" rel="noopener"><img src="${escapeHtml(row.photo_path)}" alt="Foto do checklist"></a>` : "-"}</td>
           <td data-label="Resposta"><span class="status ${row.answer === "Sim" ? "ok" : "danger"}">${row.answer}</span></td>
           <td data-label="ObservaÃ§Ã£o">${escapeHtml(row.observation || "")}</td>
           <td data-label="Enviado em">${new Date(row.sent_at).toLocaleString("pt-BR")}</td>
@@ -1481,7 +1510,7 @@ function drawReportTable() {
             </td>
           ` : ""}
         </tr>
-      `).join("") || `<tr><td colspan="${showActions ? 9 : 8}">Nenhum registro encontrado.</td></tr>`}
+      `).join("") || `<tr><td colspan="${showActions ? 10 : 9}">Nenhum registro encontrado.</td></tr>`}
     </tbody></table>
   `;
   document.querySelectorAll("[data-edit-checklist]").forEach((button) => {

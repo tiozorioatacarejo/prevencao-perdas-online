@@ -24,6 +24,7 @@ const PRICE_DIVERGENCE_ACTIVITY = "Confer\u00eancia de precifica\u00e7\u00e3o";
 const EXPIRED_PRODUCTS_ACTIVITY = "Verifica\u00e7\u00e3o de validades";
 const RECEIPTS_ACTIVITY = "Acompanhamento de recebimentos";
 const SECTOR_REQUIRED_ACTIVITY_TERMS = ["validade", "ruptura", "precificacao", "preco"];
+const PHOTO_REQUIRED_ACTIVITY_TERMS = ["cotacao", "precificacao", "preco"];
 const ENGAGEMENT_EXCLUDED_ACTIVITIES = [
   "Lan\u00e7amento de perdas no sistema",
   "Lan\u00e7amento de consumo interno",
@@ -361,6 +362,7 @@ async function initPostgres(pool) {
   `);
   await pool.query("ALTER TABLE collaborators ADD COLUMN IF NOT EXISTS sector TEXT");
   await pool.query("ALTER TABLE checklists ADD COLUMN IF NOT EXISTS sector TEXT");
+  await pool.query("ALTER TABLE checklists ADD COLUMN IF NOT EXISTS photo_path TEXT");
   await pool.query("ALTER TABLE repo_ruptures ADD COLUMN IF NOT EXISTS commercial_updated_by INTEGER REFERENCES users(id)");
   await pool.query("ALTER TABLE repo_expirations ADD COLUMN IF NOT EXISTS commercial_updated_by INTEGER REFERENCES users(id)");
   await pool.query("ALTER TABLE management_monthly ADD COLUMN IF NOT EXISTS sold_quantity REAL NOT NULL DEFAULT 0");
@@ -995,7 +997,7 @@ function checklistProductDetails(row) {
 }
 
 function makeExcel(rows) {
-  const header = ["Data", "Hora de envio", "Colaborador", "Atividade", "Setor", "Produtos identificados", "Sim/NÃ£o", "ObservaÃ§Ã£o", "Enviado por"];
+  const header = ["Data", "Hora de envio", "Colaborador", "Atividade", "Setor", "Produtos identificados", "Foto", "Sim/NÃ£o", "ObservaÃ§Ã£o", "Enviado por"];
   const xmlRows = [header, ...rows.map((row) => [
     row.date,
     row.sent_at,
@@ -1003,6 +1005,7 @@ function makeExcel(rows) {
     row.activity,
     row.sector || "",
     checklistProductDetails(row),
+    row.photo_path || "",
     row.answer,
     row.observation || "",
     row.sent_by,
@@ -1012,46 +1015,208 @@ function makeExcel(rows) {
   return `<!doctype html><html><head><meta charset="utf-8"></head><body><table>${xmlRows}</table></body></html>`;
 }
 
-function makePdf(rows) {
-  const lines = [
-    "RelatÃ³rio DiÃ¡rio de Atividades - PrevenÃ§Ã£o de Perdas",
-    "Atacarejo AntÃ´nio de OzÃ³rio",
-    `Gerado em: ${new Date().toLocaleString("pt-BR")}`,
-    "",
-    ...rows.flatMap((row) => [
-      `${row.date} | ${row.collaborator} | ${row.activity}`,
-      `Setor: ${row.sector || "-"}`,
-      `Produtos identificados: ${checklistProductDetails(row) || "-"}`,
-      `Resposta: ${row.answer}`,
-      `ObservaÃ§Ã£o: ${row.observation || "-"}`,
-      "",
-    ]),
-  ];
-  const text = lines
-    .slice(0, 120)
-    .map((line, index) => `BT /F1 10 Tf 40 ${780 - index * 14} Td (${pdfEscape(line.slice(0, 105))}) Tj ET`)
-    .join("\n");
-  const stream = Buffer.from(text, "latin1");
-  const objects = [
-    "1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj",
-    "2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj",
-    "3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >> endobj",
-    "4 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj",
-    `5 0 obj << /Length ${stream.length} >> stream\n${stream.toString("latin1")}\nendstream endobj`,
-  ];
+function pdfColor(hex) {
+  const value = String(hex).replace("#", "");
+  const parts = [0, 2, 4].map((index) => parseInt(value.slice(index, index + 2), 16) / 255);
+  return parts.map((part) => Number(part.toFixed(3))).join(" ");
+}
+
+function pdfText(value, limit = 220) {
+  return pdfEscape(String(value ?? "").slice(0, limit));
+}
+
+function wrapPdfText(value, maxChars, maxLines = 4) {
+  const words = pdfText(value, 800).split(/\s+/).filter(Boolean);
+  const lines = [];
+  let line = "";
+  words.forEach((word) => {
+    const candidate = line ? `${line} ${word}` : word;
+    if (candidate.length > maxChars && line) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = candidate;
+    }
+  });
+  if (line) lines.push(line);
+  if (lines.length > maxLines) {
+    const sliced = lines.slice(0, maxLines);
+    sliced[maxLines - 1] = `${sliced[maxLines - 1].slice(0, Math.max(0, maxChars - 3))}...`;
+    return sliced;
+  }
+  return lines.length ? lines : [""];
+}
+
+function structuredPdf({ title, subtitle, meta = [], sections = [] }) {
+  const width = 595;
+  const height = 842;
+  const margin = 36;
+  const inner = width - margin * 2;
+  const colors = {
+    dark: "#0f1512",
+    green: "#20804f",
+    pale: "#edf4ef",
+    line: "#d4ddd8",
+    muted: "#52625a",
+    text: "#101815",
+    white: "#ffffff",
+  };
+  const pages = [];
+  let ops = [];
+  let y = 0;
+  const cmd = (value) => ops.push(value);
+  const fill = (hex) => `${pdfColor(hex)} rg`;
+  const stroke = (hex) => `${pdfColor(hex)} RG`;
+  const rect = (x, rectY, w, h, color) => cmd(`${fill(color)} ${x} ${rectY} ${w} ${h} re f`);
+  const line = (x1, y1, x2, y2, color = colors.line, size = 0.6) => cmd(`${stroke(color)} ${size} w ${x1} ${y1} m ${x2} ${y2} l S`);
+  const text = (value, x, textY, size = 9, color = colors.text, font = "F1") => {
+    cmd(`BT /${font} ${size} Tf ${fill(color)} ${x} ${textY} Td (${pdfText(value)}) Tj ET`);
+  };
+  const addHeader = () => {
+    rect(0, height - 92, width, 92, colors.dark);
+    rect(margin, height - 62, 32, 32, colors.green);
+    text("CA", margin + 8, height - 51, 11, colors.white, "F2");
+    text(title, margin + 44, height - 43, 17, colors.white, "F2");
+    text(subtitle, margin + 44, height - 62, 9, "#b9c7c0", "F1");
+    meta.slice(0, 3).forEach((item, index) => text(item, width - margin - 190, height - 38 - index * 14, 8.5, "#d7e1dc"));
+    y = height - 116;
+  };
+  const newPage = () => {
+    if (ops.length) pages.push(ops);
+    ops = [];
+    addHeader();
+  };
+  const ensure = (space) => {
+    if (y - space < 58) newPage();
+  };
+  newPage();
+  const sectionTitle = (label) => {
+    ensure(34);
+    text(label, margin, y, 13, colors.text, "F2");
+    line(margin, y - 9, width - margin, y - 9, colors.line, 0.7);
+    y -= 28;
+  };
+  const cards = (items) => {
+    const columns = 3;
+    const gap = 10;
+    const cardW = (inner - gap * (columns - 1)) / columns;
+    const cardH = 72;
+    for (let index = 0; index < items.length; index += columns) {
+      ensure(cardH + 14);
+      items.slice(index, index + columns).forEach((item, col) => {
+        const x = margin + col * (cardW + gap);
+        rect(x, y - cardH + 8, cardW, cardH, "#f7faf8");
+        cmd(`${stroke(colors.line)} 0.7 w ${x} ${y - cardH + 8} ${cardW} ${cardH} re S`);
+        text(item.label, x + 12, y - 14, 8.5, colors.muted, "F2");
+        text(item.value, x + 12, y - 39, 15, colors.text, "F2");
+        if (item.note) text(item.note, x + 12, y - 58, 8, colors.muted);
+      });
+      y -= cardH + 12;
+    }
+  };
+  const table = (headers, rows, widths) => {
+    if (!rows.length) rows = [["Sem dados para o filtro selecionado."]];
+    const normalizedWidths = widths || headers.map(() => inner / headers.length);
+    ensure(36);
+    rect(margin, y - 24, inner, 24, colors.pale);
+    let x = margin;
+    headers.forEach((header, index) => {
+      text(header, x + 6, y - 16, 7.6, colors.muted, "F2");
+      x += normalizedWidths[index] || 80;
+    });
+    y -= 24;
+    rows.forEach((row, rowIndex) => {
+      const cells = headers.map((_, index) => row[index] ?? "");
+      const wrapped = cells.map((cell, index) => wrapPdfText(cell, Math.max(8, Math.floor((normalizedWidths[index] || 80) / 4.6)), 4));
+      const rowH = Math.max(28, Math.max(...wrapped.map((lines) => lines.length)) * 11 + 14);
+      ensure(rowH);
+      if (rowIndex % 2 === 1) rect(margin, y - rowH, inner, rowH, "#fbfcfb");
+      line(margin, y - rowH, width - margin, y - rowH, colors.line, 0.4);
+      x = margin;
+      wrapped.forEach((lines, cellIndex) => {
+        lines.forEach((cellLine, lineIndex) => text(cellLine, x + 6, y - 13 - lineIndex * 11, 7.6, colors.text));
+        x += normalizedWidths[cellIndex] || 80;
+      });
+      y -= rowH;
+    });
+    y -= 12;
+  };
+  sections.forEach((section) => {
+    sectionTitle(section.title);
+    if (section.cards) cards(section.cards);
+    if (section.table) table(section.table.headers, section.table.rows, section.table.widths);
+  });
+  if (ops.length) pages.push(ops);
+  const objects = [];
+  const pageIds = [];
+  const fontId = 3 + pages.length * 2;
+  const boldFontId = fontId + 1;
+  pages.forEach((pageOps, index) => {
+    const pageId = 3 + index * 2;
+    const contentId = pageId + 1;
+    pageIds.push(`${pageId} 0 R`);
+    const footer = [
+      `${stroke(colors.line)} 0.5 w ${margin} 36 m ${width - margin} 36 l S`,
+      `BT /F1 7.5 Tf ${fill(colors.muted)} ${margin} 24 Td (Controle Atacarejo) Tj ET`,
+      `BT /F1 7.5 Tf ${fill(colors.muted)} ${width - margin - 54} 24 Td (Pagina ${index + 1}/${pages.length}) Tj ET`,
+    ];
+    const stream = Buffer.from([...pageOps, ...footer].join("\n"), "latin1");
+    objects[pageId] = `${pageId} 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 ${width} ${height}] /Resources << /Font << /F1 ${fontId} 0 R /F2 ${boldFontId} 0 R >> >> /Contents ${contentId} 0 R >> endobj`;
+    objects[contentId] = `${contentId} 0 obj << /Length ${stream.length} >> stream\n${stream.toString("latin1")}\nendstream endobj`;
+  });
+  objects[1] = "1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj";
+  objects[2] = `2 0 obj << /Type /Pages /Kids [${pageIds.join(" ")}] /Count ${pages.length} >> endobj`;
+  objects[fontId] = `${fontId} 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj`;
+  objects[boldFontId] = `${boldFontId} 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >> endobj`;
   let pdf = "%PDF-1.4\n";
   const offsets = [0];
-  for (const obj of objects) {
-    offsets.push(Buffer.byteLength(pdf, "latin1"));
-    pdf += `${obj}\n`;
+  for (let id = 1; id <= boldFontId; id += 1) {
+    offsets[id] = Buffer.byteLength(pdf, "latin1");
+    pdf += `${objects[id]}\n`;
   }
   const xref = Buffer.byteLength(pdf, "latin1");
-  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
-  for (let i = 1; i < offsets.length; i += 1) {
-    pdf += `${String(offsets[i]).padStart(10, "0")} 00000 n \n`;
-  }
-  pdf += `trailer << /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
+  pdf += `xref\n0 ${boldFontId + 1}\n0000000000 65535 f \n`;
+  for (let id = 1; id <= boldFontId; id += 1) pdf += `${String(offsets[id]).padStart(10, "0")} 00000 n \n`;
+  pdf += `trailer << /Size ${boldFontId + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
   return Buffer.from(pdf, "latin1");
+}
+
+function makePdf(rows) {
+  const yes = rows.filter((row) => row.answer === "Sim").length;
+  return structuredPdf({
+    title: "Relatorio Prevencao",
+    subtitle: "Checklists e ocorrencias registradas",
+    meta: [`Gerado em ${new Date().toLocaleString("pt-BR")}`, `${rows.length} registro(s)`, `${yes} resposta(s) Sim`],
+    sections: [
+      {
+        title: "Resumo do relatorio",
+        cards: [
+          { label: "Registros", value: rows.length, note: "Itens encontrados no filtro" },
+          { label: "Realizados", value: yes, note: "Respostas Sim" },
+          { label: "Pendentes / Nao", value: rows.length - yes, note: "Respostas diferentes de Sim" },
+        ],
+      },
+      {
+        title: "Lancamentos",
+        table: {
+          headers: ["Data", "Colaborador", "Atividade", "Setor", "Resp.", "Detalhes"],
+          widths: [54, 86, 128, 70, 42, 143],
+          rows: rows.map((row) => [
+            row.date,
+            row.collaborator,
+            row.activity,
+            row.sector || "-",
+            row.answer,
+            [
+              checklistProductDetails(row),
+              row.observation,
+              row.photo_path ? `Foto: ${row.photo_path}` : "",
+            ].filter(Boolean).join(" | ") || "-",
+          ]),
+        },
+      },
+    ],
+  });
 }
 
 function checklistSpecificFields(activity, body) {
@@ -1060,6 +1225,17 @@ function checklistSpecificFields(activity, body) {
     expiredProducts: activity === EXPIRED_PRODUCTS_ACTIVITY ? body.expiredProducts || "" : "",
     sector: activityNeedsProductSector(activity) ? body.sector || "" : "",
   };
+}
+
+function checklistNeedsPhoto(activity) {
+  const normalized = normalizeText(activity);
+  return PHOTO_REQUIRED_ACTIVITY_TERMS.some((term) => normalized.includes(term));
+}
+
+function saveChecklistPhoto(activity, body) {
+  if (!checklistNeedsPhoto(activity) || !body.photoDataUrl) return null;
+  if (!/^data:image\/(png|jpeg|webp);base64,/.test(body.photoDataUrl)) return null;
+  return saveDataUrl(body.photoDataUrl, body.photoName || "checklist-foto");
 }
 
 function activityNeedsProductSector(activity) {
@@ -1245,6 +1421,155 @@ async function managementReportData(period, comparePeriod = previousPeriod(perio
     sectors,
     operators,
   };
+}
+
+function managementPdf(report, reportType = "all", sectorFilter = "") {
+  const currency = (value) => `R$ ${numberValue(value).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const percent = (value) => `${(numberValue(value) * 100).toFixed(2)}%`;
+  const variationNote = (comparison) => `Variacao ${currency(comparison?.difference)} (${percent(comparison?.percent)})`;
+  const sectors = sectorFilter ? report.sectors.filter((row) => row.sector === sectorFilter) : report.sectors;
+  const store = {
+    title: "Venda da loja",
+    cards: [
+      { label: "Venda liquida", value: currency(report.monthly.net_sales), note: variationNote(report.monthlyComparison.net_sales) },
+      { label: "Cupons", value: report.monthly.coupons || 0, note: `Anterior ${report.previousMonthly.coupons || 0}` },
+      { label: "Ticket medio", value: currency(report.monthly.average_ticket), note: `Anterior ${currency(report.previousMonthly.average_ticket)}` },
+      { label: "Cancelada", value: currency(report.monthly.cancelled_sales), note: `${report.monthly.cancelled_coupons || 0} cupom(ns)` },
+      { label: "Taxa cancelamento", value: percent(report.monthly.cancellation_rate), note: `Anterior ${percent(report.previousMonthly.cancellation_rate)}` },
+      { label: "Cupons verdes", value: report.monthly.green_coupons || 0, note: `${percent(report.monthly.green_identification_rate)} identificados` },
+    ],
+    table: {
+      headers: ["Indicador", "Atual", "Anterior", "Variacao"],
+      widths: [150, 120, 120, 133],
+      rows: [
+        ["Venda liquida", currency(report.monthly.net_sales), currency(report.previousMonthly.net_sales), variationNote(report.monthlyComparison.net_sales)],
+        ["Cancelamentos", currency(report.monthly.cancelled_sales), currency(report.previousMonthly.cancelled_sales), variationNote(report.monthlyComparison.cancelled_sales)],
+        ["Descontos", currency(report.monthly.discounts), currency(report.previousMonthly.discounts), variationNote(report.monthlyComparison.discounts)],
+        ["Ticket medio", currency(report.monthly.average_ticket), currency(report.previousMonthly.average_ticket), variationNote(report.monthlyComparison.average_ticket)],
+        ["Identificacao verde", percent(report.monthly.green_identification_rate), percent(report.previousMonthly.green_identification_rate), percent(report.monthlyComparison.green_identification_rate.percent)],
+      ],
+    },
+  };
+  const delivery = {
+    title: "Delivery",
+    cards: [
+      { label: "Total delivery", value: currency(report.monthly.delivery_total), note: variationNote(report.monthlyComparison.delivery_total) },
+      { label: "Participacao", value: percent(report.monthly.delivery_participation), note: `Anterior ${percent(report.previousMonthly.delivery_participation)}` },
+      { label: "Ticket medio", value: currency(report.monthly.delivery_average_ticket), note: `${report.monthly.delivery_coupons || 0} cupons` },
+      { label: "Cancelada", value: currency(report.monthly.delivery_cancelled_sales), note: `${percent(report.monthly.delivery_cancellation_rate)} taxa` },
+      { label: "Meta normal", value: currency(report.monthly.delivery_goal_normal), note: `Resultado ${currency(report.monthly.delivery_result_normal)}` },
+      { label: "Meta plus", value: currency(report.monthly.delivery_goal_plus), note: `Resultado ${currency(report.monthly.delivery_result_plus)}` },
+    ],
+    table: {
+      headers: ["Indicador", "Atual", "Anterior", "Variacao"],
+      widths: [150, 120, 120, 133],
+      rows: [
+        ["Venda liquida", currency(report.monthly.delivery_net_sales), currency(report.previousMonthly.delivery_net_sales), variationNote(report.monthlyComparison.delivery_net_sales)],
+        ["Outros caixas", currency(report.monthly.delivery_other_checkouts), currency(report.previousMonthly.delivery_other_checkouts), variationNote(report.monthlyComparison.delivery_other_checkouts)],
+        ["Total", currency(report.monthly.delivery_total), currency(report.previousMonthly.delivery_total), variationNote(report.monthlyComparison.delivery_total)],
+        ["Descontos", currency(report.monthly.delivery_discounts), currency(report.previousMonthly.delivery_discounts), variationNote(report.monthlyComparison.delivery_discounts)],
+        ["Cupons", report.monthly.delivery_coupons || 0, report.previousMonthly.delivery_coupons || 0, `${numberValue(report.monthlyComparison.delivery_coupons.difference).toLocaleString("pt-BR")}`],
+      ],
+    },
+  };
+  const quotations = {
+    title: "Cotacoes",
+    cards: [
+      { label: "Venda", value: currency(report.monthly.quotation_sales), note: variationNote(report.monthlyComparison.quotation_sales) },
+      { label: "Custo", value: currency(report.monthly.quotation_cost), note: `Anterior ${currency(report.previousMonthly.quotation_cost)}` },
+      { label: "Lucro", value: currency(report.monthly.quotation_profit), note: `Anterior ${currency(report.previousMonthly.quotation_profit)}` },
+      { label: "Participacao", value: percent(report.monthly.quotation_participation), note: `Anterior ${percent(report.previousMonthly.quotation_participation)}` },
+      { label: "Margem venda", value: percent(report.monthly.quotation_margin_sales), note: "Lucro sobre venda" },
+      { label: "Margem custo", value: percent(report.monthly.quotation_margin_cost), note: "Lucro sobre custo" },
+    ],
+    table: {
+      headers: ["Indicador", "Atual", "Anterior", "Variacao"],
+      widths: [150, 120, 120, 133],
+      rows: [
+        ["Venda", currency(report.monthly.quotation_sales), currency(report.previousMonthly.quotation_sales), variationNote(report.monthlyComparison.quotation_sales)],
+        ["Custo", currency(report.monthly.quotation_cost), currency(report.previousMonthly.quotation_cost), variationNote(report.monthlyComparison.quotation_cost)],
+        ["Lucro", currency(report.monthly.quotation_profit), currency(report.previousMonthly.quotation_profit), variationNote(report.monthlyComparison.quotation_profit)],
+        ["Participacao", percent(report.monthly.quotation_participation), percent(report.previousMonthly.quotation_participation), percent(report.monthlyComparison.quotation_participation.percent)],
+      ],
+    },
+  };
+  const sectorTable = {
+    title: "Comparativo por setor",
+    table: {
+      headers: ["Setor", "Venda", "Perdas", "Consumo", "Venda/func.", "Equipe"],
+      widths: [105, 92, 82, 82, 90, 72],
+      rows: sectors.map((row) => [
+        row.sector,
+        `${currency(row.sales)} | ${percent(row.comparison.sales.percent)}`,
+        `${currency(row.losses)} | ${percent(row.loss_rate)}`,
+        `${currency(row.consumption)} | ${percent(row.consumption_rate)}`,
+        currency(row.sales_per_employee),
+        `${row.employee_count || 0} atual | ${numberValue(row.suggested_employees).toFixed(1)} sug.`,
+      ]),
+    },
+  };
+  const losses = {
+    title: "Perdas e consumo por setor",
+    table: {
+      headers: ["Setor", "Perdas", "% perda", "Consumo", "% consumo", "Invent."],
+      widths: [110, 90, 80, 90, 80, 73],
+      rows: sectors.map((row) => [
+        row.sector,
+        `${currency(row.losses)} | ant. ${currency(row.previous.losses)}`,
+        `${percent(row.loss_rate)} | ant. ${percent(row.previous.loss_rate)}`,
+        `${currency(row.consumption)} | ant. ${currency(row.previous.consumption)}`,
+        `${percent(row.consumption_rate)} | ant. ${percent(row.previous.consumption_rate)}`,
+        `${row.inventories || 0}`,
+      ]),
+    },
+  };
+  const productivity = {
+    title: "Produtividade por setor",
+    table: {
+      headers: ["Setor", "Venda", "Equipe", "Meta/func.", "Venda/func.", "Diferenca"],
+      widths: [105, 92, 70, 90, 92, 74],
+      rows: sectors.map((row) => [
+        row.sector,
+        currency(row.sales),
+        row.employee_count || 0,
+        currency(row.productivity_target),
+        currency(row.sales_per_employee),
+        numberValue(row.staffing_difference).toFixed(1),
+      ]),
+    },
+  };
+  const operators = {
+    title: "Operadores",
+    table: {
+      headers: ["Operador", "Venda", "Particip.", "Cupons", "Cancel.", "VIP"],
+      widths: [135, 95, 78, 70, 70, 75],
+      rows: report.operators.map((row) => [
+        row.operator_name,
+        `${currency(row.net_sales)} | ant. ${currency(row.previous.net_sales)}`,
+        percent(row.participation),
+        `${row.coupons || 0} | ant. ${row.previous.coupons || 0}`,
+        `${row.cancelled_coupons || 0} | ${percent(row.cancellation_rate)}`,
+        row.vip || 0,
+      ]),
+    },
+  };
+  const byType = {
+    store: [store],
+    delivery: [delivery],
+    quotations: [quotations],
+    sectors: [sectorTable],
+    losses: [losses],
+    consumption: [losses],
+    productivity: [productivity],
+    operators: [operators],
+    all: [store, delivery, quotations, sectorTable, operators],
+  };
+  return structuredPdf({
+    title: "Indicadores Gerenciais",
+    subtitle: `Periodo ${report.period} comparado com ${report.comparePeriod}`,
+    meta: [`Gerado em ${new Date().toLocaleString("pt-BR")}`, sectorFilter ? `Setor ${sectorFilter}` : "Todos os setores", `Relatorio ${reportType}`],
+    sections: byType[reportType] || byType.all,
+  });
 }
 
 async function api(req, res, url) {
@@ -1504,88 +1829,7 @@ async function api(req, res, url) {
     const sectorFilter = url.searchParams.get("sector") || "";
     const reportType = url.searchParams.get("type") || "all";
     const report = await managementReportData(period, comparePeriod);
-    const currency = (value) => `R$ ${numberValue(value).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-    const percent = (value) => `${(numberValue(value) * 100).toFixed(2)}%`;
-    const sectors = sectorFilter ? report.sectors.filter((row) => row.sector === sectorFilter) : report.sectors;
-    const header = [
-      "CONTROLE ATACAREJO - INDICADORES GERENCIAIS",
-      `Periodo: ${period} | Comparativo: ${comparePeriod}`,
-      `Gerado em: ${new Date().toLocaleString("pt-BR")}`,
-      "",
-    ];
-    const storeLines = [
-      "VENDA DA LOJA",
-      `Quantidade vendida: ${numberValue(report.monthly.sold_quantity).toLocaleString("pt-BR")} | Anterior: ${numberValue(report.previousMonthly.sold_quantity).toLocaleString("pt-BR")}`,
-      `Venda bruta: ${currency(report.monthly.gross_sales)} | Anterior: ${currency(report.previousMonthly.gross_sales)}`,
-      `Venda liquida: ${currency(report.monthly.net_sales)} | Variacao: ${currency(report.monthlyComparison.net_sales.difference)} (${percent(report.monthlyComparison.net_sales.percent)})`,
-      `Cancelada: ${currency(report.monthly.cancelled_sales)} | Descontos: ${currency(report.monthly.discounts)} (${percent(report.monthly.discount_rate)})`,
-      `Cupons: ${report.monthly.coupons || 0} | Ticket medio: ${currency(report.monthly.average_ticket)} | Cancelados: ${report.monthly.cancelled_coupons || 0}`,
-      `Taxa cancelamento: ${percent(report.monthly.cancellation_rate)} | Anterior: ${percent(report.previousMonthly.cancellation_rate)}`,
-      `Cupons verdes: ${report.monthly.green_coupons || 0} | Identificados: ${report.monthly.identified_green_coupons || 0} | Nao identificados: ${report.monthly.green_unidentified_coupons || 0}`,
-      `Identificacao: ${percent(report.monthly.green_identification_rate)} | Anterior: ${percent(report.previousMonthly.green_identification_rate)}`,
-    ];
-    const deliveryLines = [
-      "DELIVERY",
-      `Total atual: ${currency(report.monthly.delivery_total)} | Anterior: ${currency(report.previousMonthly.delivery_total)}`,
-      `Variacao: ${currency(report.monthlyComparison.delivery_total.difference)} (${percent(report.monthlyComparison.delivery_total.percent)})`,
-      `Participacao atual: ${percent(report.monthly.delivery_participation)} | Anterior: ${percent(report.previousMonthly.delivery_participation)}`,
-      `Venda liquida: ${currency(report.monthly.delivery_net_sales)} | Cancelada: ${currency(report.monthly.delivery_cancelled_sales)}`,
-      `Ticket medio: ${currency(report.monthly.delivery_average_ticket)} | Descontos: ${currency(report.monthly.delivery_discounts)} (${percent(report.monthly.delivery_discount_rate)})`,
-      `Cupons: ${report.monthly.delivery_coupons || 0} | Cancelados: ${report.monthly.delivery_cancelled_coupons || 0} | Taxa: ${percent(report.monthly.delivery_cancellation_rate)}`,
-      `Outros caixas: ${currency(report.monthly.delivery_other_checkouts)}`,
-      `Resultado meta normal: ${currency(report.monthly.delivery_result_normal)} | Meta plus: ${currency(report.monthly.delivery_result_plus)}`,
-    ];
-    const quotationLines = [
-      "COTACOES",
-      `Venda atual: ${currency(report.monthly.quotation_sales)} | Anterior: ${currency(report.previousMonthly.quotation_sales)}`,
-      `Variacao: ${currency(report.monthlyComparison.quotation_sales.difference)} (${percent(report.monthlyComparison.quotation_sales.percent)})`,
-      `Custo: ${currency(report.monthly.quotation_cost)} | Custo anterior: ${currency(report.previousMonthly.quotation_cost)}`,
-      `Lucro: ${currency(report.monthly.quotation_profit)} | Anterior: ${currency(report.previousMonthly.quotation_profit)}`,
-      `Participacao: ${percent(report.monthly.quotation_participation)} | Anterior: ${percent(report.previousMonthly.quotation_participation)}`,
-      `Margem custo: ${percent(report.monthly.quotation_margin_cost)} | Margem venda: ${percent(report.monthly.quotation_margin_sales)}`,
-    ];
-    const lossLines = [
-      "PERDAS E CONSUMO POR SETOR",
-      ...sectors.flatMap((row) => [
-        `${row.sector}: perdas atual ${currency(row.losses)} | anterior ${currency(row.previous.losses)} | variacao ${percent(row.comparison.losses.percent)}`,
-        `  Percentual perda ${percent(row.loss_rate)} | anterior ${percent(row.previous.loss_rate)} | Inventarios ${row.inventories || 0}/${row.previous.inventories || 0}`,
-        `  Consumo atual ${currency(row.consumption)} | anterior ${currency(row.previous.consumption)} | percentual ${percent(row.consumption_rate)}`,
-      ]),
-    ];
-    const productivityLines = [
-      "PRODUTIVIDADE POR SETOR",
-      ...sectors.flatMap((row) => [
-        `${row.sector}: venda atual ${currency(row.sales)} | anterior ${currency(row.previous.sales)} | variacao ${percent(row.comparison.sales.percent)}`,
-        `  Meta/funcionario ${currency(row.productivity_target)} | Equipe ${row.employee_count || 0}/${row.previous.employee_count || 0}`,
-        `  Venda/funcionario ${currency(row.sales_per_employee)} | Equipe sugerida ${numberValue(row.suggested_employees).toFixed(1)} | Diferenca ${numberValue(row.staffing_difference).toFixed(1)}`,
-      ]),
-    ];
-    const sectorLines = [
-      "COMPARATIVO POR SETOR",
-      ...sectors.flatMap((row) => [
-        `${row.sector}: venda ${currency(row.sales)} | anterior ${currency(row.previous.sales)} | variacao ${currency(row.comparison.sales.difference)}`,
-        `  Perdas ${currency(row.losses)} (${percent(row.loss_rate)}) | Consumo ${currency(row.consumption)} | Funcionarios ${row.employee_count || 0} | Sugerido ${numberValue(row.suggested_employees).toFixed(1)}`,
-      ]),
-    ];
-    const operatorLines = [
-      "DESEMPENHO DOS OPERADORES",
-      ...report.operators.map((row) =>
-        `${row.operator_name}: venda ${currency(row.net_sales)}/${currency(row.previous.net_sales)} | participacao ${percent(row.participation)}/${percent(row.previous.participation)} | cupons ${row.coupons || 0}/${row.previous.coupons || 0} | cancelados ${row.cancelled_coupons || 0}/${row.previous.cancelled_coupons || 0} | VIP ${row.vip || 0}/${row.previous.vip || 0}`
-      ),
-    ];
-    const typeLines = {
-      store: storeLines,
-      delivery: deliveryLines,
-      quotations: quotationLines,
-      sectors: sectorLines,
-      losses: lossLines,
-      productivity: productivityLines,
-      operators: operatorLines,
-    };
-    const lines = reportType === "all"
-      ? [...header, ...storeLines, "", ...deliveryLines, "", ...quotationLines, "", ...sectorLines, "", ...operatorLines]
-      : [...header, ...(typeLines[reportType] || storeLines)];
-    return send(res, 200, simplePdf(lines), {
+    return send(res, 200, managementPdf(report, reportType, sectorFilter), {
       "Content-Type": "application/pdf",
       "Content-Disposition": `attachment; filename=indicadores-${reportType}-${period}.pdf`,
     });
@@ -2194,8 +2438,9 @@ async function api(req, res, url) {
     if (activityNeedsProductSector(body.activity) && !specificFields.sector) {
       return send(res, 400, { error: "Selecione o setor do produto." });
     }
+    const photoPath = saveChecklistPhoto(body.activity, body);
     await execute(
-      "INSERT INTO checklists (date, collaborator_id, activity, answer, observation, sector, price_divergence_products, expired_products, sent_at, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      "INSERT INTO checklists (date, collaborator_id, activity, answer, observation, sector, price_divergence_products, expired_products, photo_path, sent_at, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       [
         date,
         collaboratorId,
@@ -2205,6 +2450,7 @@ async function api(req, res, url) {
         specificFields.sector,
         specificFields.priceDivergenceProducts,
         specificFields.expiredProducts,
+        photoPath,
         nowIso(),
         user.id,
       ]
@@ -2226,8 +2472,9 @@ async function api(req, res, url) {
     if (activityNeedsProductSector(body.activity) && !specificFields.sector) {
       return send(res, 400, { error: "Selecione o setor do produto." });
     }
+    const photoPath = saveChecklistPhoto(body.activity, body);
     await execute(
-      "UPDATE checklists SET collaborator_id = ?, activity = ?, answer = ?, observation = ?, sector = ?, price_divergence_products = ?, expired_products = ?, corrected_by = ?, corrected_at = ? WHERE id = ?",
+      "UPDATE checklists SET collaborator_id = ?, activity = ?, answer = ?, observation = ?, sector = ?, price_divergence_products = ?, expired_products = ?, photo_path = COALESCE(?, photo_path), corrected_by = ?, corrected_at = ? WHERE id = ?",
       [
         collaboratorId,
         body.activity,
@@ -2236,6 +2483,7 @@ async function api(req, res, url) {
         specificFields.sector,
         specificFields.priceDivergenceProducts,
         specificFields.expiredProducts,
+        photoPath,
         user.id,
         nowIso(),
         id,
