@@ -1054,7 +1054,10 @@ function structuredPdf({ title, subtitle, meta = [], sections = [], landscape = 
   const inner = width - margin * 2;
   const colors = {
     dark: "#0f1512",
+    header: "#eef3f0",
     green: "#20804f",
+    greenSoft: "#dff4e8",
+    redSoft: "#f8dddd",
     pale: "#edf4ef",
     line: "#d4ddd8",
     muted: "#52625a",
@@ -1074,12 +1077,12 @@ function structuredPdf({ title, subtitle, meta = [], sections = [], landscape = 
   };
   const addHeader = () => {
     const headerH = compact ? 58 : 92;
-    rect(0, height - headerH, width, headerH, colors.dark);
+    rect(0, height - headerH, width, headerH, colors.header);
     rect(margin, height - (compact ? 40 : 48), compact ? 22 : 26, compact ? 22 : 26, colors.green);
     text("CA", margin + (compact ? 6 : 7), height - (compact ? 32 : 39), compact ? 8 : 9.5, colors.white, "F2");
-    text(title, margin + (compact ? 32 : 38), height - (compact ? 27 : 33), compact ? 13 : 17, colors.white, "F2");
-    text(subtitle, margin + (compact ? 32 : 38), height - (compact ? 43 : 50), compact ? 7.3 : 8.2, "#b9c7c0", "F1");
-    meta.slice(0, 3).forEach((item, index) => text(item, width - margin - 205, height - (compact ? 24 : 30) - index * (compact ? 10 : 12), compact ? 6.6 : 7.5, "#d7e1dc"));
+    text(title, margin + (compact ? 32 : 38), height - (compact ? 27 : 33), compact ? 13 : 17, colors.text, "F2");
+    text(subtitle, margin + (compact ? 32 : 38), height - (compact ? 43 : 50), compact ? 7.3 : 8.2, colors.muted, "F1");
+    meta.slice(0, 3).forEach((item, index) => text(item, width - margin - 205, height - (compact ? 24 : 30) - index * (compact ? 10 : 12), compact ? 6.6 : 7.5, colors.muted));
     y = height - headerH - (compact ? 12 : 24);
   };
   const newPage = () => {
@@ -1098,10 +1101,10 @@ function structuredPdf({ title, subtitle, meta = [], sections = [], landscape = 
     y -= compact ? 19 : 28;
   };
   const cards = (items) => {
-    const columns = compact && items.length <= 6 ? 6 : 3;
+    const columns = compact && items.length <= 6 ? items.length : 3;
     const gap = compact ? 6 : 10;
     const cardW = (inner - gap * (columns - 1)) / columns;
-    const cardH = compact ? 42 : 72;
+    const cardH = compact ? 62 : 72;
     for (let index = 0; index < items.length; index += columns) {
       ensure(cardH + (compact ? 8 : 14));
       items.slice(index, index + columns).forEach((item, col) => {
@@ -1109,8 +1112,14 @@ function structuredPdf({ title, subtitle, meta = [], sections = [], landscape = 
         rect(x, y - cardH + 8, cardW, cardH, "#f7faf8");
         cmd(`${stroke(colors.line)} 0.7 w ${x} ${y - cardH + 8} ${cardW} ${cardH} re S`);
         text(item.label, x + 8, y - 10, compact ? 6.5 : 8.5, colors.muted, "F2");
-        text(item.value, x + 8, y - (compact ? 25 : 39), compact ? 8.5 : 15, colors.text, "F2");
-        if (item.note) text(item.note, x + 8, y - (compact ? 36 : 58), compact ? 5.8 : 8, colors.muted);
+        text(item.value, x + 8, y - (compact ? 27 : 39), compact ? 8.5 : 15, colors.text, "F2");
+        if (item.note) text(item.note, x + 8, y - (compact ? 40 : 58), compact ? 5.6 : 8, colors.muted);
+        if (item.badge) {
+          const badgeW = Math.min(cardW - 16, Math.max(38, String(item.badge).length * (compact ? 3.3 : 4.6)));
+          const badgeY = y - cardH + 12;
+          rect(x + 8, badgeY, badgeW, compact ? 10 : 14, item.badgeColor || colors.pale);
+          text(item.badge, x + 11, badgeY + (compact ? 3 : 4), compact ? 5.4 : 7, item.badgeTextColor || colors.text, "F2");
+        }
       });
       y -= cardH + (compact ? 6 : 12);
     }
@@ -1432,7 +1441,43 @@ async function managementReportData(period, comparePeriod = previousPeriod(perio
 function managementPdf(report, reportType = "all", sectorFilter = "") {
   const currency = (value) => `R$ ${numberValue(value).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const percent = (value) => `${(numberValue(value) * 100).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`;
+  const periodName = (period, upper = false) => {
+    const [year, month] = String(period || "").split("-").map(Number);
+    const names = ["janeiro", "fevereiro", "marco", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
+    const label = names[month - 1] && year ? `${names[month - 1]} de ${year}` : String(period || "");
+    return upper ? label.toUpperCase() : label;
+  };
+  const currentPeriodLabel = periodName(report.period);
+  const comparePeriodLabel = periodName(report.comparePeriod);
   const variationNote = (comparison) => `Variacao ${currency(comparison?.difference)} (${percent(comparison?.percent)})`;
+  const signedNumber = (value, digits = 0) => {
+    const numeric = numberValue(value);
+    const formatted = Math.abs(numeric).toLocaleString("pt-BR", { minimumFractionDigits: digits, maximumFractionDigits: digits });
+    return `${numeric > 0 ? "+" : numeric < 0 ? "-" : ""}${formatted}`;
+  };
+  const signedCurrency = (value) => {
+    const numeric = numberValue(value);
+    return `${numeric > 0 ? "+" : numeric < 0 ? "-" : ""}R$ ${Math.abs(numeric).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  };
+  const signedPercentPoint = (value) => `${signedNumber(numberValue(value) * 100, 2)} p.p.`;
+  const badgeColor = (value, inverted = false) => {
+    const numeric = numberValue(value);
+    const good = inverted ? numeric <= 0 : numeric >= 0;
+    return good ? "#dff4e8" : "#f8dddd";
+  };
+  const badgeTextColor = (value, inverted = false) => {
+    const numeric = numberValue(value);
+    const good = inverted ? numeric <= 0 : numeric >= 0;
+    return good ? "#08743f" : "#b42323";
+  };
+  const moneyBadge = (comparison, inverted = false) => `${signedCurrency(comparison?.difference)} | ${percent(comparison?.percent)}`;
+  const countBadge = (comparison, inverted = false) => `${signedNumber(comparison?.difference)} | ${percent(comparison?.percent)}`;
+  const rateBadge = (comparison, inverted = false) => `${signedPercentPoint(comparison?.difference)} | ${percent(comparison?.percent)}`;
+  const cardBadge = (comparison, formatter, inverted = false) => ({
+    badge: formatter(comparison, inverted),
+    badgeColor: badgeColor(comparison?.difference, inverted),
+    badgeTextColor: badgeTextColor(comparison?.difference, inverted),
+  });
   const moneyRow = (label, current, previous, comparison) => [label, currency(current), currency(previous), currency(comparison?.difference), percent(comparison?.percent)];
   const percentRow = (label, current, previous, comparison) => [label, percent(current), percent(previous), percent(comparison?.difference), percent(comparison?.percent)];
   const countRow = (label, current, previous, comparison, digits = 0) => [
@@ -1442,18 +1487,17 @@ function managementPdf(report, reportType = "all", sectorFilter = "") {
     numberValue(comparison?.difference).toLocaleString("pt-BR", { maximumFractionDigits: digits }),
     percent(comparison?.percent),
   ];
-  const comparisonHeaders = ["Indicador", "Atual", "Anterior", "Diferenca", "Variacao"];
+  const comparisonHeaders = ["Indicador", periodName(report.period, true), periodName(report.comparePeriod, true), "Diferenca", "Variacao"];
   const comparisonWidths = [210, 140, 140, 140, 90];
   const sectors = sectorFilter ? report.sectors.filter((row) => row.sector === sectorFilter) : report.sectors;
   const store = {
-    title: "Venda da loja",
+    title: "Venda Loja",
     cards: [
-      { label: "Venda liquida", value: currency(report.monthly.net_sales), note: variationNote(report.monthlyComparison.net_sales) },
-      { label: "Cupons", value: report.monthly.coupons || 0, note: `Anterior ${report.previousMonthly.coupons || 0}` },
-      { label: "Ticket medio", value: currency(report.monthly.average_ticket), note: `Anterior ${currency(report.previousMonthly.average_ticket)}` },
-      { label: "Cancelada", value: currency(report.monthly.cancelled_sales), note: `${report.monthly.cancelled_coupons || 0} cupom(ns)` },
-      { label: "Taxa cancelamento", value: percent(report.monthly.cancellation_rate), note: `Anterior ${percent(report.previousMonthly.cancellation_rate)}` },
-      { label: "Cupons verdes", value: report.monthly.green_coupons || 0, note: `${percent(report.monthly.green_identification_rate)} identificados` },
+      { label: "Venda liquida", value: currency(report.monthly.net_sales), note: `${comparePeriodLabel}: ${currency(report.previousMonthly.net_sales)}`, ...cardBadge(report.monthlyComparison.net_sales, moneyBadge) },
+      { label: "Cupons", value: report.monthly.coupons || 0, note: `${comparePeriodLabel}: ${report.previousMonthly.coupons || 0}`, ...cardBadge(report.monthlyComparison.coupons, countBadge) },
+      { label: "Ticket medio", value: currency(report.monthly.average_ticket), note: `${comparePeriodLabel}: ${currency(report.previousMonthly.average_ticket)}`, ...cardBadge(report.monthlyComparison.average_ticket, moneyBadge) },
+      { label: "Vendas canceladas", value: currency(report.monthly.cancelled_sales), note: `${comparePeriodLabel}: ${currency(report.previousMonthly.cancelled_sales)}`, ...cardBadge(report.monthlyComparison.cancelled_sales, moneyBadge, true) },
+      { label: "Taxa de cancelamento", value: percent(report.monthly.cancellation_rate), note: `${comparePeriodLabel}: ${percent(report.previousMonthly.cancellation_rate)}`, ...cardBadge(report.monthlyComparison.cancellation_rate, rateBadge, true) },
     ],
     table: {
       headers: comparisonHeaders,
@@ -1461,7 +1505,7 @@ function managementPdf(report, reportType = "all", sectorFilter = "") {
       rows: [
         countRow("Quantidade vendida", report.monthly.sold_quantity, report.previousMonthly.sold_quantity, report.monthlyComparison.sold_quantity, 3),
         moneyRow("Venda bruta", report.monthly.gross_sales, report.previousMonthly.gross_sales, report.monthlyComparison.gross_sales),
-        moneyRow("Venda cancelada", report.monthly.cancelled_sales, report.previousMonthly.cancelled_sales, report.monthlyComparison.cancelled_sales),
+        moneyRow("Vendas canceladas", report.monthly.cancelled_sales, report.previousMonthly.cancelled_sales, report.monthlyComparison.cancelled_sales),
         moneyRow("Descontos", report.monthly.discounts, report.previousMonthly.discounts, report.monthlyComparison.discounts),
         percentRow("Percentual de descontos", report.monthly.discount_rate, report.previousMonthly.discount_rate, report.monthlyComparison.discount_rate),
         moneyRow("Venda liquida", report.monthly.net_sales, report.previousMonthly.net_sales, report.monthlyComparison.net_sales),
@@ -1472,7 +1516,7 @@ function managementPdf(report, reportType = "all", sectorFilter = "") {
         countRow("Cupons verdes", report.monthly.green_coupons, report.previousMonthly.green_coupons, report.monthlyComparison.green_coupons),
         countRow("Cupons verdes identificados", report.monthly.identified_green_coupons, report.previousMonthly.identified_green_coupons, report.monthlyComparison.identified_green_coupons),
         countRow("Cupons verdes nao identificados", report.monthly.green_unidentified_coupons, report.previousMonthly.green_unidentified_coupons, report.monthlyComparison.green_unidentified_coupons),
-        percentRow("Identificacao verde", report.monthly.green_identification_rate, report.previousMonthly.green_identification_rate, report.monthlyComparison.green_identification_rate),
+        percentRow("Cupons verdes identificados", report.monthly.green_identification_rate, report.previousMonthly.green_identification_rate, report.monthlyComparison.green_identification_rate),
       ],
     },
   };
@@ -1601,10 +1645,21 @@ function managementPdf(report, reportType = "all", sectorFilter = "") {
     operators: [operators],
     all: [store, delivery, quotations, sectorTable, operators],
   };
+  const reportTitles = {
+    store: "Venda Loja",
+    delivery: "Delivery",
+    quotations: "Cotacoes",
+    sectors: "Perdas e Consumo",
+    losses: "Perdas e Consumo",
+    consumption: "Perdas e Consumo",
+    productivity: "Produtividade Setor",
+    operators: "Operadores",
+    all: "Indicadores Gerenciais",
+  };
   return structuredPdf({
-    title: "Indicadores Gerenciais",
-    subtitle: `Periodo ${report.period} comparado com ${report.comparePeriod}`,
-    meta: [`Gerado em ${new Date().toLocaleString("pt-BR")}`, sectorFilter ? `Setor ${sectorFilter}` : "Todos os setores", `Relatorio ${reportType}`],
+    title: reportTitles[reportType] || "Indicadores Gerenciais",
+    subtitle: `${currentPeriodLabel} comparado com ${comparePeriodLabel}`,
+    meta: [`Gerado em ${new Date().toLocaleString("pt-BR")}`, sectorFilter ? `Setor ${sectorFilter}` : "Todos os setores", `Relatorio ${reportTitles[reportType] || reportType}`],
     sections: byType[reportType] || byType.all,
     landscape: true,
     compact: true,
