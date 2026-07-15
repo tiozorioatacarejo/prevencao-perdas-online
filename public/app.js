@@ -780,7 +780,7 @@ async function loadReposition() {
     api(`/api/reposition/ruptures?${qs.toString()}`),
     api(`/api/reposition/expirations?${qs.toString()}`),
   ]);
-  const goals = state.user?.role === "gerente"
+  const goals = ["gerente", "comercial"].includes(state.user?.role)
     ? { rows: [] }
     : await api("/api/reposition/goals");
   state.repo.dashboard = dashboard;
