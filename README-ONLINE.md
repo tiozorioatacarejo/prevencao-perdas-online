@@ -1,50 +1,26 @@
-# Versao Online - Prevencao de Perdas
+@echo off
+setlocal
+cd /d "%~dp0"
 
-Esta pasta e uma copia separada do projeto para publicar em um servico com link de acesso, como Render ou Railway.
+set "NODE_CMD=node"
+where node >nul 2>nul
+if errorlevel 1 (
+  if exist "C:\Users\tiozo\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe" (
+    set "NODE_CMD=C:\Users\tiozo\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe"
+  )
+)
 
-## Importante
+echo Iniciando o Sistema de Prevencao de Perdas...
+echo.
+echo Uma janela minimizada do servidor sera aberta.
+echo Para parar o sistema, use o arquivo "Parar Sistema.cmd".
+echo.
 
-Esta versao esta preparada para usar PostgreSQL online quando a variavel `DATABASE_URL` estiver configurada no Render.
+start "Servidor Prevencao de Perdas" /min "%NODE_CMD%" server.js
+timeout /t 3 /nobreak >nul
+start "" "http://localhost:3000"
 
-Se `DATABASE_URL` nao existir, o sistema usa SQLite apenas como modo local/teste. No Render, use PostgreSQL para os dados nao sumirem quando o servidor reiniciar.
-
-## Render
-
-1. Suba esta pasta para um repositorio no GitHub.
-2. No Render, crie um **New Web Service**.
-3. Conecte o repositorio.
-4. Use:
-
-```text
-Build Command: npm run init-db
-Start Command: npm start
-```
-
-5. Em **Environment**, adicione a variavel:
-
-```text
-DATABASE_URL=cole_aqui_a_string_do_postgresql
-```
-
-O arquivo `render.yaml` ja inclui uma configuracao basica.
-
-## Acessos iniciais
-
-| Perfil | Usuario | Senha |
-| --- | --- | --- |
-| Administrador | admin | adm123 |
-
-Depois de acessar como administrador, crie os colaboradores e os acessos reais na aba **Acessos**.
-
-## Rodar localmente
-
-```powershell
-.\start.ps1
-```
-
-ou:
-
-```powershell
-npm run init-db
-npm start
-```
+echo Sistema iniciado. Se o navegador nao abrir, acesse:
+echo http://localhost:3000
+echo.
+pause

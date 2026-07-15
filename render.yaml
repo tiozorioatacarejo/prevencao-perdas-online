@@ -1,12 +1,13 @@
-services:
-  - type: web
-    name: prevencao-perdas
-    env: node
-    plan: free
-    buildCommand: npm install && npm run init-db
-    startCommand: npm start
-    envVars:
-      - key: APP_DATA_DIR
-        value: /opt/render/project/src/data
-      - key: APP_UPLOAD_DIR
-        value: /opt/render/project/src/uploads
+{
+  "name": "relatorio-prevencao-perdas",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Sistema web local para digitalizar o Relatorio Diario de Atividades - Prevencao de Perdas.",
+  "scripts": {
+    "start": "node server.js",
+    "init-db": "node scripts/init-db.js"
+  },
+  "dependencies": {
+    "pg": "^8.13.1"
+  }
+}
