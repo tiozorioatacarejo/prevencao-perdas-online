@@ -15,6 +15,10 @@
   pendencies: [],
   sectorAudits: [],
   sectorAuditSummary: { evaluatedByUser: 0, evaluatedTotal: 0 },
+  preventionGoals: {
+    month: new Date().toISOString().slice(0, 7),
+    data: null,
+  },
   users: [],
   auditFilters: {
     startDate: new Date().toISOString().slice(0, 10),
@@ -73,7 +77,7 @@ const app = document.getElementById("app");
 const PRICE_DIVERGENCE_ACTIVITY = "Confer\u00eancia de precifica\u00e7\u00e3o";
 const EXPIRED_PRODUCTS_ACTIVITY = "Verifica\u00e7\u00e3o de validades";
 const SECTOR_REQUIRED_ACTIVITY_TERMS = ["validade", "ruptura", "precificacao", "preco"];
-const PHOTO_REQUIRED_ACTIVITY_TERMS = ["cotacao", "precificacao", "preco"];
+const PHOTO_REQUIRED_ACTIVITY_TERMS = ["cotacao", "precificacao", "preco", "validade"];
 const AUDIT_FOCUS_OPTIONS = [
   ["limpeza", "Limpeza"],
   ["organizacao", "Organização"],
@@ -428,6 +432,7 @@ function publicAgendaType() {
 function tabIcon(id) {
   const icons = {
     dashboard: "&#128200;",
+    preventionGoals: "&#127919;",
     repoDashboard: "&#9673;",
     commercialDashboard: "&#128188;",
     commercialAgenda: "&#128197;",
@@ -546,7 +551,7 @@ function navGroups(tabs) {
       id: "prevention",
       label: "Prevenção",
       icon: "📈",
-      tabs: ["dashboard", "checklist", "summary", "reports"],
+      tabs: ["dashboard", "preventionGoals", "checklist", "summary", "reports"],
     },
     {
       id: "reposition",
@@ -600,6 +605,7 @@ function navGroups(tabs) {
 
 async function refreshForTab() {
   if (state.tab === "dashboard") await loadDashboard();
+  if (state.tab === "preventionGoals") await loadPreventionGoals();
   if (state.tab === "repoDashboard" || state.tab === "commercialDashboard" || state.tab === "repoGoals") await Promise.all([loadCollaborators(), loadReposition()]);
   if (state.tab === "sectorAudit") await Promise.all([loadCollaborators(), loadSectorAudits()]);
   if (state.tab === "collaborators" || state.tab === "checklist" || state.tab === "pendencies") await loadCollaborators();
@@ -618,6 +624,7 @@ function renderView() {
   if (!permittedTabs.has(state.tab)) state.tab = defaultTab();
   const map = {
     dashboard: renderDashboard,
+    preventionGoals: renderPreventionGoals,
     repoDashboard: renderRepoDashboard,
     commercialDashboard: renderCommercialDashboard,
     commercialAgenda: () => renderAgenda("comercial"),
@@ -659,6 +666,7 @@ function allowedTabs() {
       ["receivingAgenda", "Agenda Recebimento"],
       ["repoReports", "Relatórios Reposição"],
       ["reports", "Relatórios Prevenção"],
+      ["preventionGoals", "Metas Prevenção"],
       ["pendencies", "Pendências"],
     ];
     if (canFillLaraOnlyActivities()) tabs.splice(1, 0, ["checklist", "Checklist"]);
@@ -667,6 +675,7 @@ function allowedTabs() {
   if (state.user?.role !== "administrador") {
     const tabs = [
       ["dashboard", "Painel PrevenÃ§Ã£o"],
+      ["preventionGoals", "Metas Prevenção"],
       ["checklist", "Checklist"],
       ["reposition", "ReposiÃ§Ã£o"],
       ["pendencies", "PendÃªncias"],
@@ -676,6 +685,7 @@ function allowedTabs() {
   }
   const tabs = [
     ["dashboard", "Painel PrevenÃ§Ã£o"],
+    ["preventionGoals", "Metas Prevenção"],
     ["repoDashboard", "Painel Reposi\u00e7\u00e3o"],
     ["repoGoals", "Metas Reposição"],
     ["commercialDashboard", "Painel Comercial"],
@@ -733,6 +743,11 @@ async function loadDashboard() {
   const qs = new URLSearchParams(range);
   const data = await api(`/api/dashboard?${qs.toString()}`);
   state.dashboard = data;
+}
+
+async function loadPreventionGoals() {
+  const qs = new URLSearchParams({ month: state.preventionGoals.month || new Date().toISOString().slice(0, 7) });
+  state.preventionGoals.data = await api(`/api/prevention-goals?${qs.toString()}`);
 }
 
 async function loadChecklists(params = "") {
@@ -926,6 +941,84 @@ function percentBar(percent) {
       <strong>${value}%</strong>
     </div>
   `;
+}
+
+function preventionGoalStatusClass(status) {
+  if (status === "CONCLUIDO" || status === "BONIFICACAO ATINGIDA") return "ok";
+  if (status === "EM ANDAMENTO") return "warn";
+  return "danger";
+}
+
+function fmtGoalNumber(value) {
+  const numeric = Number(value || 0);
+  return numeric.toLocaleString("pt-BR", { maximumFractionDigits: Number.isInteger(numeric) ? 0 : 1 });
+}
+
+function renderPreventionGoals() {
+  const data = state.preventionGoals.data || {
+    month: { label: "mês atual" },
+    goals: [],
+    summary: { configuredPoints: 120, targetPoints: 100, maxPoints: 120, totalPoints: 0, percent: 0, status: "EM ANDAMENTO" },
+  };
+  const summary = data.summary || {};
+  view.innerHTML = `
+    <div class="topbar">
+      <div>
+        <h2>Metas da Prevenção</h2>
+        <div class="muted">Acompanhamento mensal atualizado conforme os checklists e indicadores são preenchidos</div>
+      </div>
+      <div class="toolbar">
+        <button class="btn" id="refreshPreventionGoals">Atualizar</button>
+      </div>
+    </div>
+    <form class="panel grid" id="preventionGoalsFilter" style="margin-bottom:14px">
+      <div class="grid two">
+        <label>Mês <input name="month" type="month" value="${escapeHtml(state.preventionGoals.month)}"></label>
+        <label>Status
+          <input value="${escapeHtml(summary.status || "EM ANDAMENTO")}" disabled>
+        </label>
+      </div>
+      <button class="btn primary" type="submit">Aplicar mês</button>
+    </form>
+    <div class="metrics" style="margin-bottom:14px">
+      <div class="metric"><span class="muted">Pontuação obtida</span><strong>${fmtGoalNumber(summary.totalPoints)}/${fmtGoalNumber(summary.maxPoints)}</strong><small>${fmtGoalNumber(summary.percent)}% da meta mínima</small></div>
+      <div class="metric"><span class="muted">Meta para receber</span><strong>${fmtGoalNumber(summary.targetPoints)}</strong><small>pontos necessários</small></div>
+      <div class="metric"><span class="muted">Base configurada</span><strong>${fmtGoalNumber(summary.configuredPoints)}</strong><small>pontos possíveis no quadro</small></div>
+      <div class="metric"><span class="muted">Resultado</span><strong><span class="status ${preventionGoalStatusClass(summary.status)}">${escapeHtml(summary.status || "-")}</span></strong><small>${escapeHtml(data.month?.label || "")}</small></div>
+    </div>
+    <section class="panel">
+      <h3>Apuração mensal</h3>
+      <div class="muted" style="margin-top:4px">Precificação e validade contam números escritos no campo de produtos; se não houver número, cada item separado por vírgula, ponto e vírgula ou linha conta como 1.</div>
+      <div class="table-wrap" style="margin-top:12px">
+        <table class="goals-table">
+          <thead><tr><th>Indicador</th><th>Previsto</th><th>Realizado</th><th>Meta (%)</th><th>Realizado (%)</th><th>Pontos obtidos</th><th>Status</th></tr></thead>
+          <tbody>
+            ${data.goals.map((goal) => `
+              <tr>
+                <td data-label="Indicador"><strong>${escapeHtml(goal.label)}</strong><div class="muted">${escapeHtml(goal.unit || "")}</div></td>
+                <td data-label="Previsto">${fmtGoalNumber(goal.target)}</td>
+                <td data-label="Realizado">${fmtGoalNumber(goal.realized)}</td>
+                <td data-label="Meta (%)">100%</td>
+                <td data-label="Realizado (%)">${percentBar(goal.percent)}</td>
+                <td data-label="Pontos obtidos">${fmtGoalNumber(goal.pointsObtained)}/${fmtGoalNumber(goal.points)}</td>
+                <td data-label="Status"><span class="status ${preventionGoalStatusClass(goal.status)}">${escapeHtml(goal.status)}</span></td>
+              </tr>
+            `).join("") || `<tr><td colspan="7">Sem metas configuradas.</td></tr>`}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  `;
+  document.getElementById("refreshPreventionGoals").addEventListener("click", async () => {
+    await loadPreventionGoals();
+    renderPreventionGoals();
+  });
+  document.getElementById("preventionGoalsFilter").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    state.preventionGoals.month = new FormData(event.currentTarget).get("month") || new Date().toISOString().slice(0, 7);
+    await loadPreventionGoals();
+    renderPreventionGoals();
+  });
 }
 
 function exportDashboardCsv() {
@@ -1201,9 +1294,9 @@ function renderChecklist() {
       <label data-product-sector-field>Setor do produto
         <select name="sector">${repoOptions(state.repo.sectors || [])}</select>
       </label>
-      <label data-checklist-photo-field>Foto da conferencia
+      <label data-checklist-photo-field>Foto do checklist
         <input name="photoFile" type="file" accept="image/*" capture="environment">
-        <span class="field-help">Use para acompanhamento de cotacoes e conferencia de precificacao.</span>
+        <span class="field-help">Use para cotacoes, conferencia de precificacao e verificacao de validades.</span>
       </label>
       <label>ObservaÃ§Ã£o
         <textarea name="observation"></textarea>

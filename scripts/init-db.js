@@ -44,6 +44,13 @@ async function initPostgres() {
       corrected_at TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS uploaded_files (
+      filename TEXT PRIMARY KEY,
+      content_type TEXT NOT NULL,
+      data_base64 TEXT NOT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
     CREATE TABLE IF NOT EXISTS operational_summaries (
       id SERIAL PRIMARY KEY,
       date TEXT UNIQUE NOT NULL,

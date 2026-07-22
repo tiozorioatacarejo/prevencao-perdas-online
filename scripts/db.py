@@ -84,6 +84,13 @@ def init_db():
             FOREIGN KEY (corrected_by) REFERENCES users(id)
         );
 
+        CREATE TABLE IF NOT EXISTS uploaded_files (
+            filename TEXT PRIMARY KEY,
+            content_type TEXT NOT NULL,
+            data_base64 TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+
         CREATE TABLE IF NOT EXISTS operational_summaries (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             date TEXT UNIQUE NOT NULL,

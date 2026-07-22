@@ -24,7 +24,7 @@ const PRICE_DIVERGENCE_ACTIVITY = "Confer\u00eancia de precifica\u00e7\u00e3o";
 const EXPIRED_PRODUCTS_ACTIVITY = "Verifica\u00e7\u00e3o de validades";
 const RECEIPTS_ACTIVITY = "Acompanhamento de recebimentos";
 const SECTOR_REQUIRED_ACTIVITY_TERMS = ["validade", "ruptura", "precificacao", "preco"];
-const PHOTO_REQUIRED_ACTIVITY_TERMS = ["cotacao", "precificacao", "preco"];
+const PHOTO_REQUIRED_ACTIVITY_TERMS = ["cotacao", "precificacao", "preco", "validade"];
 const ENGAGEMENT_EXCLUDED_ACTIVITIES = [
   "Lan\u00e7amento de perdas no sistema",
   "Lan\u00e7amento de consumo interno",
@@ -58,6 +58,24 @@ const repoActivities = [
   "Confer\u00eancia de estoque no dep\u00f3sito",
   "Devolu\u00e7\u00e3o de produtos ao setor correto",
 ];
+
+const PREVENTION_MONTHLY_GOALS = [
+  { key: "temperatures", label: "Temperaturas", target: 90, points: 10, unit: "registros" },
+  { key: "quotations", label: "Cota\u00e7\u00f5es", target: 100, points: 10, unit: "registros" },
+  { key: "receipts", label: "Recebimentos", target: 40, points: 10, unit: "registros" },
+  { key: "pricing", label: "Precifica\u00e7\u00e3o", target: 700, points: 10, unit: "produtos" },
+  { key: "validity", label: "Validade", target: 500, points: 10, unit: "produtos" },
+  { key: "losses", label: "Perdas", target: 20, points: 5, unit: "dias" },
+  { key: "consumption", label: "Consumo interno", target: 15, points: 5, unit: "dias" },
+  { key: "bottles", label: "Vasilhames", target: 12, points: 10, unit: "dias" },
+  { key: "inventory_butcher", label: "Invent\u00e1rio A\u00e7ougue", target: 2, points: 10, unit: "invent\u00e1rios" },
+  { key: "inventory_flv", label: "Invent\u00e1rio FLV", target: 2, points: 10, unit: "invent\u00e1rios" },
+  { key: "inventory_bakery", label: "Invent\u00e1rio Padaria", target: 2, points: 10, unit: "invent\u00e1rios" },
+  { key: "inventory_perishables", label: "Invent\u00e1rio Perec\u00edveis", target: 1, points: 10, unit: "invent\u00e1rios" },
+  { key: "inventory_rotating", label: "Invent\u00e1rios Rotativos", target: 4, points: 10, unit: "invent\u00e1rios" },
+];
+const PREVENTION_BONUS_TARGET_POINTS = 100;
+const PREVENTION_BONUS_MAX_POINTS = 120;
 
 const activities = [
   "Temperatura 07h",
@@ -146,6 +164,13 @@ async function initPostgres(pool) {
       created_by INTEGER NOT NULL REFERENCES users(id),
       corrected_by INTEGER REFERENCES users(id),
       corrected_at TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS uploaded_files (
+      filename TEXT PRIMARY KEY,
+      content_type TEXT NOT NULL,
+      data_base64 TEXT NOT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE TABLE IF NOT EXISTS operational_summaries (
@@ -911,23 +936,46 @@ function periodInfo(start, end) {
   };
 }
 
+function monthInfoFromValue(value) {
+  const fallback = today().slice(0, 7);
+  const match = /^(\d{4})-(\d{2})$/.exec(String(value || fallback));
+  const year = match ? Number(match[1]) : Number(fallback.slice(0, 4));
+  const month = match ? Number(match[2]) : Number(fallback.slice(5, 7));
+  const startDate = new Date(year, month - 1, 1);
+  const endDate = new Date(year, month, 0);
+  const iso = (date) => date.toISOString().slice(0, 10);
+  return {
+    month: `${year}-${String(month).padStart(2, "0")}`,
+    start: iso(startDate),
+    end: iso(endDate),
+    days: endDate.getDate(),
+    label: startDate.toLocaleDateString("pt-BR", { month: "long", year: "numeric" }),
+  };
+}
+
 function nowIso() {
   return new Date().toISOString();
 }
 
-function saveDataUrl(dataUrl, originalName = "anexo") {
+async function saveDataUrl(dataUrl, originalName = "anexo") {
   if (!dataUrl) return null;
   const match = /^data:(.+);base64,(.+)$/.exec(dataUrl);
   if (!match) return null;
+  const contentType = match[1];
+  const dataBase64 = match[2];
   const extMap = {
     "image/png": ".png",
     "image/jpeg": ".jpg",
     "image/webp": ".webp",
     "application/pdf": ".pdf",
   };
-  const ext = extMap[match[1]] || path.extname(originalName).slice(0, 8) || ".bin";
+  const ext = extMap[contentType] || path.extname(originalName).slice(0, 8) || ".bin";
   const filename = `${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`;
-  fs.writeFileSync(path.join(UPLOAD_DIR, filename), Buffer.from(match[2], "base64"));
+  fs.writeFileSync(path.join(UPLOAD_DIR, filename), Buffer.from(dataBase64, "base64"));
+  await execute(
+    "INSERT INTO uploaded_files (filename, content_type, data_base64, created_at) VALUES (?, ?, ?, ?)",
+    [filename, contentType, dataBase64, nowIso()]
+  );
   return `/uploads/${filename}`;
 }
 
@@ -945,6 +993,123 @@ function normalizeText(value) {
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
     .trim();
+}
+
+function productQuantityFromText(...values) {
+  const text = values.map((value) => String(value || "").trim()).filter(Boolean).join("\n");
+  if (!text) return 0;
+  const explicit = text.match(/(?:^|\D)(\d{1,5})(?:[.,]\d+)?\s*(?:produtos?|itens?|unidades?|unds?|caixas?|cxs?|cx)\b/i)
+    || text.match(/^\s*(\d{1,5})(?:[.,]\d+)?\b/);
+  if (explicit) return Number(explicit[1]) || 1;
+  const items = text
+    .split(/[\n;,]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+  return Math.max(items.length, 1);
+}
+
+function goalStatus(percent) {
+  if (percent >= 100) return "CONCLUIDO";
+  if (percent >= 70) return "EM ANDAMENTO";
+  return "PENDENTE";
+}
+
+function inventoryBucket(sector) {
+  const normalized = normalizeText(sector);
+  if (normalized.includes("acougue")) return "inventory_butcher";
+  if (normalized.includes("flv")) return "inventory_flv";
+  if (normalized.includes("padaria")) return "inventory_bakery";
+  if (normalized.includes("perec")) return "inventory_perishables";
+  return "inventory_rotating";
+}
+
+async function preventionGoalProgress(monthValue) {
+  const month = monthInfoFromValue(monthValue);
+  const checklistRows = await query(
+    `SELECT date, activity, observation, price_divergence_products, expired_products
+     FROM checklists
+     WHERE date BETWEEN ? AND ?`,
+    [month.start, month.end]
+  );
+  const dailyRows = await query(
+    `SELECT date, losses_value, consumption_value, bottles_count
+     FROM operational_summaries
+     WHERE date BETWEEN ? AND ?`,
+    [month.start, month.end]
+  );
+  const inventoryRows = await query(
+    `SELECT sector, COALESCE(SUM(inventories), 0) AS total
+     FROM management_sectors
+     WHERE period = ?
+     GROUP BY sector`,
+    [month.month]
+  );
+
+  const realized = Object.fromEntries(PREVENTION_MONTHLY_GOALS.map((goal) => [goal.key, 0]));
+  const daySets = {
+    losses: new Set(),
+    consumption: new Set(),
+    bottles: new Set(),
+  };
+
+  checklistRows.forEach((row) => {
+    const activity = normalizeText(row.activity);
+    if (activity.includes("temperatura")) realized.temperatures += 1;
+    if (activity.includes("cotacao")) realized.quotations += 1;
+    if (activity.includes("recebimento")) realized.receipts += 1;
+    if (activity.includes("precificacao") || activity.includes("preco")) {
+      realized.pricing += productQuantityFromText(row.price_divergence_products, row.observation);
+    }
+    if (activity.includes("validade")) {
+      realized.validity += productQuantityFromText(row.expired_products, row.observation);
+    }
+    if (activity.includes("perdas")) daySets.losses.add(row.date);
+    if (activity.includes("consumo")) daySets.consumption.add(row.date);
+    if (activity.includes("vasilh")) daySets.bottles.add(row.date);
+  });
+
+  dailyRows.forEach((row) => {
+    if (Number(row.losses_value || 0) > 0) daySets.losses.add(row.date);
+    if (Number(row.consumption_value || 0) > 0) daySets.consumption.add(row.date);
+    if (Number(row.bottles_count || 0) > 0) daySets.bottles.add(row.date);
+  });
+
+  realized.losses = daySets.losses.size;
+  realized.consumption = daySets.consumption.size;
+  realized.bottles = daySets.bottles.size;
+
+  inventoryRows.forEach((row) => {
+    const key = inventoryBucket(row.sector);
+    realized[key] += Number(row.total || 0);
+  });
+
+  const goals = PREVENTION_MONTHLY_GOALS.map((goal) => {
+    const value = Number(realized[goal.key] || 0);
+    const percent = goal.target ? Math.round((value / goal.target) * 1000) / 10 : 0;
+    const pointsObtained = Math.min(goal.points, Math.round((goal.points * value / goal.target) * 10) / 10);
+    return {
+      ...goal,
+      realized: value,
+      percent,
+      pointsObtained,
+      status: goalStatus(percent),
+    };
+  });
+  const configuredPoints = PREVENTION_MONTHLY_GOALS.reduce((sum, goal) => sum + goal.points, 0);
+  const rawPoints = goals.reduce((sum, goal) => sum + goal.pointsObtained, 0);
+  const totalPoints = Math.min(PREVENTION_BONUS_MAX_POINTS, Math.round(rawPoints * 10) / 10);
+  return {
+    month,
+    goals,
+    summary: {
+      configuredPoints,
+      targetPoints: PREVENTION_BONUS_TARGET_POINTS,
+      maxPoints: PREVENTION_BONUS_MAX_POINTS,
+      totalPoints,
+      percent: Math.round((totalPoints / PREVENTION_BONUS_TARGET_POINTS) * 1000) / 10,
+      status: totalPoints >= PREVENTION_BONUS_TARGET_POINTS ? "BONIFICACAO ATINGIDA" : "EM ANDAMENTO",
+    },
+  };
 }
 
 async function rowsForReports(filters) {
@@ -1243,10 +1408,10 @@ function checklistNeedsPhoto(activity) {
   return PHOTO_REQUIRED_ACTIVITY_TERMS.some((term) => normalized.includes(term));
 }
 
-function saveChecklistPhoto(activity, body) {
+async function saveChecklistPhoto(activity, body) {
   if (!checklistNeedsPhoto(activity) || !body.photoDataUrl) return null;
   if (!/^data:image\/(png|jpeg|webp);base64,/.test(body.photoDataUrl)) return null;
-  return saveDataUrl(body.photoDataUrl, body.photoName || "checklist-foto");
+  return await saveDataUrl(body.photoDataUrl, body.photoName || "checklist-foto");
 }
 
 function activityNeedsProductSector(activity) {
@@ -2532,7 +2697,7 @@ async function api(req, res, url) {
     if (activityNeedsProductSector(body.activity) && !specificFields.sector) {
       return send(res, 400, { error: "Selecione o setor do produto." });
     }
-    const photoPath = saveChecklistPhoto(body.activity, body);
+    const photoPath = await saveChecklistPhoto(body.activity, body);
     await execute(
       "INSERT INTO checklists (date, collaborator_id, activity, answer, observation, sector, price_divergence_products, expired_products, photo_path, sent_at, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       [
@@ -2566,7 +2731,7 @@ async function api(req, res, url) {
     if (activityNeedsProductSector(body.activity) && !specificFields.sector) {
       return send(res, 400, { error: "Selecione o setor do produto." });
     }
-    const photoPath = saveChecklistPhoto(body.activity, body);
+    const photoPath = await saveChecklistPhoto(body.activity, body);
     await execute(
       "UPDATE checklists SET collaborator_id = ?, activity = ?, answer = ?, observation = ?, sector = ?, price_divergence_products = ?, expired_products = ?, photo_path = COALESCE(?, photo_path), corrected_by = ?, corrected_at = ? WHERE id = ?",
       [
@@ -2781,6 +2946,11 @@ async function api(req, res, url) {
     });
   }
 
+  if (method === "GET" && url.pathname === "/api/prevention-goals") {
+    if (!canAccessPrevention(user)) return send(res, 403, { error: "Acesso restrito ao módulo de prevenção." });
+    return send(res, 200, await preventionGoalProgress(url.searchParams.get("month")));
+  }
+
   if (method === "GET" && url.pathname === "/api/pendencies") {
     if (!canAccessPrevention(user)) return send(res, 403, { error: "Acesso restrito ao módulo de prevenção." });
     return send(res, 200, {
@@ -2797,7 +2967,7 @@ async function api(req, res, url) {
   if (method === "POST" && url.pathname === "/api/pendencies") {
     if (!canAccessPrevention(user)) return send(res, 403, { error: "Acesso restrito ao módulo de prevenção." });
     const body = await readBody(req);
-    const attachmentPath = saveDataUrl(body.attachmentData, body.attachmentName);
+    const attachmentPath = await saveDataUrl(body.attachmentData, body.attachmentName);
     await execute(
       "INSERT INTO pendencies (description, responsible_id, opened_at, status, attachment_path, solution_observation, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)",
       [body.description, body.responsibleId, body.openedAt || today(), body.status || "Aberto", attachmentPath, body.solutionObservation || "", user.id]
@@ -2809,7 +2979,7 @@ async function api(req, res, url) {
     if (!canAccessPrevention(user)) return send(res, 403, { error: "Acesso restrito ao módulo de prevenção." });
     const id = Number(url.pathname.split("/").pop());
     const body = await readBody(req);
-    const attachmentPath = body.attachmentData ? saveDataUrl(body.attachmentData, body.attachmentName) : body.attachmentPath || null;
+    const attachmentPath = body.attachmentData ? await saveDataUrl(body.attachmentData, body.attachmentName) : body.attachmentPath || null;
     await execute(
       "UPDATE pendencies SET description=?, responsible_id=?, opened_at=?, status=?, attachment_path=?, solution_observation=?, updated_at=? WHERE id=?",
       [body.description, body.responsibleId, body.openedAt, body.status, attachmentPath, body.solutionObservation || "", nowIso(), id]
@@ -2836,17 +3006,32 @@ async function api(req, res, url) {
   return send(res, 404, { error: "Rota nÃ£o encontrada." });
 }
 
-function serveStatic(req, res, url) {
+async function sendUploadFromDb(res, filename) {
+  const rows = await query(
+    "SELECT content_type, data_base64 FROM uploaded_files WHERE filename = ?",
+    [filename]
+  );
+  if (!rows.length) return false;
+  send(res, 200, Buffer.from(rows[0].data_base64, "base64"), {
+    "Content-Type": rows[0].content_type,
+    "Cache-Control": "no-store",
+  });
+  return true;
+}
+
+async function serveStatic(req, res, url) {
   let filePath = (url.pathname === "/" || url.pathname.startsWith("/agendar/")) ? path.join(ROOT, "public", "index.html") : path.join(ROOT, url.pathname);
   const isUpload = url.pathname.startsWith("/uploads/");
+  let uploadName = "";
   if (isUpload) {
-    const uploadName = decodeURIComponent(url.pathname.replace(/^\/uploads\//, ""));
+    uploadName = decodeURIComponent(url.pathname.replace(/^\/uploads\//, ""));
     filePath = path.join(UPLOAD_DIR, uploadName);
   }
   const allowedRoot = isUpload ? UPLOAD_DIR : ROOT;
   const resolvedFilePath = path.resolve(filePath);
   const resolvedAllowedRoot = path.resolve(allowedRoot);
   if (!resolvedFilePath.startsWith(resolvedAllowedRoot + path.sep) || !fs.existsSync(resolvedFilePath) || fs.statSync(resolvedFilePath).isDirectory()) {
+    if (isUpload && /^[A-Za-z0-9._-]+$/.test(uploadName) && await sendUploadFromDb(res, uploadName)) return;
     return send(res, 404, "Arquivo nÃ£o encontrado", { "Content-Type": "text/plain; charset=utf-8" });
   }
   const ext = path.extname(resolvedFilePath).toLowerCase();
@@ -2883,7 +3068,7 @@ async function start() {
       if (url.pathname.startsWith("/api/")) {
         api(req, res, url).catch((error) => send(res, 500, { error: error.message }));
       } else {
-        serveStatic(req, res, url);
+        serveStatic(req, res, url).catch((error) => send(res, 500, { error: error.message }));
       }
     })
     .listen(PORT, HOST, () => {
