@@ -73,7 +73,9 @@ def init_db():
             observation TEXT,
             sector TEXT,
             price_divergence_products TEXT,
+            price_divergence_quantity INTEGER NOT NULL DEFAULT 0,
             expired_products TEXT,
+            expired_products_quantity INTEGER NOT NULL DEFAULT 0,
             inventory_type TEXT,
             photo_path TEXT,
             sent_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -350,8 +352,12 @@ def init_db():
     checklist_columns = [row["name"] for row in conn.execute("PRAGMA table_info(checklists)").fetchall()]
     if "price_divergence_products" not in checklist_columns:
         conn.execute("ALTER TABLE checklists ADD COLUMN price_divergence_products TEXT")
+    if "price_divergence_quantity" not in checklist_columns:
+        conn.execute("ALTER TABLE checklists ADD COLUMN price_divergence_quantity INTEGER NOT NULL DEFAULT 0")
     if "expired_products" not in checklist_columns:
         conn.execute("ALTER TABLE checklists ADD COLUMN expired_products TEXT")
+    if "expired_products_quantity" not in checklist_columns:
+        conn.execute("ALTER TABLE checklists ADD COLUMN expired_products_quantity INTEGER NOT NULL DEFAULT 0")
     if "sector" not in checklist_columns:
         conn.execute("ALTER TABLE checklists ADD COLUMN sector TEXT")
     if "inventory_type" not in checklist_columns:

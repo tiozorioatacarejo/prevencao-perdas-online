@@ -480,6 +480,40 @@ label {
   padding: 0;
 }
 
+.checklist-compact-form {
+  gap: 10px;
+  padding: 14px;
+}
+
+.checklist-compact-form .grid {
+  gap: 10px;
+}
+
+.checklist-compact-form label {
+  gap: 4px;
+  font-size: 12px;
+}
+
+.checklist-compact-form input,
+.checklist-compact-form select {
+  min-height: 36px;
+  padding: 8px 10px;
+}
+
+.checklist-compact-form textarea {
+  min-height: 62px;
+  padding: 8px 10px;
+}
+
+.checklist-compact-form .field-help {
+  font-size: 11px;
+  line-height: 1.25;
+}
+
+.checklist-compact-form button[type="submit"] {
+  min-height: 38px;
+}
+
 input,
 select,
 textarea {

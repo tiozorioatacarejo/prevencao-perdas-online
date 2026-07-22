@@ -81,6 +81,7 @@ const app = document.getElementById("app");
 const PRICE_DIVERGENCE_ACTIVITY = "Confer\u00eancia de precifica\u00e7\u00e3o";
 const EXPIRED_PRODUCTS_ACTIVITY = "Verifica\u00e7\u00e3o de validades";
 const INVENTORY_ACTIVITY = "Invent\u00e1rio";
+const GENERAL_STORE_OBSERVATION_ACTIVITY = "Observação geral da loja";
 const SECTOR_REQUIRED_ACTIVITY_TERMS = ["validade", "ruptura", "precificacao", "preco"];
 const PHOTO_REQUIRED_ACTIVITY_TERMS = ["cotac", "precificacao", "preco", "validade"];
 const INVENTORY_TYPES = [
@@ -1324,7 +1325,7 @@ function renderChecklist() {
         <div class="muted">${linkedCollaborator ? "Acesso vinculado ao seu cadastro" : "Data e horÃ¡rio sÃ£o registrados automaticamente no envio"}</div>
       </div>
     </div>
-    <form class="panel grid" id="checklistForm">
+    <form class="panel grid checklist-compact-form" id="checklistForm">
       <div class="grid two">
         ${collaboratorField}
         <label>Atividade
@@ -1351,12 +1352,14 @@ function renderChecklist() {
         <input name="photoFile" type="file" accept="image/*" capture="environment">
         <span class="field-help">Use para cotacoes, conferencia de precificacao e verificacao de validades.</span>
       </label>
+      <label data-price-quantity-field>Quantidade de itens conferidos <input name="priceDivergenceQuantity" type="number" min="1" step="1"></label>
+      <label data-expired-quantity-field>Quantidade de itens conferidos <input name="expiredProductsQuantity" type="number" min="1" step="1"></label>
       <label>ObservaÃ§Ã£o
         <textarea name="observation"></textarea>
       </label>
       <button class="btn primary" type="submit">Enviar checklist</button>
     </form>
-    <form class="panel grid general-store-observation" id="generalStoreObservationForm">
+    <form class="panel grid general-store-observation checklist-compact-form" id="generalStoreObservationForm">
       <div>
         <h3>Observação geral da loja</h3>
         <div class="muted">Registre situações da loja, estoque, estrutura ou qualquer ponto que precise ficar documentado.</div>
@@ -1379,6 +1382,9 @@ function renderChecklist() {
             <option>Outros</option>
           </select>
         </label>
+        <label>Setor
+          <select name="sector" required>${repoOptions(state.repo.sectors || [])}</select>
+        </label>
       </div>
       <label>Descrição
         <textarea name="description" required placeholder="Descreva o que foi observado, onde ocorreu e qualquer ação necessária."></textarea>
@@ -1389,7 +1395,9 @@ function renderChecklist() {
   const checklistForm = document.getElementById("checklistForm");
   const activitySelect = checklistForm.elements.activity;
   const priceField = checklistForm.querySelector("[data-price-divergence-field]");
+  const priceQuantityField = checklistForm.querySelector("[data-price-quantity-field]");
   const expiredField = checklistForm.querySelector("[data-expired-products-field]");
+  const expiredQuantityField = checklistForm.querySelector("[data-expired-quantity-field]");
   const sectorField = checklistForm.querySelector("[data-product-sector-field]");
   const inventoryField = checklistForm.querySelector("[data-inventory-type-field]");
   const photoField = checklistForm.querySelector("[data-checklist-photo-field]");
@@ -1401,19 +1409,27 @@ function renderChecklist() {
     const showSector = activityNeedsProductSector(activity);
     const showPhoto = checklistNeedsPhoto(activity);
     priceField.hidden = !showPrice;
+    priceQuantityField.hidden = !showPrice;
     expiredField.hidden = !showExpired;
+    expiredQuantityField.hidden = !showExpired;
     sectorField.hidden = !showSector;
     inventoryField.hidden = !showInventory;
     photoField.hidden = !showPhoto;
     priceField.classList.toggle("hidden", !showPrice);
+    priceQuantityField.classList.toggle("hidden", !showPrice);
     expiredField.classList.toggle("hidden", !showExpired);
+    expiredQuantityField.classList.toggle("hidden", !showExpired);
     sectorField.classList.toggle("hidden", !showSector);
     inventoryField.classList.toggle("hidden", !showInventory);
     photoField.classList.toggle("hidden", !showPhoto);
     checklistForm.elements.sector.required = showSector;
+    checklistForm.elements.priceDivergenceQuantity.required = showPrice;
+    checklistForm.elements.expiredProductsQuantity.required = showExpired;
     checklistForm.elements.inventoryType.required = showInventory;
     if (!showPrice) checklistForm.elements.priceDivergenceProducts.value = "";
+    if (!showPrice) checklistForm.elements.priceDivergenceQuantity.value = "";
     if (!showExpired) checklistForm.elements.expiredProducts.value = "";
+    if (!showExpired) checklistForm.elements.expiredProductsQuantity.value = "";
     if (!showSector) checklistForm.elements.sector.value = "";
     if (!showInventory) checklistForm.elements.inventoryType.value = "";
     if (!showPhoto) checklistForm.elements.photoFile.value = "";
@@ -1448,12 +1464,14 @@ function renderChecklist() {
       method: "POST",
       body: JSON.stringify({
         collaboratorId: values.collaboratorId,
-        activity: "Observação geral da loja",
+        activity: GENERAL_STORE_OBSERVATION_ACTIVITY,
         answer: "Sim",
+        sector: values.sector,
         observation: `${values.category}: ${values.description}`,
       }),
     });
     form.elements.category.value = "Loja em geral";
+    form.elements.sector.value = "";
     form.elements.description.value = "";
     toast("Observação geral registrada.");
   });
@@ -1642,10 +1660,16 @@ function checklistProductDetails(row) {
   return "";
 }
 
+function checklistProductQuantity(row) {
+  if (row.activity === PRICE_DIVERGENCE_ACTIVITY) return Number(row.price_divergence_quantity || 0) || "";
+  if (row.activity === EXPIRED_PRODUCTS_ACTIVITY) return Number(row.expired_products_quantity || 0) || "";
+  return "";
+}
+
 function drawReportTable() {
   const showActions = state.checklists.some((row) => canEditChecklist(row) || canDeleteChecklist());
   document.getElementById("reportTable").innerHTML = `
-    <table><thead><tr><th>Data</th><th>Colaborador</th><th>Atividade</th><th>Setor</th><th>Produtos identificados</th><th>Foto</th><th>Resposta</th><th>ObservaÃ§Ã£o</th><th>Enviado em</th>${showActions ? "<th>AÃ§Ãµes</th>" : ""}</tr></thead><tbody>
+    <table><thead><tr><th>Data</th><th>Colaborador</th><th>Atividade</th><th>Setor</th><th>Produtos identificados</th><th>Qtd. itens</th><th>Foto</th><th>Resposta</th><th>ObservaÃ§Ã£o</th><th>Enviado em</th>${showActions ? "<th>AÃ§Ãµes</th>" : ""}</tr></thead><tbody>
       ${state.checklists.map((row) => `
         <tr>
           <td data-label="Data">${fmtDate(row.date)}</td>
@@ -1653,6 +1677,7 @@ function drawReportTable() {
           <td data-label="Atividade">${escapeHtml(row.activity)}</td>
           <td data-label="Setor">${escapeHtml(row.sector || "-")}</td>
           <td data-label="Produtos identificados">${escapeHtml(checklistProductDetails(row) || "-")}</td>
+          <td data-label="Qtd. itens">${escapeHtml(checklistProductQuantity(row) || "-")}</td>
           <td data-label="Foto">${row.photo_path ? `<a class="report-photo" href="${escapeHtml(row.photo_path)}" target="_blank" rel="noopener"><img src="${escapeHtml(row.photo_path)}" alt="Foto do checklist"></a>` : "-"}</td>
           <td data-label="Resposta"><span class="status ${row.answer === "Sim" ? "ok" : "danger"}">${row.answer}</span></td>
           <td data-label="ObservaÃ§Ã£o">${escapeHtml(row.observation || "")}</td>
@@ -1666,7 +1691,7 @@ function drawReportTable() {
             </td>
           ` : ""}
         </tr>
-      `).join("") || `<tr><td colspan="${showActions ? 10 : 9}">Nenhum registro encontrado.</td></tr>`}
+      `).join("") || `<tr><td colspan="${showActions ? 11 : 10}">Nenhum registro encontrado.</td></tr>`}
     </tbody></table>
   `;
   document.querySelectorAll("[data-edit-checklist]").forEach((button) => {
@@ -1832,11 +1857,17 @@ function editChecklist(id) {
   const priceDivergenceProducts = row.activity === PRICE_DIVERGENCE_ACTIVITY
     ? prompt("Produtos com divergÃªncia de preÃ§os", row.price_divergence_products || "") || ""
     : "";
+  const priceDivergenceQuantity = row.activity === PRICE_DIVERGENCE_ACTIVITY
+    ? prompt("Quantidade de itens conferidos", row.price_divergence_quantity || "") || ""
+    : "";
   const expiredProducts = row.activity === EXPIRED_PRODUCTS_ACTIVITY
     ? prompt("Produtos vencidos encontrados", row.expired_products || "") || ""
     : "";
-  const sector = activityNeedsProductSector(row.activity)
-    ? prompt("Setor do produto", row.sector || "") || ""
+  const expiredProductsQuantity = row.activity === EXPIRED_PRODUCTS_ACTIVITY
+    ? prompt("Quantidade de itens conferidos", row.expired_products_quantity || "") || ""
+    : "";
+  const sector = activityNeedsProductSector(row.activity) || row.activity === GENERAL_STORE_OBSERVATION_ACTIVITY
+    ? prompt(row.activity === GENERAL_STORE_OBSERVATION_ACTIVITY ? "Setor da observação" : "Setor do produto", row.sector || "") || ""
     : "";
   const inventoryType = row.activity === INVENTORY_ACTIVITY
     ? prompt("Tipo de inventário: inventory_butcher, inventory_flv, inventory_bakery, inventory_perishables ou inventory_rotating", row.inventory_type || "") || ""
@@ -1850,7 +1881,9 @@ function editChecklist(id) {
       observation,
       sector,
       priceDivergenceProducts,
+      priceDivergenceQuantity,
       expiredProducts,
+      expiredProductsQuantity,
       inventoryType,
     }),
   }).then(async () => {

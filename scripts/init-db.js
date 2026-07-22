@@ -36,7 +36,9 @@ async function initPostgres() {
       observation TEXT,
       sector TEXT,
       price_divergence_products TEXT,
+      price_divergence_quantity INTEGER NOT NULL DEFAULT 0,
       expired_products TEXT,
+      expired_products_quantity INTEGER NOT NULL DEFAULT 0,
       inventory_type TEXT,
       photo_path TEXT,
       sent_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -216,6 +218,8 @@ async function initPostgres() {
   await pool.query("ALTER TABLE collaborators ADD COLUMN IF NOT EXISTS sector TEXT");
   await pool.query("ALTER TABLE checklists ADD COLUMN IF NOT EXISTS sector TEXT");
   await pool.query("ALTER TABLE checklists ADD COLUMN IF NOT EXISTS inventory_type TEXT");
+  await pool.query("ALTER TABLE checklists ADD COLUMN IF NOT EXISTS price_divergence_quantity INTEGER NOT NULL DEFAULT 0");
+  await pool.query("ALTER TABLE checklists ADD COLUMN IF NOT EXISTS expired_products_quantity INTEGER NOT NULL DEFAULT 0");
   await pool.query("ALTER TABLE agenda_slots DROP CONSTRAINT IF EXISTS agenda_slots_agenda_type_date_start_time_key");
   await pool.query("CREATE UNIQUE INDEX IF NOT EXISTS agenda_slots_owner_time_idx ON agenda_slots (agenda_type, date, start_time, created_by)");
   await pool.query("ALTER TABLE management_monthly ADD COLUMN IF NOT EXISTS sold_quantity REAL NOT NULL DEFAULT 0");

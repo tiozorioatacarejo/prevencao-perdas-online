@@ -24,6 +24,7 @@ const PRICE_DIVERGENCE_ACTIVITY = "Confer\u00eancia de precifica\u00e7\u00e3o";
 const EXPIRED_PRODUCTS_ACTIVITY = "Verifica\u00e7\u00e3o de validades";
 const RECEIPTS_ACTIVITY = "Acompanhamento de recebimentos";
 const INVENTORY_ACTIVITY = "Invent\u00e1rio";
+const GENERAL_STORE_OBSERVATION_ACTIVITY = "Observa\u00e7\u00e3o geral da loja";
 const SECTOR_REQUIRED_ACTIVITY_TERMS = ["validade", "ruptura", "precificacao", "preco"];
 const PHOTO_REQUIRED_ACTIVITY_TERMS = ["cotac", "precificacao", "preco", "validade"];
 const INVENTORY_TYPES = [
@@ -94,6 +95,7 @@ const activities = [
   "Lan\u00e7amento de perdas no sistema",
   "Lan\u00e7amento de consumo interno",
   "Contagem e acompanhamento de vasilhames",
+  "Observa\u00e7\u00e3o geral da loja",
   "Acompanhamento de cota\u00e7\u00f5es",
   "Acompanhamento de recebimentos",
   "Invent\u00e1rio",
@@ -168,7 +170,9 @@ async function initPostgres(pool) {
       observation TEXT,
       sector TEXT,
       price_divergence_products TEXT,
+      price_divergence_quantity INTEGER NOT NULL DEFAULT 0,
       expired_products TEXT,
+      expired_products_quantity INTEGER NOT NULL DEFAULT 0,
       inventory_type TEXT,
       photo_path TEXT,
       sent_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -407,6 +411,8 @@ async function initPostgres(pool) {
   await pool.query("ALTER TABLE checklists ADD COLUMN IF NOT EXISTS sector TEXT");
   await pool.query("ALTER TABLE checklists ADD COLUMN IF NOT EXISTS photo_path TEXT");
   await pool.query("ALTER TABLE checklists ADD COLUMN IF NOT EXISTS inventory_type TEXT");
+  await pool.query("ALTER TABLE checklists ADD COLUMN IF NOT EXISTS price_divergence_quantity INTEGER NOT NULL DEFAULT 0");
+  await pool.query("ALTER TABLE checklists ADD COLUMN IF NOT EXISTS expired_products_quantity INTEGER NOT NULL DEFAULT 0");
   await pool.query("ALTER TABLE repo_ruptures ADD COLUMN IF NOT EXISTS commercial_updated_by INTEGER REFERENCES users(id)");
   await pool.query("ALTER TABLE repo_expirations ADD COLUMN IF NOT EXISTS commercial_updated_by INTEGER REFERENCES users(id)");
   await pool.query("ALTER TABLE management_monthly ADD COLUMN IF NOT EXISTS sold_quantity REAL NOT NULL DEFAULT 0");
@@ -1079,7 +1085,7 @@ function inventoryBucket(sector) {
 async function preventionGoalProgress(monthValue) {
   const month = monthInfoFromValue(monthValue);
   const checklistRows = await query(
-    `SELECT date, activity, observation, price_divergence_products, expired_products, inventory_type
+    `SELECT date, activity, observation, price_divergence_products, price_divergence_quantity, expired_products, expired_products_quantity, inventory_type
      FROM checklists
      WHERE date BETWEEN ? AND ?`,
     [month.start, month.end]
@@ -1111,10 +1117,10 @@ async function preventionGoalProgress(monthValue) {
     if (activity.includes("cotac")) realized.quotations += 1;
     if (activity.includes("recebimento")) realized.receipts += 1;
     if (activity.includes("precificacao") || activity.includes("preco")) {
-      realized.pricing += productQuantityFromText(row.price_divergence_products, row.observation);
+      realized.pricing += intValue(row.price_divergence_quantity) || productQuantityFromText(row.price_divergence_products, row.observation);
     }
     if (activity.includes("validade")) {
-      realized.validity += productQuantityFromText(row.expired_products, row.observation);
+      realized.validity += intValue(row.expired_products_quantity) || productQuantityFromText(row.expired_products, row.observation);
     }
     if (activity.includes("inventario")) {
       const key = INVENTORY_TYPES.some((type) => type.key === row.inventory_type)
@@ -1204,7 +1210,8 @@ async function rowsForReports(filters) {
   return query(
     `
     SELECT c.id, c.date, c.sent_at, c.collaborator_id, c.created_by, c.photo_path,
-           c.sector, c.price_divergence_products, c.expired_products, c.inventory_type,
+           c.sector, c.price_divergence_products, c.price_divergence_quantity,
+           c.expired_products, c.expired_products_quantity, c.inventory_type,
            col.name AS collaborator, c.activity, c.answer, c.observation,
            u.display_name AS sent_by
     FROM checklists c
@@ -1224,8 +1231,14 @@ function checklistProductDetails(row) {
   return "";
 }
 
+function checklistProductQuantity(row) {
+  if (row.activity === PRICE_DIVERGENCE_ACTIVITY) return intValue(row.price_divergence_quantity) || "";
+  if (row.activity === EXPIRED_PRODUCTS_ACTIVITY) return intValue(row.expired_products_quantity) || "";
+  return "";
+}
+
 function makeExcel(rows) {
-  const header = ["Data", "Hora de envio", "Colaborador", "Atividade", "Setor", "Produtos identificados", "Foto", "Sim/NÃ£o", "ObservaÃ§Ã£o", "Enviado por"];
+  const header = ["Data", "Hora de envio", "Colaborador", "Atividade", "Setor", "Produtos identificados", "Quantidade de itens", "Foto", "Sim/NÃ£o", "ObservaÃ§Ã£o", "Enviado por"];
   const xmlRows = [header, ...rows.map((row) => [
     row.date,
     row.sent_at,
@@ -1233,6 +1246,7 @@ function makeExcel(rows) {
     row.activity,
     row.sector || "",
     checklistProductDetails(row),
+    checklistProductQuantity(row),
     row.photo_path || "",
     row.answer,
     row.observation || "",
@@ -1462,9 +1476,11 @@ function checklistSpecificFields(activity, body) {
   const inventoryType = INVENTORY_TYPES.some((type) => type.key === body.inventoryType) ? body.inventoryType : "";
   return {
     priceDivergenceProducts: activity === PRICE_DIVERGENCE_ACTIVITY ? body.priceDivergenceProducts || "" : "",
+    priceDivergenceQuantity: activity === PRICE_DIVERGENCE_ACTIVITY ? intValue(body.priceDivergenceQuantity) : 0,
     expiredProducts: activity === EXPIRED_PRODUCTS_ACTIVITY ? body.expiredProducts || "" : "",
+    expiredProductsQuantity: activity === EXPIRED_PRODUCTS_ACTIVITY ? intValue(body.expiredProductsQuantity) : 0,
     inventoryType: activity === INVENTORY_ACTIVITY ? inventoryType : "",
-    sector: activityNeedsProductSector(activity) ? body.sector || "" : "",
+    sector: activityNeedsProductSector(activity) || activity === GENERAL_STORE_OBSERVATION_ACTIVITY ? body.sector || "" : "",
   };
 }
 
@@ -2788,7 +2804,7 @@ async function api(req, res, url) {
     }
     const photoPath = await saveChecklistPhoto(body.activity, body);
     await execute(
-      "INSERT INTO checklists (date, collaborator_id, activity, answer, observation, sector, price_divergence_products, expired_products, inventory_type, photo_path, sent_at, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      "INSERT INTO checklists (date, collaborator_id, activity, answer, observation, sector, price_divergence_products, price_divergence_quantity, expired_products, expired_products_quantity, inventory_type, photo_path, sent_at, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       [
         date,
         collaboratorId,
@@ -2797,7 +2813,9 @@ async function api(req, res, url) {
         body.observation || "",
         specificFields.sector,
         specificFields.priceDivergenceProducts,
+        specificFields.priceDivergenceQuantity,
         specificFields.expiredProducts,
+        specificFields.expiredProductsQuantity,
         specificFields.inventoryType,
         photoPath,
         nowIso(),
@@ -2826,7 +2844,7 @@ async function api(req, res, url) {
     }
     const photoPath = await saveChecklistPhoto(body.activity, body);
     await execute(
-      "UPDATE checklists SET collaborator_id = ?, activity = ?, answer = ?, observation = ?, sector = ?, price_divergence_products = ?, expired_products = ?, inventory_type = ?, photo_path = COALESCE(?, photo_path), corrected_by = ?, corrected_at = ? WHERE id = ?",
+      "UPDATE checklists SET collaborator_id = ?, activity = ?, answer = ?, observation = ?, sector = ?, price_divergence_products = ?, price_divergence_quantity = ?, expired_products = ?, expired_products_quantity = ?, inventory_type = ?, photo_path = COALESCE(?, photo_path), corrected_by = ?, corrected_at = ? WHERE id = ?",
       [
         collaboratorId,
         body.activity,
@@ -2834,7 +2852,9 @@ async function api(req, res, url) {
         body.observation || "",
         specificFields.sector,
         specificFields.priceDivergenceProducts,
+        specificFields.priceDivergenceQuantity,
         specificFields.expiredProducts,
+        specificFields.expiredProductsQuantity,
         specificFields.inventoryType,
         photoPath,
         user.id,
