@@ -1,4 +1,4 @@
-const http = require("http");
+﻿const http = require("http");
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
@@ -2838,11 +2838,18 @@ async function api(req, res, url) {
 
 function serveStatic(req, res, url) {
   let filePath = (url.pathname === "/" || url.pathname.startsWith("/agendar/")) ? path.join(ROOT, "public", "index.html") : path.join(ROOT, url.pathname);
-  if (url.pathname.startsWith("/uploads/")) filePath = path.join(ROOT, url.pathname);
-  if (!filePath.startsWith(ROOT) || !fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
+  const isUpload = url.pathname.startsWith("/uploads/");
+  if (isUpload) {
+    const uploadName = decodeURIComponent(url.pathname.replace(/^\/uploads\//, ""));
+    filePath = path.join(UPLOAD_DIR, uploadName);
+  }
+  const allowedRoot = isUpload ? UPLOAD_DIR : ROOT;
+  const resolvedFilePath = path.resolve(filePath);
+  const resolvedAllowedRoot = path.resolve(allowedRoot);
+  if (!resolvedFilePath.startsWith(resolvedAllowedRoot + path.sep) || !fs.existsSync(resolvedFilePath) || fs.statSync(resolvedFilePath).isDirectory()) {
     return send(res, 404, "Arquivo nÃ£o encontrado", { "Content-Type": "text/plain; charset=utf-8" });
   }
-  const ext = path.extname(filePath).toLowerCase();
+  const ext = path.extname(resolvedFilePath).toLowerCase();
   const types = {
     ".html": "text/html; charset=utf-8",
     ".css": "text/css; charset=utf-8",
@@ -2855,7 +2862,7 @@ function serveStatic(req, res, url) {
     ".webp": "image/webp",
     ".pdf": "application/pdf",
   };
-  send(res, 200, fs.readFileSync(filePath), {
+  send(res, 200, fs.readFileSync(resolvedFilePath), {
     "Content-Type": types[ext] || "application/octet-stream",
     "Cache-Control": "no-store",
   });
@@ -2893,4 +2900,5 @@ start().catch((error) => {
   console.error(error);
   process.exit(1);
 });
+
 
