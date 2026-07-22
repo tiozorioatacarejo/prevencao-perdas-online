@@ -23,8 +23,16 @@ const MAX_LOGIN_ATTEMPTS = 5;
 const PRICE_DIVERGENCE_ACTIVITY = "Confer\u00eancia de precifica\u00e7\u00e3o";
 const EXPIRED_PRODUCTS_ACTIVITY = "Verifica\u00e7\u00e3o de validades";
 const RECEIPTS_ACTIVITY = "Acompanhamento de recebimentos";
+const INVENTORY_ACTIVITY = "Invent\u00e1rio";
 const SECTOR_REQUIRED_ACTIVITY_TERMS = ["validade", "ruptura", "precificacao", "preco"];
-const PHOTO_REQUIRED_ACTIVITY_TERMS = ["cotacao", "precificacao", "preco", "validade"];
+const PHOTO_REQUIRED_ACTIVITY_TERMS = ["cotac", "precificacao", "preco", "validade"];
+const INVENTORY_TYPES = [
+  { key: "inventory_butcher", label: "A\u00e7ougue" },
+  { key: "inventory_flv", label: "FLV" },
+  { key: "inventory_bakery", label: "Padaria" },
+  { key: "inventory_perishables", label: "Perec\u00edveis" },
+  { key: "inventory_rotating", label: "Rotativo de se\u00e7\u00e3o" },
+];
 const ENGAGEMENT_EXCLUDED_ACTIVITIES = [
   "Lan\u00e7amento de perdas no sistema",
   "Lan\u00e7amento de consumo interno",
@@ -87,6 +95,7 @@ const activities = [
   "Contagem e acompanhamento de vasilhames",
   "Acompanhamento de cota\u00e7\u00f5es",
   "Acompanhamento de recebimentos",
+  "Invent\u00e1rio",
   "Monitoramento loja / App Veesion",
   "Confer\u00eancia de precifica\u00e7\u00e3o",
   "Verifica\u00e7\u00e3o de validades",
@@ -159,6 +168,7 @@ async function initPostgres(pool) {
       sector TEXT,
       price_divergence_products TEXT,
       expired_products TEXT,
+      inventory_type TEXT,
       photo_path TEXT,
       sent_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       created_by INTEGER NOT NULL REFERENCES users(id),
@@ -295,7 +305,7 @@ async function initPostgres(pool) {
       created_by INTEGER REFERENCES users(id),
       booked_at TIMESTAMP,
       updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      UNIQUE(agenda_type, date, start_time)
+      UNIQUE(agenda_type, date, start_time, created_by)
     );
 
     CREATE TABLE IF NOT EXISTS sector_audits (
@@ -395,9 +405,12 @@ async function initPostgres(pool) {
   await pool.query("ALTER TABLE collaborators ADD COLUMN IF NOT EXISTS sector TEXT");
   await pool.query("ALTER TABLE checklists ADD COLUMN IF NOT EXISTS sector TEXT");
   await pool.query("ALTER TABLE checklists ADD COLUMN IF NOT EXISTS photo_path TEXT");
+  await pool.query("ALTER TABLE checklists ADD COLUMN IF NOT EXISTS inventory_type TEXT");
   await pool.query("ALTER TABLE repo_ruptures ADD COLUMN IF NOT EXISTS commercial_updated_by INTEGER REFERENCES users(id)");
   await pool.query("ALTER TABLE repo_expirations ADD COLUMN IF NOT EXISTS commercial_updated_by INTEGER REFERENCES users(id)");
   await pool.query("ALTER TABLE management_monthly ADD COLUMN IF NOT EXISTS sold_quantity REAL NOT NULL DEFAULT 0");
+  await pool.query("ALTER TABLE agenda_slots DROP CONSTRAINT IF EXISTS agenda_slots_agenda_type_date_start_time_key");
+  await pool.query("CREATE UNIQUE INDEX IF NOT EXISTS agenda_slots_owner_time_idx ON agenda_slots (agenda_type, date, start_time, created_by)");
   const existing = await pool.query("SELECT COUNT(*) AS total FROM users");
   if (Number(existing.rows[0].total) === 0) {
     await pool.query(
@@ -653,10 +666,16 @@ function normalizeAgendaType(value) {
 }
 
 function canAccessAgenda(user, type) {
-  if (["administrador", "encarregada"].includes(user.role)) return true;
-  if (type === "comercial") return user.role === "comercial";
-  if (type === "recebimento") return user.role === "recebimento";
+  if (type === "comercial") return ["administrador", "comercial"].includes(user.role);
+  if (type === "recebimento") return ["administrador", "encarregada", "recebimento"].includes(user.role);
   return false;
+}
+
+function agendaOwnerClause(user, type) {
+  if (type === "comercial" && user.role === "comercial") {
+    return { clause: " AND created_by = ?", params: [user.id] };
+  }
+  return { clause: "", params: [] };
 }
 
 function canUpdateRepoCommercial(user) {
@@ -1059,7 +1078,7 @@ function inventoryBucket(sector) {
 async function preventionGoalProgress(monthValue) {
   const month = monthInfoFromValue(monthValue);
   const checklistRows = await query(
-    `SELECT date, activity, observation, price_divergence_products, expired_products
+    `SELECT date, activity, observation, price_divergence_products, expired_products, inventory_type
      FROM checklists
      WHERE date BETWEEN ? AND ?`,
     [month.start, month.end]
@@ -1088,13 +1107,19 @@ async function preventionGoalProgress(monthValue) {
   checklistRows.forEach((row) => {
     const activity = normalizeText(row.activity);
     if (activity.includes("temperatura")) realized.temperatures += 1;
-    if (activity.includes("cotacao")) realized.quotations += 1;
+    if (activity.includes("cotac")) realized.quotations += 1;
     if (activity.includes("recebimento")) realized.receipts += 1;
     if (activity.includes("precificacao") || activity.includes("preco")) {
       realized.pricing += productQuantityFromText(row.price_divergence_products, row.observation);
     }
     if (activity.includes("validade")) {
       realized.validity += productQuantityFromText(row.expired_products, row.observation);
+    }
+    if (activity.includes("inventario")) {
+      const key = INVENTORY_TYPES.some((type) => type.key === row.inventory_type)
+        ? row.inventory_type
+        : inventoryBucket(row.inventory_type || row.observation || "");
+      realized[key] += 1;
     }
     if (activity.includes("perdas")) daySets.losses.add(row.date);
     if (activity.includes("consumo")) daySets.consumption.add(row.date);
@@ -1111,10 +1136,13 @@ async function preventionGoalProgress(monthValue) {
   realized.consumption = daySets.consumption.size;
   realized.bottles = daySets.bottles.size;
 
-  inventoryRows.forEach((row) => {
-    const key = inventoryBucket(row.sector);
-    realized[key] += Number(row.total || 0);
-  });
+  const checklistInventoryTotal = INVENTORY_TYPES.reduce((sum, type) => sum + Number(realized[type.key] || 0), 0);
+  if (!checklistInventoryTotal) {
+    inventoryRows.forEach((row) => {
+      const key = inventoryBucket(row.sector);
+      realized[key] += Number(row.total || 0);
+    });
+  }
 
   const goals = PREVENTION_MONTHLY_GOALS.map((goal) => {
     const value = Number(realized[goal.key] || 0);
@@ -1175,7 +1203,7 @@ async function rowsForReports(filters) {
   return query(
     `
     SELECT c.id, c.date, c.sent_at, c.collaborator_id, c.created_by, c.photo_path,
-           c.sector, c.price_divergence_products, c.expired_products,
+           c.sector, c.price_divergence_products, c.expired_products, c.inventory_type,
            col.name AS collaborator, c.activity, c.answer, c.observation,
            u.display_name AS sent_by
     FROM checklists c
@@ -1191,6 +1219,7 @@ async function rowsForReports(filters) {
 function checklistProductDetails(row) {
   if (row.activity === PRICE_DIVERGENCE_ACTIVITY) return row.price_divergence_products || "";
   if (row.activity === EXPIRED_PRODUCTS_ACTIVITY) return row.expired_products || "";
+  if (row.activity === INVENTORY_ACTIVITY) return (INVENTORY_TYPES.find((type) => type.key === row.inventory_type)?.label || row.inventory_type || "");
   return "";
 }
 
@@ -1429,9 +1458,11 @@ function makePdf(rows) {
 }
 
 function checklistSpecificFields(activity, body) {
+  const inventoryType = INVENTORY_TYPES.some((type) => type.key === body.inventoryType) ? body.inventoryType : "";
   return {
     priceDivergenceProducts: activity === PRICE_DIVERGENCE_ACTIVITY ? body.priceDivergenceProducts || "" : "",
     expiredProducts: activity === EXPIRED_PRODUCTS_ACTIVITY ? body.expiredProducts || "" : "",
+    inventoryType: activity === INVENTORY_ACTIVITY ? inventoryType : "",
     sector: activityNeedsProductSector(activity) ? body.sector || "" : "",
   };
 }
@@ -1898,12 +1929,14 @@ async function api(req, res, url) {
   if (method === "GET" && url.pathname === "/api/public/agenda") {
     const type = normalizeAgendaType(url.searchParams.get("type"));
     if (type === "recebimento") return send(res, 200, { rows: [], closed: true });
+    const ownerId = Number(url.searchParams.get("owner") || 0);
+    const ownerClause = type === "comercial" && ownerId ? " AND created_by = ?" : "";
     const rows = await query(
       `SELECT id, agenda_type, date, start_time, end_time
        FROM agenda_slots
-       WHERE agenda_type = ? AND status = 'Disponivel' AND date >= ?
+       WHERE agenda_type = ? AND status = 'Disponivel' AND date >= ?${ownerClause}
        ORDER BY date, start_time`,
-      [type, today()]
+      [type, today(), ...(ownerClause ? [ownerId] : [])]
     );
     return send(res, 200, { rows });
   }
@@ -2165,12 +2198,13 @@ async function api(req, res, url) {
     if (!canAccessAgenda(user, type)) return send(res, 403, { error: "Acesso restrito à agenda." });
     const start = url.searchParams.get("startDate") || today();
     const end = url.searchParams.get("endDate") || start;
+    const ownerFilter = agendaOwnerClause(user, type);
     const rows = await query(
       `SELECT *
        FROM agenda_slots
-       WHERE agenda_type = ? AND date BETWEEN ? AND ?
+       WHERE agenda_type = ? AND date BETWEEN ? AND ?${ownerFilter.clause}
        ORDER BY date, start_time`,
-      [type, start, end]
+      [type, start, end, ...ownerFilter.params]
     );
     return send(res, 200, { rows });
   }
@@ -2185,8 +2219,8 @@ async function api(req, res, url) {
     if (!date || !startTime || !endTime) return send(res, 400, { error: type === "recebimento" ? "Informe data e horário." : "Informe data, início e fim." });
     const isManualCommercial = type === "comercial" && body.bookingMode === "manual";
     const status = type === "recebimento" || isManualCommercial ? "Agendado" : "Disponivel";
-    if (isManualCommercial && (!String(body.name || "").trim() || !String(body.company || "").trim() || !String(body.phone || "").trim())) {
-      return send(res, 400, { error: "Informe vendedor, empresa e telefone para o agendamento manual." });
+    if (isManualCommercial && (!String(body.name || "").trim() || !String(body.company || "").trim())) {
+      return send(res, 400, { error: "Informe vendedor e empresa para o agendamento manual." });
     }
     try {
       await execute(
@@ -2221,10 +2255,13 @@ async function api(req, res, url) {
   if (method === "PUT" && url.pathname.startsWith("/api/agenda/")) {
     const id = Number(url.pathname.split("/").pop());
     const body = await readBody(req);
-    const rows = await query("SELECT agenda_type FROM agenda_slots WHERE id = ?", [id]);
+    const rows = await query("SELECT agenda_type, created_by FROM agenda_slots WHERE id = ?", [id]);
     if (!rows[0]) return send(res, 404, { error: "Horário não encontrado." });
     const type = normalizeAgendaType(rows[0].agenda_type);
     if (!canAccessAgenda(user, type)) return send(res, 403, { error: "Acesso restrito à agenda." });
+    if (type === "comercial" && user.role === "comercial" && Number(rows[0].created_by) !== Number(user.id)) {
+      return send(res, 403, { error: "Você só pode alterar sua própria agenda comercial." });
+    }
     const allowed = ["Disponivel", "Agendado", "Recebido", "Atendido", "Cancelado", "Atrasado"];
     const status = allowed.includes(body.status) ? body.status : "Disponivel";
     await execute("UPDATE agenda_slots SET status = ?, updated_at = ? WHERE id = ?", [status, nowIso(), id]);
@@ -2745,9 +2782,12 @@ async function api(req, res, url) {
     if (activityNeedsProductSector(body.activity) && !specificFields.sector) {
       return send(res, 400, { error: "Selecione o setor do produto." });
     }
+    if (body.activity === INVENTORY_ACTIVITY && !specificFields.inventoryType) {
+      return send(res, 400, { error: "Selecione o tipo de inventário." });
+    }
     const photoPath = await saveChecklistPhoto(body.activity, body);
     await execute(
-      "INSERT INTO checklists (date, collaborator_id, activity, answer, observation, sector, price_divergence_products, expired_products, photo_path, sent_at, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      "INSERT INTO checklists (date, collaborator_id, activity, answer, observation, sector, price_divergence_products, expired_products, inventory_type, photo_path, sent_at, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       [
         date,
         collaboratorId,
@@ -2757,6 +2797,7 @@ async function api(req, res, url) {
         specificFields.sector,
         specificFields.priceDivergenceProducts,
         specificFields.expiredProducts,
+        specificFields.inventoryType,
         photoPath,
         nowIso(),
         user.id,
@@ -2779,9 +2820,12 @@ async function api(req, res, url) {
     if (activityNeedsProductSector(body.activity) && !specificFields.sector) {
       return send(res, 400, { error: "Selecione o setor do produto." });
     }
+    if (body.activity === INVENTORY_ACTIVITY && !specificFields.inventoryType) {
+      return send(res, 400, { error: "Selecione o tipo de inventário." });
+    }
     const photoPath = await saveChecklistPhoto(body.activity, body);
     await execute(
-      "UPDATE checklists SET collaborator_id = ?, activity = ?, answer = ?, observation = ?, sector = ?, price_divergence_products = ?, expired_products = ?, photo_path = COALESCE(?, photo_path), corrected_by = ?, corrected_at = ? WHERE id = ?",
+      "UPDATE checklists SET collaborator_id = ?, activity = ?, answer = ?, observation = ?, sector = ?, price_divergence_products = ?, expired_products = ?, inventory_type = ?, photo_path = COALESCE(?, photo_path), corrected_by = ?, corrected_at = ? WHERE id = ?",
       [
         collaboratorId,
         body.activity,
@@ -2790,6 +2834,7 @@ async function api(req, res, url) {
         specificFields.sector,
         specificFields.priceDivergenceProducts,
         specificFields.expiredProducts,
+        specificFields.inventoryType,
         photoPath,
         user.id,
         nowIso(),

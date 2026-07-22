@@ -74,6 +74,7 @@ def init_db():
             sector TEXT,
             price_divergence_products TEXT,
             expired_products TEXT,
+            inventory_type TEXT,
             photo_path TEXT,
             sent_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             created_by INTEGER NOT NULL,
@@ -226,7 +227,7 @@ def init_db():
             created_by INTEGER,
             booked_at TEXT,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(agenda_type, date, start_time),
+            UNIQUE(agenda_type, date, start_time, created_by),
             FOREIGN KEY (created_by) REFERENCES users(id)
         );
 
@@ -353,6 +354,8 @@ def init_db():
         conn.execute("ALTER TABLE checklists ADD COLUMN expired_products TEXT")
     if "sector" not in checklist_columns:
         conn.execute("ALTER TABLE checklists ADD COLUMN sector TEXT")
+    if "inventory_type" not in checklist_columns:
+        conn.execute("ALTER TABLE checklists ADD COLUMN inventory_type TEXT")
 
     rupture_columns = [row["name"] for row in conn.execute("PRAGMA table_info(repo_ruptures)").fetchall()]
     if "commercial_updated_by" not in rupture_columns:

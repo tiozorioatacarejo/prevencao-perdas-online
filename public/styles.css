@@ -591,6 +591,81 @@ textarea {
   gap: 12px;
 }
 
+.agenda-month-calendar {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(120px, 1fr));
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.agenda-month-weekday {
+  padding: 10px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  text-align: center;
+}
+
+.agenda-month-cell {
+  min-height: 118px;
+  padding: 8px;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.agenda-month-day {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--text);
+  margin-bottom: 7px;
+}
+
+.agenda-month-items {
+  display: grid;
+  gap: 5px;
+}
+
+.agenda-month-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 5px;
+  align-items: center;
+  padding: 5px 7px;
+  border-radius: 5px;
+  font-size: 12px;
+  line-height: 1.25;
+}
+
+.agenda-month-item span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agenda-month-item.open {
+  background: #eef3f0;
+  color: #385246;
+}
+
+.agenda-month-item.booked {
+  background: #fde4d3;
+  color: #9a4b1d;
+}
+
+.agenda-month-item.done {
+  background: #d9f1df;
+  color: #17603a;
+}
+
+.agenda-month-item.alert {
+  background: #f8dddd;
+  color: #a52b2b;
+}
+
 .agenda-card {
   background: #fff;
   border: 1px solid var(--line);

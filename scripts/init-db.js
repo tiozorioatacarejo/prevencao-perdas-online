@@ -37,6 +37,7 @@ async function initPostgres() {
       sector TEXT,
       price_divergence_products TEXT,
       expired_products TEXT,
+      inventory_type TEXT,
       photo_path TEXT,
       sent_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       created_by INTEGER NOT NULL REFERENCES users(id),
@@ -115,7 +116,7 @@ async function initPostgres() {
       created_by INTEGER REFERENCES users(id),
       booked_at TIMESTAMP,
       updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      UNIQUE(agenda_type, date, start_time)
+      UNIQUE(agenda_type, date, start_time, created_by)
     );
 
     CREATE TABLE IF NOT EXISTS sector_audits (
@@ -214,6 +215,9 @@ async function initPostgres() {
   `);
   await pool.query("ALTER TABLE collaborators ADD COLUMN IF NOT EXISTS sector TEXT");
   await pool.query("ALTER TABLE checklists ADD COLUMN IF NOT EXISTS sector TEXT");
+  await pool.query("ALTER TABLE checklists ADD COLUMN IF NOT EXISTS inventory_type TEXT");
+  await pool.query("ALTER TABLE agenda_slots DROP CONSTRAINT IF EXISTS agenda_slots_agenda_type_date_start_time_key");
+  await pool.query("CREATE UNIQUE INDEX IF NOT EXISTS agenda_slots_owner_time_idx ON agenda_slots (agenda_type, date, start_time, created_by)");
   await pool.query("ALTER TABLE management_monthly ADD COLUMN IF NOT EXISTS sold_quantity REAL NOT NULL DEFAULT 0");
   const existing = await pool.query("SELECT COUNT(*) AS total FROM users");
   if (Number(existing.rows[0].total) === 0) {

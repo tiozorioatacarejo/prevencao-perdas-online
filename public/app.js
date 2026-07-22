@@ -47,6 +47,7 @@
     filters: {
       startDate: new Date().toISOString().slice(0, 10),
       endDate: new Date().toISOString().slice(0, 10),
+      month: new Date().toISOString().slice(0, 7),
     },
   },
   agenda: {
@@ -79,8 +80,16 @@ let sessionRefreshTimer = null;
 const app = document.getElementById("app");
 const PRICE_DIVERGENCE_ACTIVITY = "Confer\u00eancia de precifica\u00e7\u00e3o";
 const EXPIRED_PRODUCTS_ACTIVITY = "Verifica\u00e7\u00e3o de validades";
+const INVENTORY_ACTIVITY = "Invent\u00e1rio";
 const SECTOR_REQUIRED_ACTIVITY_TERMS = ["validade", "ruptura", "precificacao", "preco"];
-const PHOTO_REQUIRED_ACTIVITY_TERMS = ["cotacao", "precificacao", "preco", "validade"];
+const PHOTO_REQUIRED_ACTIVITY_TERMS = ["cotac", "precificacao", "preco", "validade"];
+const INVENTORY_TYPES = [
+  ["inventory_butcher", "Açougue"],
+  ["inventory_flv", "FLV"],
+  ["inventory_bakery", "Padaria"],
+  ["inventory_perishables", "Perecíveis"],
+  ["inventory_rotating", "Rotativo de seção"],
+];
 const AUDIT_FOCUS_OPTIONS = [
   ["limpeza", "Limpeza"],
   ["organizacao", "Organização"],
@@ -170,9 +179,8 @@ function canAccessReposition() {
 }
 
 function canAccessAgenda(type) {
-  if (["administrador", "encarregada"].includes(state.user?.role)) return true;
-  if (type === "comercial") return state.user?.role === "comercial";
-  if (type === "recebimento") return state.user?.role === "recebimento";
+  if (type === "comercial") return ["administrador", "comercial"].includes(state.user?.role);
+  if (type === "recebimento") return ["administrador", "encarregada", "recebimento"].includes(state.user?.role);
   return false;
 }
 
@@ -671,7 +679,6 @@ function allowedTabs() {
     const tabs = [
       ["sectorAudit", "Conferência Gerencial"],
       ["repoGoals", "Metas Reposição"],
-      ["commercialAgenda", "Agenda Comercial"],
       ["receivingAgenda", "Agenda Recebimento"],
       ["repoReports", "Relatórios Reposição"],
       ["reports", "Relatórios Prevenção"],
@@ -820,11 +827,13 @@ async function loadReposition() {
 }
 
 async function loadAgenda(type) {
-  const qs = new URLSearchParams({
-    type,
-    startDate: state.agenda.filters.startDate,
-    endDate: state.agenda.filters.endDate,
-  });
+  const range = type === "comercial"
+    ? monthRange(state.agenda.filters.month || new Date().toISOString().slice(0, 7))
+    : {
+      startDate: state.agenda.filters.startDate,
+      endDate: state.agenda.filters.endDate,
+    };
+  const qs = new URLSearchParams({ type, ...range });
   const data = await api(`/api/agenda?${qs.toString()}`);
   state.agenda.rows = data.rows || [];
 }
@@ -1332,6 +1341,12 @@ function renderChecklist() {
       <label data-product-sector-field>Setor do produto
         <select name="sector">${repoOptions(state.repo.sectors || [])}</select>
       </label>
+      <label data-inventory-type-field>Tipo de inventário
+        <select name="inventoryType">
+          <option value="">Selecione</option>
+          ${INVENTORY_TYPES.map(([value, label]) => `<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>`).join("")}
+        </select>
+      </label>
       <label data-checklist-photo-field>Foto do checklist
         <input name="photoFile" type="file" accept="image/*" capture="environment">
         <span class="field-help">Use para cotacoes, conferencia de precificacao e verificacao de validades.</span>
@@ -1376,25 +1391,31 @@ function renderChecklist() {
   const priceField = checklistForm.querySelector("[data-price-divergence-field]");
   const expiredField = checklistForm.querySelector("[data-expired-products-field]");
   const sectorField = checklistForm.querySelector("[data-product-sector-field]");
+  const inventoryField = checklistForm.querySelector("[data-inventory-type-field]");
   const photoField = checklistForm.querySelector("[data-checklist-photo-field]");
   const syncChecklistSpecificFields = () => {
     const activity = activitySelect.value;
     const showPrice = activity === PRICE_DIVERGENCE_ACTIVITY;
     const showExpired = activity === EXPIRED_PRODUCTS_ACTIVITY;
+    const showInventory = activity === INVENTORY_ACTIVITY;
     const showSector = activityNeedsProductSector(activity);
     const showPhoto = checklistNeedsPhoto(activity);
     priceField.hidden = !showPrice;
     expiredField.hidden = !showExpired;
     sectorField.hidden = !showSector;
+    inventoryField.hidden = !showInventory;
     photoField.hidden = !showPhoto;
     priceField.classList.toggle("hidden", !showPrice);
     expiredField.classList.toggle("hidden", !showExpired);
     sectorField.classList.toggle("hidden", !showSector);
+    inventoryField.classList.toggle("hidden", !showInventory);
     photoField.classList.toggle("hidden", !showPhoto);
     checklistForm.elements.sector.required = showSector;
+    checklistForm.elements.inventoryType.required = showInventory;
     if (!showPrice) checklistForm.elements.priceDivergenceProducts.value = "";
     if (!showExpired) checklistForm.elements.expiredProducts.value = "";
     if (!showSector) checklistForm.elements.sector.value = "";
+    if (!showInventory) checklistForm.elements.inventoryType.value = "";
     if (!showPhoto) checklistForm.elements.photoFile.value = "";
   };
   activitySelect.addEventListener("change", syncChecklistSpecificFields);
@@ -1615,6 +1636,9 @@ function renderReports() {
 function checklistProductDetails(row) {
   if (row.activity === PRICE_DIVERGENCE_ACTIVITY) return row.price_divergence_products || "";
   if (row.activity === EXPIRED_PRODUCTS_ACTIVITY) return row.expired_products || "";
+  if (row.activity === INVENTORY_ACTIVITY) {
+    return INVENTORY_TYPES.find(([value]) => value === row.inventory_type)?.[1] || row.inventory_type || "";
+  }
   return "";
 }
 
@@ -1814,6 +1838,9 @@ function editChecklist(id) {
   const sector = activityNeedsProductSector(row.activity)
     ? prompt("Setor do produto", row.sector || "") || ""
     : "";
+  const inventoryType = row.activity === INVENTORY_ACTIVITY
+    ? prompt("Tipo de inventário: inventory_butcher, inventory_flv, inventory_bakery, inventory_perishables ou inventory_rotating", row.inventory_type || "") || ""
+    : "";
   api(`/api/checklists/${id}`, {
     method: "PUT",
     body: JSON.stringify({
@@ -1824,6 +1851,7 @@ function editChecklist(id) {
       sector,
       priceDivergenceProducts,
       expiredProducts,
+      inventoryType,
     }),
   }).then(async () => {
     await loadChecklists();
@@ -1878,7 +1906,10 @@ async function renderPublicAgenda() {
     return;
   }
   try {
-    const data = await api(`/api/public/agenda?type=${type}`);
+    const params = new URLSearchParams({ type });
+    const owner = new URLSearchParams(window.location.search).get("owner");
+    if (owner) params.set("owner", owner);
+    const data = await api(`/api/public/agenda?${params.toString()}`);
     state.agenda.publicRows = data.rows || [];
   } catch (error) {
     state.agenda.publicRows = [];
@@ -1900,7 +1931,7 @@ async function renderPublicAgenda() {
         </label>
         <label>Nome <input name="name" required autocomplete="name"></label>
         <label>Empresa / fornecedor <input name="company" required></label>
-        <label>Telefone <input name="phone" required autocomplete="tel"></label>
+        <label>Telefone <input name="phone" autocomplete="tel"></label>
         <label>${type === "recebimento" ? "NF / pedido / placa" : "Assunto"} <input name="document"></label>
         <label>Observacao <textarea name="observation"></textarea></label>
         <button class="btn primary" type="submit" ${state.agenda.publicRows.length ? "" : "disabled"}>Confirmar agendamento</button>
@@ -1931,10 +1962,58 @@ async function renderPublicAgenda() {
   fixVisibleText(app);
 }
 
+function agendaStatusClass(status) {
+  const normalized = normalizeText(status);
+  if (normalized.includes("atendido") || normalized.includes("recebido")) return "done";
+  if (normalized.includes("cancelado") || normalized.includes("atrasado")) return "alert";
+  if (normalized.includes("agendado")) return "booked";
+  return "open";
+}
+
+function agendaMonthlyCalendar(rows, monthValue) {
+  const [year, month] = String(monthValue || new Date().toISOString().slice(0, 7)).split("-").map(Number);
+  const first = new Date(year, month - 1, 1);
+  const last = new Date(year, month, 0);
+  const startOffset = first.getDay();
+  const totalCells = Math.ceil((startOffset + last.getDate()) / 7) * 7;
+  const byDate = new Map();
+  rows.forEach((row) => {
+    if (!byDate.has(row.date)) byDate.set(row.date, []);
+    byDate.get(row.date).push(row);
+  });
+  const weekDays = ["DOM", "SEG", "TER", "QUA", "QUI", "SEX", "SÁB"];
+  const cells = Array.from({ length: totalCells }, (_, index) => {
+    const day = index - startOffset + 1;
+    if (day < 1 || day > last.getDate()) return `<div class="agenda-month-cell muted"></div>`;
+    const date = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    const dayRows = byDate.get(date) || [];
+    return `
+      <div class="agenda-month-cell">
+        <div class="agenda-month-day">${day}</div>
+        <div class="agenda-month-items">
+          ${dayRows.map((row) => `
+            <div class="agenda-month-item ${agendaStatusClass(row.status)}" title="${escapeHtml(`${row.status} - ${row.booked_name || row.booked_company || "Horario livre"}`)}">
+              <strong>${escapeHtml(row.start_time)}</strong>
+              <span>${escapeHtml(row.booked_name || row.booked_company || "Horario livre")}</span>
+            </div>
+          `).join("")}
+        </div>
+      </div>
+    `;
+  }).join("");
+  return `
+    <div class="agenda-month-calendar">
+      ${weekDays.map((day) => `<div class="agenda-month-weekday">${day}</div>`).join("")}
+      ${cells}
+    </div>
+  `;
+}
+
 function renderAgenda(type) {
   const label = agendaLabel(type);
   const isReceiving = type === "recebimento";
-  const publicLink = `${window.location.origin}${agendaPublicPath(type)}`;
+  const ownerParam = type === "comercial" && state.user?.role === "comercial" ? `?owner=${encodeURIComponent(state.user.id)}` : "";
+  const publicLink = `${window.location.origin}${agendaPublicPath(type)}${ownerParam}`;
   const statusOptions = type === "recebimento"
     ? ["Disponivel", "Agendado", "Recebido", "Atrasado", "Cancelado"]
     : ["Disponivel", "Agendado", "Atendido", "Cancelado"];
@@ -1994,20 +2073,27 @@ function renderAgenda(type) {
         <button class="btn primary" type="submit">${isReceiving ? "Salvar recebimento" : "Adicionar horario"}</button>
       </form>
       <form class="panel grid" id="agendaFilterForm">
-        <h3>Periodo exibido</h3>
-        <label>Inicio <input name="startDate" type="date" value="${escapeHtml(state.agenda.filters.startDate)}"></label>
-        <label>Fim <input name="endDate" type="date" value="${escapeHtml(state.agenda.filters.endDate)}"></label>
-        <button class="btn primary" type="submit">Aplicar periodo</button>
+        <h3>${isReceiving ? "Periodo exibido" : "Agenda mensal"}</h3>
+        ${isReceiving ? `
+          <label>Inicio <input name="startDate" type="date" value="${escapeHtml(state.agenda.filters.startDate)}"></label>
+          <label>Fim <input name="endDate" type="date" value="${escapeHtml(state.agenda.filters.endDate)}"></label>
+          <button class="btn primary" type="submit">Aplicar periodo</button>
+        ` : `
+          <label>Mês <input name="month" type="month" value="${escapeHtml(state.agenda.filters.month || new Date().toISOString().slice(0, 7))}"></label>
+          <button class="btn primary" type="submit">Aplicar mês</button>
+        `}
       </form>
     </div>
     <section style="margin-top:14px">
       <div class="section-title-row">
         <div>
-          <h3>Horarios e agendamentos</h3>
-          <div class="muted">Acompanhe reservas, telefone e status de atendimento.</div>
+          <h3>${isReceiving ? "Horarios e agendamentos" : "Agenda Mensal"}</h3>
+          <div class="muted">${isReceiving ? "Acompanhe reservas, telefone e status de atendimento." : "Visualize os atendimentos confirmados e horários disponíveis do mês."}</div>
         </div>
       </div>
-      <div class="agenda-cards">${agendaCards(state.agenda.rows, statusOptions, type)}</div>
+      ${isReceiving
+        ? `<div class="agenda-cards">${agendaCards(state.agenda.rows, statusOptions, type)}</div>`
+        : agendaMonthlyCalendar(state.agenda.rows, state.agenda.filters.month)}
     </section>
   `;
   document.getElementById("copyAgendaLink")?.addEventListener("click", async () => {
@@ -2027,9 +2113,10 @@ function renderAgenda(type) {
         button.classList.toggle("active", button.dataset.agendaMode === mode);
       });
       manualFields.classList.toggle("hidden", !isManual);
-      ["name", "company", "phone"].forEach((name) => {
+      ["name", "company"].forEach((name) => {
         agendaForm.elements[name].required = isManual;
       });
+      agendaForm.elements.phone.required = false;
       submitButton.textContent = isManual ? "Salvar agendamento" : "Adicionar horario";
     };
     agendaForm.querySelectorAll("[data-agenda-mode]").forEach((button) => {
