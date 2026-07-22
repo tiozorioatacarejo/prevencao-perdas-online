@@ -91,6 +91,14 @@ def init_db():
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
 
+        CREATE TABLE IF NOT EXISTS app_settings (
+            setting_key TEXT PRIMARY KEY,
+            setting_value TEXT NOT NULL,
+            updated_by INTEGER,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (updated_by) REFERENCES users(id)
+        );
+
         CREATE TABLE IF NOT EXISTS operational_summaries (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             date TEXT UNIQUE NOT NULL,

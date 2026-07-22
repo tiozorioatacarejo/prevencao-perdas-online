@@ -51,6 +51,13 @@ async function initPostgres() {
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS app_settings (
+      setting_key TEXT PRIMARY KEY,
+      setting_value TEXT NOT NULL,
+      updated_by INTEGER REFERENCES users(id),
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
     CREATE TABLE IF NOT EXISTS operational_summaries (
       id SERIAL PRIMARY KEY,
       date TEXT UNIQUE NOT NULL,

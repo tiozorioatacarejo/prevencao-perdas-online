@@ -713,6 +713,32 @@ textarea {
   margin-top: 6px;
 }
 
+.setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.setting-row h3 {
+  margin-bottom: 4px;
+}
+
+.toggle-label {
+  display: inline-flex;
+  grid-template-columns: none;
+  align-items: center;
+  gap: 8px;
+  min-width: fit-content;
+  color: var(--text);
+  font-weight: 700;
+}
+
+.toggle-label input {
+  width: 18px;
+  height: 18px;
+}
+
 .management-filter {
   grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
   align-items: end;

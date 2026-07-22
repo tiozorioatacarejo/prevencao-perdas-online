@@ -19,6 +19,9 @@
     month: new Date().toISOString().slice(0, 7),
     data: null,
   },
+  settings: {
+    preventionGoalsVisibleToTeam: false,
+  },
   users: [],
   auditFilters: {
     startDate: new Date().toISOString().slice(0, 10),
@@ -155,6 +158,11 @@ function canAccessSummary() {
 
 function canAccessPrevention() {
   return ["administrador", "prevencao", "colaborador", "encarregada"].includes(state.user?.role);
+}
+
+function canViewPreventionGoals() {
+  if (state.user?.role === "administrador") return true;
+  return canAccessPrevention() && state.settings.preventionGoalsVisibleToTeam;
 }
 
 function canAccessReposition() {
@@ -366,6 +374,7 @@ async function bootstrap() {
     state.user = me.user;
     state.activities = me.activities;
     state.repo.sectors = me.sectors || state.repo.sectors;
+    await loadAppSettings();
     if (canAccessReposition()) {
       const repoOptions = await api("/api/reposition/options");
       state.repo.sectors = repoOptions.sectors;
@@ -666,20 +675,20 @@ function allowedTabs() {
       ["receivingAgenda", "Agenda Recebimento"],
       ["repoReports", "Relatórios Reposição"],
       ["reports", "Relatórios Prevenção"],
-      ["preventionGoals", "Metas Prevenção"],
       ["pendencies", "Pendências"],
     ];
+    if (canViewPreventionGoals()) tabs.splice(6, 0, ["preventionGoals", "Metas Prevenção"]);
     if (canFillLaraOnlyActivities()) tabs.splice(1, 0, ["checklist", "Checklist"]);
     return tabs;
   }
   if (state.user?.role !== "administrador") {
     const tabs = [
       ["dashboard", "Painel PrevenÃ§Ã£o"],
-      ["preventionGoals", "Metas Prevenção"],
       ["checklist", "Checklist"],
       ["reposition", "ReposiÃ§Ã£o"],
       ["pendencies", "PendÃªncias"],
     ];
+    if (canViewPreventionGoals()) tabs.splice(1, 0, ["preventionGoals", "Metas Prevenção"]);
     if (canAccessSummary()) tabs.splice(2, 0, ["summary", "Resumo"]);
     return tabs.filter(([id]) => id !== "reposition");
   }
@@ -748,6 +757,10 @@ async function loadDashboard() {
 async function loadPreventionGoals() {
   const qs = new URLSearchParams({ month: state.preventionGoals.month || new Date().toISOString().slice(0, 7) });
   state.preventionGoals.data = await api(`/api/prevention-goals?${qs.toString()}`);
+}
+
+async function loadAppSettings() {
+  state.settings = await api("/api/app-settings");
 }
 
 async function loadChecklists(params = "") {
@@ -961,6 +974,20 @@ function renderPreventionGoals() {
     summary: { configuredPoints: 120, targetPoints: 100, maxPoints: 120, totalPoints: 0, percent: 0, status: "EM ANDAMENTO" },
   };
   const summary = data.summary || {};
+  const adminSettings = state.user?.role === "administrador" ? `
+    <section class="panel" style="margin-bottom:14px">
+      <div class="setting-row">
+        <div>
+          <h3>Visibilidade da tela</h3>
+          <div class="muted">Quando desligado, somente administrador visualiza as metas. Quando ligado, a equipe de prevenção passa a ver esta aba.</div>
+        </div>
+        <label class="toggle-label">
+          <input id="preventionGoalsVisibilityToggle" type="checkbox" ${state.settings.preventionGoalsVisibleToTeam ? "checked" : ""}>
+          <span>Liberar para prevenção</span>
+        </label>
+      </div>
+    </section>
+  ` : "";
   view.innerHTML = `
     <div class="topbar">
       <div>
@@ -980,6 +1007,7 @@ function renderPreventionGoals() {
       </div>
       <button class="btn primary" type="submit">Aplicar mês</button>
     </form>
+    ${adminSettings}
     <div class="metrics" style="margin-bottom:14px">
       <div class="metric"><span class="muted">Pontuação obtida</span><strong>${fmtGoalNumber(summary.totalPoints)}/${fmtGoalNumber(summary.maxPoints)}</strong><small>${fmtGoalNumber(summary.percent)}% da meta mínima</small></div>
       <div class="metric"><span class="muted">Meta para receber</span><strong>${fmtGoalNumber(summary.targetPoints)}</strong><small>pontos necessários</small></div>
@@ -1018,6 +1046,16 @@ function renderPreventionGoals() {
     state.preventionGoals.month = new FormData(event.currentTarget).get("month") || new Date().toISOString().slice(0, 7);
     await loadPreventionGoals();
     renderPreventionGoals();
+  });
+  document.getElementById("preventionGoalsVisibilityToggle")?.addEventListener("change", async (event) => {
+    const visibleToTeam = event.currentTarget.checked;
+    const result = await api("/api/app-settings/prevention-goals", {
+      method: "PUT",
+      body: JSON.stringify({ visibleToTeam }),
+    });
+    state.settings.preventionGoalsVisibleToTeam = result.preventionGoalsVisibleToTeam;
+    toast(state.settings.preventionGoalsVisibleToTeam ? "Metas liberadas para a prevenção." : "Metas visíveis somente para administrador.");
+    renderShell();
   });
 }
 

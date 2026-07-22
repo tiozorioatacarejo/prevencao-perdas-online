@@ -173,6 +173,13 @@ async function initPostgres(pool) {
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS app_settings (
+      setting_key TEXT PRIMARY KEY,
+      setting_value TEXT NOT NULL,
+      updated_by INTEGER REFERENCES users(id),
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
     CREATE TABLE IF NOT EXISTS operational_summaries (
       id SERIAL PRIMARY KEY,
       date TEXT UNIQUE NOT NULL,
@@ -593,6 +600,32 @@ function loginAreaMatches(area, role) {
 
 function canAccessPrevention(user) {
   return ["administrador", "prevencao", "colaborador", "encarregada"].includes(user.role);
+}
+
+async function appSetting(key, fallback = "") {
+  const rows = await query("SELECT setting_value FROM app_settings WHERE setting_key = ?", [key]);
+  return rows[0]?.setting_value ?? fallback;
+}
+
+async function setAppSetting(key, value, user) {
+  await execute(
+    `INSERT INTO app_settings (setting_key, setting_value, updated_by, updated_at)
+     VALUES (?, ?, ?, ?)
+     ON CONFLICT(setting_key) DO UPDATE SET
+       setting_value=excluded.setting_value,
+       updated_by=excluded.updated_by,
+       updated_at=excluded.updated_at`,
+    [key, value, user.id, nowIso()]
+  );
+}
+
+async function preventionGoalsVisibleToTeam() {
+  return (await appSetting("prevention_goals_visible_to_team", "false")) === "true";
+}
+
+async function canAccessPreventionGoals(user) {
+  if (isAdmin(user)) return true;
+  return canAccessPrevention(user) && await preventionGoalsVisibleToTeam();
 }
 
 function canAccessReposition(user) {
@@ -1910,6 +1943,21 @@ async function api(req, res, url) {
     return send(res, 200, { user, activities, sectors: repoSectors });
   }
 
+  if (method === "GET" && url.pathname === "/api/app-settings") {
+    return send(res, 200, {
+      preventionGoalsVisibleToTeam: await preventionGoalsVisibleToTeam(),
+    });
+  }
+
+  if (method === "PUT" && url.pathname === "/api/app-settings/prevention-goals") {
+    if (!isAdmin(user)) return send(res, 403, { error: "Apenas administrador pode alterar esta configuração." });
+    const body = await readBody(req);
+    const enabled = body.visibleToTeam === true || body.visibleToTeam === "true";
+    await setAppSetting("prevention_goals_visible_to_team", enabled ? "true" : "false", user);
+    await logAudit(user, "update", "app_settings", "prevention_goals_visible_to_team", { visibleToTeam: enabled });
+    return send(res, 200, { preventionGoalsVisibleToTeam: enabled });
+  }
+
   if (method === "GET" && url.pathname === "/api/management-indicators") {
     if (!canAccessManagementIndicators(user)) return send(res, 403, { error: "Acesso restrito aos indicadores administrativos." });
     const period = url.searchParams.get("period") || today().slice(0, 7);
@@ -2947,7 +2995,7 @@ async function api(req, res, url) {
   }
 
   if (method === "GET" && url.pathname === "/api/prevention-goals") {
-    if (!canAccessPrevention(user)) return send(res, 403, { error: "Acesso restrito ao módulo de prevenção." });
+    if (!await canAccessPreventionGoals(user)) return send(res, 403, { error: "Metas da prevenção ainda não liberadas para este acesso." });
     return send(res, 200, await preventionGoalProgress(url.searchParams.get("month")));
   }
 
