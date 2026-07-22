@@ -2390,23 +2390,7 @@ async function api(req, res, url) {
       [start, end, ...repoScopeParams]
     );
     const repoActivityMap = new Map(repoActivityCounts.map((row) => [row.activity, Number(row.total || 0)]));
-    const commercialUserCounts = await query(
-      `
-      SELECT u.id, u.display_name AS name, COUNT(x.id) AS total
-      FROM users u
-      LEFT JOIN (
-        SELECT id, commercial_updated_by, date FROM repo_ruptures WHERE commercial_updated_by IS NOT NULL
-        UNION ALL
-        SELECT id, commercial_updated_by, date FROM repo_expirations WHERE commercial_updated_by IS NOT NULL
-      ) x ON x.commercial_updated_by = u.id AND x.date BETWEEN ? AND ?
-      WHERE u.role = 'comercial' AND u.status = 'ativo' ${user.role === "comercial" ? "AND u.id = ?" : ""}
-      GROUP BY u.id, u.display_name
-      ORDER BY u.display_name
-      `,
-      user.role === "comercial" ? [start, end, user.id] : [start, end]
-    );
     const repoTotalByUsers = repoUserCounts.reduce((sum, row) => sum + Number(row.total || 0), 0);
-    const commercialTotalByUsers = commercialUserCounts.reduce((sum, row) => sum + Number(row.total || 0), 0);
     return send(res, 200, {
       summary: {
         taskTotal: expectedTaskTotal,
@@ -2447,12 +2431,6 @@ async function api(req, res, url) {
           percent: period.days ? Math.min(100, Math.round((total / period.days) * 100)) : 0,
         };
       }),
-      commercialUserEngagement: commercialUserCounts.map((row) => ({
-        id: row.id,
-        name: row.name,
-        total: Number(row.total || 0),
-        percent: commercialTotalByUsers ? Math.round((Number(row.total || 0) / commercialTotalByUsers) * 100) : 0,
-      })),
     });
   }
 

@@ -835,12 +835,7 @@ async function loadReposition() {
 }
 
 async function loadAgenda(type) {
-  const range = type === "comercial"
-    ? monthRange(state.agenda.filters.month || new Date().toISOString().slice(0, 7))
-    : {
-      startDate: state.agenda.filters.startDate,
-      endDate: state.agenda.filters.endDate,
-    };
+  const range = monthRange(state.agenda.filters.month || new Date().toISOString().slice(0, 7));
   const qs = new URLSearchParams({ type, ...range });
   const data = await api(`/api/agenda?${qs.toString()}`);
   state.agenda.rows = data.rows || [];
@@ -1135,10 +1130,6 @@ function exportRepoPanelCsv(kind) {
       ["Itens identificados por setor"],
       ["Setor", "Itens identificados", "Rupturas", "Validades"],
       ...commercialSectorRows().map((row) => [row.sector, row.total, row.ruptures, row.expirations]),
-      [],
-      ["Engajamento dos compradores"],
-      ["Usuário", "Registros", "Percentual"],
-      ...(data.commercialUserEngagement || []).map((row) => [row.name, row.total, `${row.percent}%`]),
     ]);
   }
   return downloadCsv("painel-reposicao.csv", [
@@ -2018,7 +2009,8 @@ function agendaStatusClass(status) {
   return "open";
 }
 
-function agendaMonthlyCalendar(rows, monthValue) {
+function agendaMonthlyCalendar(rows, monthValue, type = "comercial") {
+  const isReceiving = type === "recebimento";
   const [year, month] = String(monthValue || new Date().toISOString().slice(0, 7)).split("-").map(Number);
   const first = new Date(year, month - 1, 1);
   const last = new Date(year, month, 0);
@@ -2040,9 +2032,9 @@ function agendaMonthlyCalendar(rows, monthValue) {
         <div class="agenda-month-day">${day}</div>
         <div class="agenda-month-items">
           ${dayRows.map((row) => `
-            <div class="agenda-month-item ${agendaStatusClass(row.status)}" title="${escapeHtml(`${row.status} - ${row.booked_name || row.booked_company || "Horario livre"}`)}">
+            <div class="agenda-month-item ${agendaStatusClass(row.status)}" title="${escapeHtml(`${row.status} - ${isReceiving ? (row.booked_company || row.booked_name || "Recebimento") : (row.booked_name || row.booked_company || "Horario livre")}`)}">
               <strong>${escapeHtml(row.start_time)}</strong>
-              <span>${escapeHtml(row.booked_name || row.booked_company || "Horario livre")}</span>
+              <span>${escapeHtml(isReceiving ? (row.booked_company || row.booked_name || "Recebimento") : (row.booked_name || row.booked_company || "Horario livre"))}</span>
             </div>
           `).join("")}
         </div>
@@ -2073,28 +2065,29 @@ function renderAgenda(type) {
       </div>
       <button class="btn" type="button" id="refreshAgenda">Atualizar</button>
     </div>
-    ${isReceiving ? "" : `<section class="panel agenda-compact-toolbar">
+    <section class="panel agenda-compact-toolbar ${isReceiving ? "agenda-receiving-toolbar" : ""}">
       <form class="agenda-month-form" id="agendaFilterForm">
         <label>Mês <input name="month" type="month" value="${escapeHtml(state.agenda.filters.month || new Date().toISOString().slice(0, 7))}"></label>
         <button class="btn primary" type="submit">Aplicar</button>
       </form>
-      <div class="agenda-link compact">${escapeHtml(publicLink)}</div>
-      <div class="toolbar">
-        <button class="btn primary" type="button" id="copyAgendaLink">Copiar link</button>
-        <button class="btn" type="button" id="openAgendaLink">Abrir</button>
-      </div>
-    </section>`}
-    ${isReceiving ? `<div class="grid two" style="margin-top:14px">` : ""}
-    ${isReceiving ? "" : `<section class="agenda-month-section" style="margin-top:14px">
+      ${isReceiving ? `<div class="muted agenda-toolbar-note">Visualização mensal interna dos recebimentos.</div>` : `
+        <div class="agenda-link compact">${escapeHtml(publicLink)}</div>
+        <div class="toolbar">
+          <button class="btn primary" type="button" id="copyAgendaLink">Copiar link</button>
+          <button class="btn" type="button" id="openAgendaLink">Abrir</button>
+        </div>
+      `}
+    </section>
+    <section class="agenda-month-section" style="margin-top:14px">
       <div class="section-title-row">
         <div>
-          <h3>Agenda Mensal</h3>
-          <div class="muted">Visualize os atendimentos confirmados e horários disponíveis do mês.</div>
+          <h3>Agenda mensal</h3>
+          <div class="muted">${isReceiving ? "Visualize as entregas agendadas no mês." : "Visualize os atendimentos confirmados e horários disponíveis do mês."}</div>
         </div>
       </div>
-      ${agendaMonthlyCalendar(state.agenda.rows, state.agenda.filters.month)}
-    </section>`}
-      <form class="panel grid ${isReceiving ? "" : "agenda-compact-form"}" id="agendaForm">
+      ${agendaMonthlyCalendar(state.agenda.rows, state.agenda.filters.month, type)}
+    </section>
+      <form class="panel grid agenda-compact-form ${isReceiving ? "agenda-receiving-form" : ""}" id="agendaForm">
         <h3>${isReceiving ? "Novo recebimento agendado" : "Novo horario"}</h3>
         ${isReceiving ? "" : `
           <div class="agenda-mode" role="group" aria-label="Tipo de cadastro">
@@ -2112,10 +2105,8 @@ function renderAgenda(type) {
             </div>`}
         ${isReceiving ? `
           <label>Fornecedor / empresa <input name="company" required></label>
-          <div class="grid two">
-            <label>Contato / motorista <input name="name"></label>
-            <label>Telefone <input name="phone"></label>
-          </div>
+          <label>Contato / motorista <input name="name"></label>
+          <label>Telefone <input name="phone"></label>
           <label>NF / pedido / placa <input name="document"></label>
           <label>Observacao <textarea name="observation"></textarea></label>
         ` : `
@@ -2129,18 +2120,10 @@ function renderAgenda(type) {
         `}
         <button class="btn primary" type="submit">${isReceiving ? "Salvar recebimento" : "Adicionar horario"}</button>
       </form>
-      ${isReceiving ? `<form class="panel grid" id="agendaFilterForm">
-        <h3>${isReceiving ? "Periodo exibido" : "Agenda mensal"}</h3>
-        ${`
-          <label>Inicio <input name="startDate" type="date" value="${escapeHtml(state.agenda.filters.startDate)}"></label>
-          <label>Fim <input name="endDate" type="date" value="${escapeHtml(state.agenda.filters.endDate)}"></label>
-          <button class="btn primary" type="submit">Aplicar periodo</button>
-        `}
-      </form></div>` : ""}
     ${isReceiving ? `<section style="margin-top:14px">
       <div class="section-title-row">
         <div>
-          <h3>Horarios e agendamentos</h3>
+          <h3>Recebimentos do mês</h3>
           <div class="muted">Acompanhe reservas, telefone e status de atendimento.</div>
         </div>
       </div>
@@ -2413,7 +2396,7 @@ function renderCommercialDashboard() {
     <div class="topbar">
       <div>
         <h2>Painel Comercial</h2>
-        <div class="muted">Engajamento dos compradores e retornos comerciais registrados</div>
+        <div class="muted">Retornos comerciais registrados no período</div>
       </div>
       <div class="toolbar">
         <button class="btn" id="exportCommercialDashboardPdf">PDF</button>
@@ -2429,18 +2412,11 @@ function renderCommercialDashboard() {
       <button class="btn primary" type="submit">Aplicar período</button>
     </form>
     <div class="metrics dashboard-summary">${metrics.map(([label, value]) => `<div class="metric"><span class="muted">${label}</span><strong>${value}</strong><small>${percent}% retornado no período</small></div>`).join("")}</div>
-    <div class="grid two" style="margin-top:14px">
-      <section class="panel">
-        <h3>Engajamento dos compradores</h3>
-        <div class="muted" style="margin-top:4px">Participação dos usuários comerciais nos retornos do período</div>
-        <div class="table-wrap" style="margin-top:12px">${repoUserEngagementTable(data.commercialUserEngagement || [])}</div>
-      </section>
-      <section class="panel">
-        <h3>Itens identificados por setor</h3>
-        <div class="muted" style="margin-top:4px">Rupturas e validades direcionadas ao comercial no período</div>
-        <div class="table-wrap" style="margin-top:12px">${commercialSectorTable()}</div>
-      </section>
-    </div>
+    <section class="panel" style="margin-top:14px">
+      <h3>Itens identificados por setor</h3>
+      <div class="muted" style="margin-top:4px">Rupturas e validades direcionadas ao comercial no período</div>
+      <div class="table-wrap" style="margin-top:12px">${commercialSectorTable()}</div>
+    </section>
     <section class="panel" style="margin-top:14px">
       <h3>Retorno comercial</h3>
       <div class="table-wrap" style="margin-top:12px">${repoCommercialTable()}</div>
