@@ -1150,8 +1150,16 @@ function exportRepoPanelCsv(kind) {
     ]),
     [],
     ["Engajamento da reposição"],
-    ["Usuário", "Registros", "Percentual"],
+    ["Colaborador", "Atividades realizadas", "Percentual"],
     ...(data.repoUserEngagement || []).map((row) => [row.name, row.total, `${row.percent}%`]),
+    [],
+    ["Atividades realizadas por colaborador"],
+    ["Colaborador", "Total", "Atividades"],
+    ...(data.repoIndividualActivities || []).map((row) => [
+      row.name,
+      row.total,
+      (row.activities || []).map((item) => `${item.activity} (${item.total || 0})`).join(" | "),
+    ]),
     [],
     ["Realização das atividades"],
     ["Atividade", "Realizado", "Meta", "Percentual"],
@@ -2334,36 +2342,41 @@ function renderRepoDashboard() {
         <button class="btn" id="refreshRepoDashboard">Atualizar</button>
       </div>
     </div>
-    <form class="panel grid" id="repoDashboardFilterForm" style="margin-bottom:14px">
+    <form class="panel grid repo-dashboard-filter" id="repoDashboardFilterForm">
       <div class="grid two">
         <label>Início <input name="startDate" type="date" value="${escapeHtml(state.repo.filters.startDate)}"></label>
         <label>Fim <input name="endDate" type="date" value="${escapeHtml(state.repo.filters.endDate)}"></label>
       </div>
       <button class="btn primary" type="submit">Aplicar período</button>
     </form>
-    <div class="metrics dashboard-summary">${metrics.map(([label, value]) => `<div class="metric"><span class="muted">${label}</span><strong>${value}</strong><small>${percent}% realizado no período</small></div>`).join("")}</div>
-    <div class="grid two" style="margin-top:14px">
-      <section class="panel">
+    <div class="metrics dashboard-summary repo-dashboard-summary">${metrics.map(([label, value]) => `<div class="metric"><span class="muted">${label}</span><strong>${value}</strong><small>${percent}% realizado no período</small></div>`).join("")}</div>
+    <div class="repo-dashboard-grid">
+      <section class="panel repo-dashboard-card">
         <h3>Itens identificados por setor</h3>
         <div class="muted" style="margin-top:4px">Soma de rupturas e validades registradas no período</div>
-        <div class="table-wrap" style="margin-top:12px">${repoSectorTable(data.bySector || [])}</div>
+        <div class="table-wrap repo-compact-table">${repoSectorTable(data.bySector || [])}</div>
       </section>
-      <section class="panel">
+      <section class="panel repo-dashboard-card">
         <h3>Engajamento da reposição</h3>
-        <div class="muted" style="margin-top:4px">Participação dos usuários de reposição nos checklists do período</div>
-        <div class="table-wrap" style="margin-top:12px">${repoUserEngagementTable(data.repoUserEngagement || [])}</div>
+        <div class="muted" style="margin-top:4px">Ranking por colaborador, baseado em quem realizou mais atividades no período</div>
+        <div class="table-wrap repo-compact-table">${repoUserEngagementTable(data.repoUserEngagement || [])}</div>
       </section>
     </div>
-    <section class="panel" style="margin-top:14px">
-      <h3>Metas por setor</h3>
+    <details class="panel repo-dashboard-card repo-dashboard-details" open>
+      <summary>Atividades realizadas por colaborador</summary>
+      <div class="muted" style="margin-top:4px">Mostra individualmente quais atividades cada repositor realizou no período</div>
+      <div class="table-wrap repo-compact-table">${repoIndividualActivitiesTable(data.repoIndividualActivities || [])}</div>
+    </details>
+    <details class="panel repo-dashboard-card repo-dashboard-details">
+      <summary>Metas por setor</summary>
       <div class="muted" style="margin-top:4px">Compara a meta diária definida com as atividades registradas no período</div>
-      <div class="table-wrap" style="margin-top:12px">${repoGoalProgressTable(data.repoGoalProgress || [])}</div>
-    </section>
-    <section class="panel" style="margin-top:14px">
-      <h3>Percentual de realização das atividades da reposição</h3>
+      <div class="table-wrap repo-compact-table">${repoGoalProgressTable(data.repoGoalProgress || [])}</div>
+    </details>
+    <details class="panel repo-dashboard-card repo-dashboard-details">
+      <summary>Percentual de realização das atividades</summary>
       <div class="muted" style="margin-top:4px">Conta o dia quando a atividade foi marcada como Sim ao menos uma vez</div>
-      <div class="table-wrap" style="margin-top:12px">${repoActivityCompletionTable(data.repoActivityCompletion || [])}</div>
-    </section>
+      <div class="table-wrap repo-compact-table">${repoActivityCompletionTable(data.repoActivityCompletion || [])}</div>
+    </details>
   `;
   document.getElementById("refreshRepoDashboard").addEventListener("click", async () => {
     await loadReposition();
@@ -2684,12 +2697,26 @@ function repoGoalProgressTable(rows) {
 
 function repoUserEngagementTable(rows) {
   return `
-    <table><thead><tr><th>UsuÃ¡rio</th><th>Registros</th><th>Engajamento</th></tr></thead><tbody>
+    <table><thead><tr><th>Colaborador</th><th>Atividades realizadas</th><th>Engajamento</th></tr></thead><tbody>
       ${rows.map((row) => `<tr>
-        <td data-label="UsuÃ¡rio">${escapeHtml(row.name)}</td>
-        <td data-label="Registros">${row.total || 0}</td>
+        <td data-label="Colaborador">${escapeHtml(row.name)}</td>
+        <td data-label="Atividades realizadas">${row.total || 0}</td>
         <td data-label="Engajamento">${percentBar(row.percent || 0)}</td>
       </tr>`).join("") || `<tr><td colspan="3">Nenhum usuÃ¡rio cadastrado para este perfil.</td></tr>`}
+    </tbody></table>
+  `;
+}
+
+function repoIndividualActivitiesTable(rows) {
+  return `
+    <table><thead><tr><th>Colaborador</th><th>Total</th><th>Atividades realizadas</th></tr></thead><tbody>
+      ${rows.map((row) => `<tr>
+        <td data-label="Colaborador">${escapeHtml(row.name)}</td>
+        <td data-label="Total">${row.total || 0}</td>
+        <td data-label="Atividades realizadas">${
+          (row.activities || []).map((item) => `${escapeHtml(item.activity)} (${item.total || 0})`).join("<br>") || "-"
+        }</td>
+      </tr>`).join("") || `<tr><td colspan="3">Sem atividades realizadas no período.</td></tr>`}
     </tbody></table>
   `;
 }

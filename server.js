@@ -2353,14 +2353,34 @@ async function api(req, res, url) {
     const expirations = expirationRows.reduce((sum, row) => sum + Number(row.total || 0), 0);
     const repoUserCounts = await query(
       `
-      SELECT u.id, u.display_name AS name, COUNT(t.id) AS total
-      FROM users u
-      LEFT JOIN repo_tasks t ON t.created_by = u.id AND t.date BETWEEN ? AND ?
-      WHERE u.role = 'reposicao' AND u.status = 'ativo'
-      GROUP BY u.id, u.display_name
-      ORDER BY u.display_name
+      SELECT col.id, col.name, COUNT(t.id) AS total
+      FROM collaborators col
+      LEFT JOIN repo_tasks t ON t.collaborator_id = col.id
+        AND t.date BETWEEN ? AND ?
+        AND t.status = 'Realizado'
+        ${repoScopeClause.replaceAll("sector", "t.sector")}
+      WHERE col.status = 'ativo'
+        AND (
+          LOWER(col.role) LIKE '%reposi%'
+          OR col.id IN (SELECT collaborator_id FROM users WHERE role = 'reposicao' AND status = 'ativo' AND collaborator_id IS NOT NULL)
+        )
+      GROUP BY col.id, col.name
+      ORDER BY total DESC, col.name
       `,
-      [start, end]
+      [start, end, ...repoScopeParams]
+    );
+    const repoIndividualActivityRows = await query(
+      `
+      SELECT col.id AS collaborator_id, col.name, t.activity, COUNT(t.id) AS total
+      FROM repo_tasks t
+      JOIN collaborators col ON col.id = t.collaborator_id
+      WHERE t.date BETWEEN ? AND ?
+        AND t.status = 'Realizado'
+        ${repoScopeClause.replaceAll("sector", "t.sector")}
+      GROUP BY col.id, col.name, t.activity
+      ORDER BY col.name, t.activity
+      `,
+      [start, end, ...repoScopeParams]
     );
     const repoActivityCounts = await query(
       `
@@ -2408,6 +2428,17 @@ async function api(req, res, url) {
         name: row.name,
         total: Number(row.total || 0),
         percent: repoTotalByUsers ? Math.round((Number(row.total || 0) / repoTotalByUsers) * 100) : 0,
+      })),
+      repoIndividualActivities: repoUserCounts.map((userRow) => ({
+        id: userRow.id,
+        name: userRow.name,
+        total: Number(userRow.total || 0),
+        activities: repoIndividualActivityRows
+          .filter((row) => Number(row.collaborator_id) === Number(userRow.id))
+          .map((row) => ({
+            activity: row.activity,
+            total: Number(row.total || 0),
+          })),
       })),
       repoActivityCompletion: repoActivities.map((activity) => {
         const total = repoActivityMap.get(activity) || 0;

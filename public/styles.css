@@ -902,6 +902,116 @@ textarea {
   margin-top: 6px;
 }
 
+.repo-dashboard-filter {
+  grid-template-columns: minmax(180px, 260px) minmax(180px, 260px) auto;
+  gap: 10px;
+  align-items: end;
+  padding: 12px;
+  margin-bottom: 10px;
+}
+
+.repo-dashboard-filter .grid.two {
+  display: contents;
+}
+
+.repo-dashboard-filter label {
+  gap: 4px;
+  font-size: 12px;
+}
+
+.repo-dashboard-filter input,
+.repo-dashboard-filter .btn {
+  min-height: 36px;
+  padding: 8px 10px;
+}
+
+.repo-dashboard-summary {
+  margin-bottom: 10px;
+}
+
+.repo-dashboard-summary .metric,
+.repo-dashboard-card {
+  padding: 12px;
+}
+
+.repo-dashboard-summary .metric strong {
+  font-size: 22px;
+  margin-top: 4px;
+}
+
+.repo-dashboard-summary .metric small {
+  margin-top: 3px;
+}
+
+.repo-dashboard-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.repo-dashboard-card h3 {
+  font-size: 16px;
+}
+
+.repo-dashboard-card .muted {
+  font-size: 13px;
+}
+
+.repo-dashboard-card + .repo-dashboard-card,
+.repo-dashboard-details {
+  margin-top: 10px;
+}
+
+.repo-dashboard-details summary {
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 800;
+  list-style: none;
+}
+
+.repo-dashboard-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.repo-dashboard-details summary::after {
+  content: "+";
+  color: var(--muted);
+  font-size: 20px;
+  line-height: 1;
+}
+
+.repo-dashboard-details[open] summary::after {
+  content: "-";
+}
+
+.repo-compact-table {
+  margin-top: 8px;
+  max-height: 230px;
+  overflow: auto;
+}
+
+.repo-compact-table table {
+  min-width: 640px;
+}
+
+.repo-compact-table th,
+.repo-compact-table td {
+  padding: 8px 10px;
+  font-size: 13px;
+}
+
+.repo-compact-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
 .setting-row {
   display: flex;
   align-items: center;
@@ -1298,6 +1408,7 @@ th {
   .grid.three,
   .grid.four,
   .grid.five,
+  .repo-dashboard-filter,
   .agenda-compact-toolbar,
   .agenda-month-form,
   .agenda-compact-form,
@@ -1309,6 +1420,15 @@ th {
   .management-filter.without-sector,
   .management-module-grid {
     grid-template-columns: 1fr;
+  }
+
+  .repo-dashboard-filter .grid.two {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .repo-compact-table {
+    max-height: none;
   }
 
   .agenda-compact-toolbar {
