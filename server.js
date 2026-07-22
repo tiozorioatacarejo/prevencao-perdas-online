@@ -2315,11 +2315,11 @@ async function api(req, res, url) {
         SUM(expirations) AS expirations,
         SUM(damages) AS damages
       FROM (
-        SELECT sector, 0, COUNT(*), 0, 0 FROM repo_ruptures WHERE date BETWEEN ? AND ? GROUP BY sector
+        SELECT sector, 0 AS tasks, COUNT(*) AS ruptures, 0 AS expirations, 0 AS damages FROM repo_ruptures WHERE date BETWEEN ? AND ? GROUP BY sector
         UNION ALL
-        SELECT sector, 0, 0, COUNT(*), 0 FROM repo_expirations WHERE date BETWEEN ? AND ? GROUP BY sector
+        SELECT sector, 0 AS tasks, 0 AS ruptures, COUNT(*) AS expirations, 0 AS damages FROM repo_expirations WHERE date BETWEEN ? AND ? GROUP BY sector
         UNION ALL
-        SELECT sector, 0, 0, 0, COUNT(*) FROM repo_damages WHERE date BETWEEN ? AND ? GROUP BY sector
+        SELECT sector, 0 AS tasks, 0 AS ruptures, 0 AS expirations, COUNT(*) AS damages FROM repo_damages WHERE date BETWEEN ? AND ? GROUP BY sector
       ) x
       GROUP BY sector
       ORDER BY sector

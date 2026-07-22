@@ -551,10 +551,17 @@ function renderShell() {
   });
   document.querySelectorAll("[data-tab]").forEach((button) => {
     button.addEventListener("click", async () => {
+      const previousTab = state.tab;
       state.tab = button.dataset.tab;
       state.openNavGroup = button.dataset.tabGroup || "";
-      await refreshForTab();
-      renderShell();
+      try {
+        await refreshForTab();
+        renderShell();
+      } catch (error) {
+        state.tab = previousTab;
+        renderShell();
+        toast(error.message || "Nao foi possivel abrir este menu.");
+      }
     });
   });
   document.getElementById("logoutBtn").addEventListener("click", () => logout());
