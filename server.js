@@ -2310,13 +2310,11 @@ async function api(req, res, url) {
     const bySector = await query(
       `
       SELECT sector,
-        SUM(tasks) AS tasks,
+        0 AS tasks,
         SUM(ruptures) AS ruptures,
         SUM(expirations) AS expirations,
         SUM(damages) AS damages
       FROM (
-        SELECT sector, COUNT(*) AS tasks, 0 AS ruptures, 0 AS expirations, 0 AS damages FROM repo_tasks WHERE date BETWEEN ? AND ? GROUP BY sector
-        UNION ALL
         SELECT sector, 0, COUNT(*), 0, 0 FROM repo_ruptures WHERE date BETWEEN ? AND ? GROUP BY sector
         UNION ALL
         SELECT sector, 0, 0, COUNT(*), 0 FROM repo_expirations WHERE date BETWEEN ? AND ? GROUP BY sector
@@ -2326,7 +2324,7 @@ async function api(req, res, url) {
       GROUP BY sector
       ORDER BY sector
       `,
-      [start, end, start, end, start, end, start, end]
+      [start, end, start, end, start, end]
     );
     const goalRows = await query(
       "SELECT sector, target_daily, status FROM repo_goals WHERE goal_type = 'checklist' AND status = 'ativo' ORDER BY sector"
