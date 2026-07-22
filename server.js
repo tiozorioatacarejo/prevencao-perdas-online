@@ -38,6 +38,7 @@ const ENGAGEMENT_EXCLUDED_ACTIVITIES = [
   "Lan\u00e7amento de consumo interno",
   "Contagem e acompanhamento de vasilhames",
   "Observa\u00e7\u00e3o geral da loja",
+  INVENTORY_ACTIVITY,
 ];
 
 const repoSectors = [
@@ -2938,7 +2939,7 @@ async function api(req, res, url) {
     const start = url.searchParams.get("startDate") || fallback;
     const end = url.searchParams.get("endDate") || start;
     const currentMonth = periodInfo(start, end);
-    const dashboardActivities = activities;
+    const dashboardActivities = activities.filter((activity) => activity !== INVENTORY_ACTIVITY);
     const totalsByDay = await query(
       `SELECT date, COUNT(*) AS total
        FROM checklists
@@ -3178,5 +3179,6 @@ start().catch((error) => {
   console.error(error);
   process.exit(1);
 });
+
 
 
