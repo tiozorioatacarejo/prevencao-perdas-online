@@ -537,6 +537,36 @@ textarea {
   background: #f8fbf8;
 }
 
+.agenda-compact-toolbar {
+  display: grid;
+  grid-template-columns: minmax(260px, 360px) minmax(180px, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+  padding: 12px;
+  margin-top: 10px;
+}
+
+.agenda-month-form {
+  display: grid;
+  grid-template-columns: minmax(160px, 1fr) auto;
+  gap: 8px;
+  align-items: end;
+}
+
+.agenda-compact-toolbar .btn,
+.agenda-month-form .btn,
+.agenda-compact-form .btn,
+.agenda-compact-form input,
+.agenda-compact-form select {
+  min-height: 36px;
+}
+
+.agenda-compact-toolbar label,
+.agenda-compact-form label {
+  gap: 4px;
+  font-size: 12px;
+}
+
 .agenda-mode {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -577,6 +607,56 @@ textarea {
   overflow-wrap: anywhere;
 }
 
+.agenda-link.compact {
+  margin-top: 0;
+  min-height: 36px;
+  padding: 9px 11px;
+  align-self: end;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agenda-compact-form {
+  margin-top: 12px;
+  padding: 12px;
+  gap: 10px;
+  grid-template-columns: minmax(110px, 0.6fr) minmax(220px, 1fr) minmax(145px, 0.7fr) minmax(260px, 1.2fr) auto;
+  align-items: end;
+}
+
+.agenda-compact-form h3 {
+  font-size: 16px;
+  margin-bottom: 7px;
+  align-self: end;
+}
+
+.agenda-compact-form .agenda-mode button {
+  min-height: 34px;
+}
+
+.agenda-compact-form > .grid.two {
+  gap: 10px;
+}
+
+.agenda-compact-form .agenda-manual-fields {
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.agenda-compact-form .agenda-manual-fields label:last-child {
+  grid-column: 1 / -1;
+}
+
+.agenda-compact-form textarea {
+  min-height: 64px;
+}
+
+.agenda-month-section {
+  margin-top: 12px;
+}
+
 .section-title-row {
   display: flex;
   justify-content: space-between;
@@ -601,7 +681,7 @@ textarea {
 }
 
 .agenda-month-weekday {
-  padding: 10px;
+  padding: 8px;
   border-bottom: 1px solid var(--line);
   background: var(--surface-2);
   color: var(--muted);
@@ -611,8 +691,8 @@ textarea {
 }
 
 .agenda-month-cell {
-  min-height: 118px;
-  padding: 8px;
+  min-height: 92px;
+  padding: 7px;
   border-right: 1px solid var(--line);
   border-bottom: 1px solid var(--line);
 }
@@ -621,7 +701,7 @@ textarea {
   font-size: 12px;
   font-weight: 800;
   color: var(--text);
-  margin-bottom: 7px;
+  margin-bottom: 5px;
 }
 
 .agenda-month-items {
@@ -634,9 +714,9 @@ textarea {
   grid-template-columns: auto minmax(0, 1fr);
   gap: 5px;
   align-items: center;
-  padding: 5px 7px;
+  padding: 4px 6px;
   border-radius: 5px;
-  font-size: 12px;
+  font-size: 11px;
   line-height: 1.25;
 }
 
@@ -1184,6 +1264,9 @@ th {
   .grid.three,
   .grid.four,
   .grid.five,
+  .agenda-compact-toolbar,
+  .agenda-month-form,
+  .agenda-compact-form,
   .agenda-share,
   .agenda-card-main,
   .agenda-booking,
@@ -1192,6 +1275,27 @@ th {
   .management-filter.without-sector,
   .management-module-grid {
     grid-template-columns: 1fr;
+  }
+
+  .agenda-compact-toolbar {
+    align-items: stretch;
+  }
+
+  .agenda-link.compact {
+    white-space: normal;
+  }
+
+  .agenda-compact-form h3,
+  .agenda-compact-form .agenda-manual-fields {
+    grid-column: auto;
+  }
+
+  .agenda-compact-form .agenda-manual-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .agenda-month-calendar {
+    grid-template-columns: repeat(7, minmax(104px, 1fr));
   }
 
   .main {

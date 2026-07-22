@@ -2025,20 +2025,29 @@ function renderAgenda(type) {
       </div>
       <button class="btn" type="button" id="refreshAgenda">Atualizar</button>
     </div>
-    ${isReceiving ? "" : `<section class="panel agenda-share">
-      <div>
-        <h3>Link para enviar</h3>
-        <div class="muted" style="margin-top:4px">Envie este link pelo WhatsApp para o vendedor escolher um horario disponivel.</div>
-        <div class="agenda-link">${escapeHtml(publicLink)}</div>
-      </div>
+    ${isReceiving ? "" : `<section class="panel agenda-compact-toolbar">
+      <form class="agenda-month-form" id="agendaFilterForm">
+        <label>Mês <input name="month" type="month" value="${escapeHtml(state.agenda.filters.month || new Date().toISOString().slice(0, 7))}"></label>
+        <button class="btn primary" type="submit">Aplicar</button>
+      </form>
+      <div class="agenda-link compact">${escapeHtml(publicLink)}</div>
       <div class="toolbar">
         <button class="btn primary" type="button" id="copyAgendaLink">Copiar link</button>
-        <button class="btn" type="button" id="openAgendaLink">Abrir link</button>
+        <button class="btn" type="button" id="openAgendaLink">Abrir</button>
       </div>
     </section>`}
-    <div class="grid two" style="margin-top:14px">
-      <form class="panel grid" id="agendaForm">
-        <h3>${isReceiving ? "Novo recebimento agendado" : "Novo horario disponivel"}</h3>
+    ${isReceiving ? `<div class="grid two" style="margin-top:14px">` : ""}
+    ${isReceiving ? "" : `<section class="agenda-month-section" style="margin-top:14px">
+      <div class="section-title-row">
+        <div>
+          <h3>Agenda Mensal</h3>
+          <div class="muted">Visualize os atendimentos confirmados e horários disponíveis do mês.</div>
+        </div>
+      </div>
+      ${agendaMonthlyCalendar(state.agenda.rows, state.agenda.filters.month)}
+    </section>`}
+      <form class="panel grid ${isReceiving ? "" : "agenda-compact-form"}" id="agendaForm">
+        <h3>${isReceiving ? "Novo recebimento agendado" : "Novo horario"}</h3>
         ${isReceiving ? "" : `
           <div class="agenda-mode" role="group" aria-label="Tipo de cadastro">
             <button class="active" type="button" data-agenda-mode="available">Horario disponivel</button>
@@ -2072,29 +2081,23 @@ function renderAgenda(type) {
         `}
         <button class="btn primary" type="submit">${isReceiving ? "Salvar recebimento" : "Adicionar horario"}</button>
       </form>
-      <form class="panel grid" id="agendaFilterForm">
+      ${isReceiving ? `<form class="panel grid" id="agendaFilterForm">
         <h3>${isReceiving ? "Periodo exibido" : "Agenda mensal"}</h3>
-        ${isReceiving ? `
+        ${`
           <label>Inicio <input name="startDate" type="date" value="${escapeHtml(state.agenda.filters.startDate)}"></label>
           <label>Fim <input name="endDate" type="date" value="${escapeHtml(state.agenda.filters.endDate)}"></label>
           <button class="btn primary" type="submit">Aplicar periodo</button>
-        ` : `
-          <label>Mês <input name="month" type="month" value="${escapeHtml(state.agenda.filters.month || new Date().toISOString().slice(0, 7))}"></label>
-          <button class="btn primary" type="submit">Aplicar mês</button>
         `}
-      </form>
-    </div>
-    <section style="margin-top:14px">
+      </form></div>` : ""}
+    ${isReceiving ? `<section style="margin-top:14px">
       <div class="section-title-row">
         <div>
-          <h3>${isReceiving ? "Horarios e agendamentos" : "Agenda Mensal"}</h3>
-          <div class="muted">${isReceiving ? "Acompanhe reservas, telefone e status de atendimento." : "Visualize os atendimentos confirmados e horários disponíveis do mês."}</div>
+          <h3>Horarios e agendamentos</h3>
+          <div class="muted">Acompanhe reservas, telefone e status de atendimento.</div>
         </div>
       </div>
-      ${isReceiving
-        ? `<div class="agenda-cards">${agendaCards(state.agenda.rows, statusOptions, type)}</div>`
-        : agendaMonthlyCalendar(state.agenda.rows, state.agenda.filters.month)}
-    </section>
+      <div class="agenda-cards">${agendaCards(state.agenda.rows, statusOptions, type)}</div>
+    </section>` : ""}
   `;
   document.getElementById("copyAgendaLink")?.addEventListener("click", async () => {
     await navigator.clipboard?.writeText(publicLink);
