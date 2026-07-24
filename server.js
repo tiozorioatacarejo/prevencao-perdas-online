@@ -86,6 +86,13 @@ const PREVENTION_MONTHLY_GOALS = [
 ];
 const PREVENTION_BONUS_TARGET_POINTS = 100;
 const PREVENTION_BONUS_MAX_POINTS = 120;
+const PREVENTION_GOAL_MANUAL_ADJUSTMENTS = {
+  "2026-07": {
+    quotations: 37,
+    pricing: 93,
+    validity: 19,
+  },
+};
 
 const activities = [
   "Temperatura 07h",
@@ -1161,6 +1168,11 @@ async function preventionGoalProgress(monthValue) {
   realized.consumption = daySets.consumption.size;
   realized.bottles = daySets.bottles.size;
 
+  const manualAdjustments = PREVENTION_GOAL_MANUAL_ADJUSTMENTS[month.month] || {};
+  Object.entries(manualAdjustments).forEach(([key, value]) => {
+    realized[key] = Number(realized[key] || 0) + Number(value || 0);
+  });
+
   const checklistInventoryTotal = INVENTORY_TYPES.reduce((sum, type) => sum + Number(realized[type.key] || 0), 0);
   if (!checklistInventoryTotal) {
     inventoryRows.forEach((row) => {
@@ -1176,6 +1188,7 @@ async function preventionGoalProgress(monthValue) {
     return {
       ...goal,
       realized: value,
+      manualAdjustment: Number(manualAdjustments[goal.key] || 0),
       percent,
       pointsObtained,
       status: goalStatus(percent),

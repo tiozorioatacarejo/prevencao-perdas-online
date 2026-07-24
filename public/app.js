@@ -1054,7 +1054,7 @@ function renderPreventionGoals() {
     </div>
     <section class="panel">
       <h3>Apuração mensal</h3>
-      <div class="muted" style="margin-top:4px">Precificação e validade contam números escritos no campo de produtos; se não houver número, cada item separado por vírgula, ponto e vírgula ou linha conta como 1.</div>
+      <div class="muted" style="margin-top:4px">Cotações, precificações e validades contam por fotos registradas. Ajustes antigos sem foto aparecem somados no realizado do mês.</div>
       <div class="table-wrap" style="margin-top:12px">
         <table class="goals-table">
           <thead><tr><th>Indicador</th><th>Previsto</th><th>Realizado</th><th>Meta (%)</th><th>Realizado (%)</th><th>Pontos obtidos</th><th>Status</th></tr></thead>
@@ -1063,7 +1063,10 @@ function renderPreventionGoals() {
               <tr>
                 <td data-label="Indicador"><strong>${escapeHtml(goal.label)}</strong><div class="muted">${escapeHtml(goal.unit || "")}</div></td>
                 <td data-label="Previsto">${fmtGoalNumber(goal.target)}</td>
-                <td data-label="Realizado">${fmtGoalNumber(goal.realized)}</td>
+                <td data-label="Realizado">
+                  ${fmtGoalNumber(goal.realized)}
+                  ${goal.manualAdjustment ? `<div class="muted">+${fmtGoalNumber(goal.manualAdjustment)} ajuste antigo</div>` : ""}
+                </td>
                 <td data-label="Meta (%)">100%</td>
                 <td data-label="Realizado (%)">${percentBar(goal.percent)}</td>
                 <td data-label="Pontos obtidos">${fmtGoalNumber(goal.pointsObtained)}/${fmtGoalNumber(goal.points)}</td>
