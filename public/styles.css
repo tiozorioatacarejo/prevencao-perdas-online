@@ -801,6 +801,52 @@ textarea {
   color: #a52b2b;
 }
 
+.agenda-status-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 8px;
+}
+
+.agenda-status-card {
+  min-height: 58px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-2);
+  display: grid;
+  gap: 4px;
+}
+
+.agenda-status-card span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.agenda-status-card strong {
+  font-size: 22px;
+}
+
+.agenda-status-card.booked {
+  background: #fff3e9;
+  border-color: #f7cfb3;
+}
+
+.agenda-status-card.done {
+  background: #edf9f0;
+  border-color: #bfe7ca;
+}
+
+.agenda-status-card.alert {
+  background: #fff0f0;
+  border-color: #f2caca;
+}
+
+.agenda-report-table select {
+  min-height: 34px;
+  padding: 6px 8px;
+}
+
 .agenda-card {
   background: #fff;
   border: 1px solid var(--line);

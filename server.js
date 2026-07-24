@@ -966,20 +966,32 @@ function canFillEncarregadaOnly(user) {
 }
 
 function today() {
-  return new Date().toISOString().slice(0, 10);
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Fortaleza",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
 }
 
 function monthBounds(date = new Date()) {
-  const year = date.getFullYear();
-  const month = date.getMonth();
-  const start = new Date(year, month, 1);
-  const end = new Date(year, month + 1, 0);
-  const iso = (value) => value.toISOString().slice(0, 10);
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Fortaleza",
+    year: "numeric",
+    month: "2-digit",
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  const year = Number(values.year);
+  const month = Number(values.month);
+  const end = new Date(year, month, 0);
+  const monthText = String(month).padStart(2, "0");
   return {
-    start: iso(start),
-    end: iso(end),
+    start: `${year}-${monthText}-01`,
+    end: `${year}-${monthText}-${String(end.getDate()).padStart(2, "0")}`,
     days: end.getDate(),
-    label: start.toLocaleDateString("pt-BR", { month: "long", year: "numeric" }),
+    label: new Date(year, month - 1, 1).toLocaleDateString("pt-BR", { month: "long", year: "numeric" }),
   };
 }
 
@@ -1002,11 +1014,11 @@ function monthInfoFromValue(value) {
   const month = match ? Number(match[2]) : Number(fallback.slice(5, 7));
   const startDate = new Date(year, month - 1, 1);
   const endDate = new Date(year, month, 0);
-  const iso = (date) => date.toISOString().slice(0, 10);
+  const monthText = String(month).padStart(2, "0");
   return {
-    month: `${year}-${String(month).padStart(2, "0")}`,
-    start: iso(startDate),
-    end: iso(endDate),
+    month: `${year}-${monthText}`,
+    start: `${year}-${monthText}-01`,
+    end: `${year}-${monthText}-${String(endDate.getDate()).padStart(2, "0")}`,
     days: endDate.getDate(),
     label: startDate.toLocaleDateString("pt-BR", { month: "long", year: "numeric" }),
   };
@@ -2279,7 +2291,7 @@ async function api(req, res, url) {
     if (type === "comercial" && user.role === "comercial" && Number(rows[0].created_by) !== Number(user.id)) {
       return send(res, 403, { error: "Você só pode alterar sua própria agenda comercial." });
     }
-    const allowed = ["Disponivel", "Agendado", "Recebido", "Atendido", "Cancelado", "Atrasado"];
+    const allowed = ["Disponivel", "Agendado", "Recebido", "Atendido", "Cancelado", "Atrasado", "Reagendado"];
     const status = allowed.includes(body.status) ? body.status : "Disponivel";
     await execute("UPDATE agenda_slots SET status = ?, updated_at = ? WHERE id = ?", [status, nowIso(), id]);
     await logAudit(user, "update", "agenda_slots", id, { status });

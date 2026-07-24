@@ -4,10 +4,10 @@
   tab: "dashboard",
   dashboardFilters: {
     mode: "day",
-    date: new Date().toISOString().slice(0, 10),
-    startDate: new Date().toISOString().slice(0, 10),
-    endDate: new Date().toISOString().slice(0, 10),
-    month: new Date().toISOString().slice(0, 7),
+    date: localDateValue(),
+    startDate: localDateValue(),
+    endDate: localDateValue(),
+    month: localMonthValue(),
   },
   collaborators: [],
   activities: [],
@@ -16,7 +16,7 @@
   sectorAudits: [],
   sectorAuditSummary: { evaluatedByUser: 0, evaluatedTotal: 0 },
   preventionGoals: {
-    month: new Date().toISOString().slice(0, 7),
+    month: localMonthValue(),
     data: null,
   },
   settings: {
@@ -24,8 +24,8 @@
   },
   users: [],
   auditFilters: {
-    startDate: new Date().toISOString().slice(0, 10),
-    endDate: new Date().toISOString().slice(0, 10),
+    startDate: localDateValue(),
+    endDate: localDateValue(),
     focus: "abastecimento",
     sector: "",
     completion: "",
@@ -45,30 +45,28 @@
     damages: [],
     goals: [],
     filters: {
-      startDate: new Date().toISOString().slice(0, 10),
-      endDate: new Date().toISOString().slice(0, 10),
-      month: new Date().toISOString().slice(0, 7),
+      startDate: localDateValue(),
+      endDate: localDateValue(),
+      month: localMonthValue(),
     },
   },
   agenda: {
     rows: [],
     publicRows: [],
     filters: {
-      startDate: new Date().toISOString().slice(0, 10),
-      endDate: new Date().toISOString().slice(0, 10),
+      startDate: localDateValue(),
+      endDate: localDateValue(),
     },
   },
   management: {
     data: null,
     entryData: null,
     filters: {
-      period: new Date().toISOString().slice(0, 7),
+      period: localMonthValue(),
       comparePeriod: (() => {
-        const date = new Date();
-        date.setMonth(date.getMonth() - 1);
-        return date.toISOString().slice(0, 7);
+        return localMonthValue(-1);
       })(),
-      entryPeriod: new Date().toISOString().slice(0, 7),
+      entryPeriod: localMonthValue(),
       sector: "",
       operatorName: "",
     },
@@ -76,6 +74,28 @@
   openNavGroup: "",
 };
 let sessionRefreshTimer = null;
+
+function localDateParts(date = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Fortaleza",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return { year: Number(values.year), month: Number(values.month), day: Number(values.day) };
+}
+
+function localDateValue(date = new Date()) {
+  const { year, month, day } = localDateParts(date);
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+function localMonthValue(offset = 0) {
+  const { year, month } = localDateParts();
+  const date = new Date(year, month - 1 + offset, 1);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
 
 const app = document.getElementById("app");
 const PRICE_DIVERGENCE_ACTIVITY = "Confer\u00eancia de precifica\u00e7\u00e3o";
@@ -132,17 +152,23 @@ function fmtDate(value) {
   return new Date(`${value}T00:00:00`).toLocaleDateString("pt-BR");
 }
 
+function fmtDateTime(value) {
+  if (!value) return "";
+  const date = new Date(String(value).replace(" ", "T"));
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleString("pt-BR");
+}
+
 function todayInputValue() {
-  return new Date().toISOString().slice(0, 10);
+  return localDateValue();
 }
 
 function monthRange(month) {
-  const [year, monthIndex] = String(month || new Date().toISOString().slice(0, 7)).split("-").map(Number);
-  const start = new Date(year, monthIndex - 1, 1);
-  const end = new Date(year, monthIndex, 0);
+  const [year, monthIndex] = String(month || localMonthValue()).split("-").map(Number);
+  const lastDay = new Date(year, monthIndex, 0).getDate();
   return {
-    startDate: start.toISOString().slice(0, 10),
-    endDate: end.toISOString().slice(0, 10),
+    startDate: `${year}-${String(monthIndex).padStart(2, "0")}-01`,
+    endDate: `${year}-${String(monthIndex).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`,
   };
 }
 
@@ -770,7 +796,7 @@ async function loadDashboard() {
 }
 
 async function loadPreventionGoals() {
-  const qs = new URLSearchParams({ month: state.preventionGoals.month || new Date().toISOString().slice(0, 7) });
+  const qs = new URLSearchParams({ month: state.preventionGoals.month || localMonthValue() });
   state.preventionGoals.data = await api(`/api/prevention-goals?${qs.toString()}`);
 }
 
@@ -835,7 +861,7 @@ async function loadReposition() {
 }
 
 async function loadAgenda(type) {
-  const range = monthRange(state.agenda.filters.month || new Date().toISOString().slice(0, 7));
+  const range = monthRange(state.agenda.filters.month || localMonthValue());
   const qs = new URLSearchParams({ type, ...range });
   const data = await api(`/api/agenda?${qs.toString()}`);
   state.agenda.rows = data.rows || [];
@@ -1055,7 +1081,7 @@ function renderPreventionGoals() {
   });
   document.getElementById("preventionGoalsFilter").addEventListener("submit", async (event) => {
     event.preventDefault();
-    state.preventionGoals.month = new FormData(event.currentTarget).get("month") || new Date().toISOString().slice(0, 7);
+    state.preventionGoals.month = new FormData(event.currentTarget).get("month") || localMonthValue();
     await loadPreventionGoals();
     renderPreventionGoals();
   });
@@ -2011,7 +2037,7 @@ function agendaStatusClass(status) {
 
 function agendaMonthlyCalendar(rows, monthValue, type = "comercial") {
   const isReceiving = type === "recebimento";
-  const [year, month] = String(monthValue || new Date().toISOString().slice(0, 7)).split("-").map(Number);
+  const [year, month] = String(monthValue || localMonthValue()).split("-").map(Number);
   const first = new Date(year, month - 1, 1);
   const last = new Date(year, month, 0);
   const startOffset = first.getDay();
@@ -2049,25 +2075,104 @@ function agendaMonthlyCalendar(rows, monthValue, type = "comercial") {
   `;
 }
 
+function agendaStatusSummary(rows) {
+  const counts = new Map();
+  rows.forEach((row) => {
+    const status = row.status || "Sem status";
+    counts.set(status, (counts.get(status) || 0) + 1);
+  });
+  return Array.from(counts.entries()).sort((a, b) => b[1] - a[1]);
+}
+
+function agendaReportTable(rows, statusOptions, type = "comercial") {
+  const isReceiving = type === "recebimento";
+  return `
+    <table>
+      <thead>
+        <tr>
+          <th>Data</th>
+          <th>Horario</th>
+          <th>${isReceiving ? "Fornecedor" : "Empresa"}</th>
+          <th>${isReceiving ? "Contato" : "Vendedor"}</th>
+          <th>Detalhe</th>
+          <th>Status</th>
+          <th>Atualizado em</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows.map((row) => `
+          <tr>
+            <td>${fmtDate(row.date)}</td>
+            <td>${isReceiving ? escapeHtml(row.start_time) : `${escapeHtml(row.start_time)} as ${escapeHtml(row.end_time)}`}</td>
+            <td>${escapeHtml(row.booked_company || "-")}</td>
+            <td>${escapeHtml(row.booked_name || "-")}</td>
+            <td>${escapeHtml(row.booked_document || "-")}</td>
+            <td>
+              <select data-agenda-status="${row.id}">
+                ${statusOptions.map((status) => `<option value="${status}" ${status === row.status ? "selected" : ""}>${status}</option>`).join("")}
+              </select>
+            </td>
+            <td>${row.updated_at ? fmtDateTime(row.updated_at) : "-"}</td>
+          </tr>
+          ${row.booked_observation ? `<tr><td></td><td colspan="6" class="muted">Observacao: ${escapeHtml(row.booked_observation)}</td></tr>` : ""}
+        `).join("") || `<tr><td colspan="7">Nenhum agendamento no mês.</td></tr>`}
+      </tbody>
+    </table>
+  `;
+}
+
+function exportAgendaCsv(type) {
+  const isReceiving = type === "recebimento";
+  const label = agendaLabel(type);
+  const month = state.agenda.filters.month || localMonthValue();
+  const summary = agendaStatusSummary(state.agenda.rows || []);
+  return downloadCsv(`${isReceiving ? "agenda-recebimento" : "agenda-comercial"}.csv`, [
+    [label, month],
+    [],
+    ["Resumo por situacao"],
+    ["Situacao", "Quantidade"],
+    ...summary.map(([status, total]) => [status, total]),
+    [],
+    ["Agendamentos"],
+    ["Data", "Inicio", "Fim", isReceiving ? "Fornecedor" : "Empresa", isReceiving ? "Contato" : "Vendedor", "Telefone", "Detalhe", "Situacao", "Observacao", "Atualizado em"],
+    ...(state.agenda.rows || []).map((row) => [
+      fmtDate(row.date),
+      row.start_time || "",
+      row.end_time || "",
+      row.booked_company || "",
+      row.booked_name || "",
+      row.booked_phone || "",
+      row.booked_document || "",
+      row.status || "",
+      row.booked_observation || "",
+      row.updated_at ? fmtDateTime(row.updated_at) : "",
+    ]),
+  ]);
+}
+
 function renderAgenda(type) {
   const label = agendaLabel(type);
   const isReceiving = type === "recebimento";
   const ownerParam = type === "comercial" && state.user?.role === "comercial" ? `?owner=${encodeURIComponent(state.user.id)}` : "";
   const publicLink = `${window.location.origin}${agendaPublicPath(type)}${ownerParam}`;
   const statusOptions = type === "recebimento"
-    ? ["Disponivel", "Agendado", "Recebido", "Atrasado", "Cancelado"]
-    : ["Disponivel", "Agendado", "Atendido", "Cancelado"];
+    ? ["Disponivel", "Agendado", "Recebido", "Atrasado", "Reagendado", "Cancelado"]
+    : ["Disponivel", "Agendado", "Atendido", "Reagendado", "Cancelado"];
+  const statusSummary = agendaStatusSummary(state.agenda.rows || []);
   view.innerHTML = `
     <div class="topbar">
       <div>
         <h2>${label}</h2>
         <div class="muted">${isReceiving ? "Controle interno de entregas agendadas" : "Organize horarios e envie o link para vendedores"}</div>
       </div>
-      <button class="btn" type="button" id="refreshAgenda">Atualizar</button>
+      <div class="toolbar">
+        <button class="btn" type="button" id="exportAgendaReport">Excel</button>
+        <button class="btn" type="button" id="refreshAgenda">Atualizar</button>
+      </div>
     </div>
     <section class="panel agenda-compact-toolbar ${isReceiving ? "agenda-receiving-toolbar" : ""}">
       <form class="agenda-month-form" id="agendaFilterForm">
-        <label>Mês <input name="month" type="month" value="${escapeHtml(state.agenda.filters.month || new Date().toISOString().slice(0, 7))}"></label>
+        <label>Mês <input name="month" type="month" value="${escapeHtml(state.agenda.filters.month || localMonthValue())}"></label>
         <button class="btn primary" type="submit">Aplicar</button>
       </form>
       ${isReceiving ? `<div class="muted agenda-toolbar-note">Visualização mensal interna dos recebimentos.</div>` : `
@@ -2120,6 +2225,18 @@ function renderAgenda(type) {
         `}
         <button class="btn primary" type="submit">${isReceiving ? "Salvar recebimento" : "Adicionar horario"}</button>
       </form>
+    <section class="panel agenda-report-panel" style="margin-top:14px">
+      <div class="section-title-row">
+        <div>
+          <h3>Relatorio de agendamentos</h3>
+          <div class="muted">Situacao dos agendamentos do mes selecionado.</div>
+        </div>
+      </div>
+      <div class="agenda-status-summary">
+        ${statusSummary.map(([status, total]) => `<div class="agenda-status-card ${agendaStatusClass(status)}"><span>${escapeHtml(status)}</span><strong>${total}</strong></div>`).join("") || `<div class="muted">Nenhum agendamento no mês.</div>`}
+      </div>
+      <div class="table-wrap agenda-report-table" style="margin-top:12px">${agendaReportTable(state.agenda.rows || [], statusOptions, type)}</div>
+    </section>
     ${isReceiving ? `<section style="margin-top:14px">
       <div class="section-title-row">
         <div>
@@ -2161,6 +2278,7 @@ function renderAgenda(type) {
     await loadAgenda(type);
     renderAgenda(type);
   });
+  document.getElementById("exportAgendaReport").addEventListener("click", () => exportAgendaCsv(type));
   document.getElementById("agendaForm").addEventListener("submit", async (event) => {
     event.preventDefault();
     const body = Object.fromEntries(new FormData(event.currentTarget).entries());
@@ -2938,7 +3056,7 @@ function renderPendencies() {
     <form class="panel grid" id="pendencyForm">
       <div class="grid three">
         <label>ResponsÃ¡vel <select name="responsibleId" required>${preventionCollaboratorOptions()}</select></label>
-        <label>Data de abertura <input name="openedAt" type="date" required value="${new Date().toISOString().slice(0, 10)}"></label>
+        <label>Data de abertura <input name="openedAt" type="date" required value="${todayInputValue()}"></label>
         <label>Status <select name="status"><option>Aberto</option><option>Em andamento</option><option>Resolvido</option></select></label>
       </div>
       <label>DescriÃ§Ã£o <textarea name="description" required></textarea></label>
