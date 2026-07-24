@@ -89,6 +89,7 @@ const PREVENTION_BONUS_MAX_POINTS = 120;
 const PREVENTION_GOAL_MANUAL_ADJUSTMENTS = {
   "2026-07": {
     quotations: 37,
+    receipts: 21,
     pricing: 93,
     validity: 19,
   },
