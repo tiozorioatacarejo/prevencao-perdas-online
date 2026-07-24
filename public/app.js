@@ -103,7 +103,7 @@ const EXPIRED_PRODUCTS_ACTIVITY = "Verifica\u00e7\u00e3o de validades";
 const INVENTORY_ACTIVITY = "Invent\u00e1rio";
 const GENERAL_STORE_OBSERVATION_ACTIVITY = "Observação geral da loja";
 const SECTOR_REQUIRED_ACTIVITY_TERMS = ["validade", "ruptura", "precificacao", "preco"];
-const PHOTO_REQUIRED_ACTIVITY_TERMS = ["cotac", "precificacao", "preco", "validade"];
+const PHOTO_REQUIRED_ACTIVITY_TERMS = ["cotac", "recebimento", "precificacao", "preco", "validade"];
 const INVENTORY_TYPES = [
   ["inventory_butcher", "Açougue"],
   ["inventory_flv", "FLV"],
@@ -1054,7 +1054,7 @@ function renderPreventionGoals() {
     </div>
     <section class="panel">
       <h3>Apuração mensal</h3>
-      <div class="muted" style="margin-top:4px">Cotações, precificações e validades contam por fotos registradas. Ajustes antigos sem foto aparecem somados no realizado do mês.</div>
+      <div class="muted" style="margin-top:4px">Cotações, recebimentos, precificações e validades contam por fotos registradas. Ajustes antigos sem foto aparecem somados no realizado do mês.</div>
       <div class="table-wrap" style="margin-top:12px">
         <table class="goals-table">
           <thead><tr><th>Indicador</th><th>Previsto</th><th>Realizado</th><th>Meta (%)</th><th>Realizado (%)</th><th>Pontos obtidos</th><th>Status</th></tr></thead>
@@ -1385,7 +1385,7 @@ function renderChecklist() {
       </label>
       <label data-checklist-photo-field>Foto do checklist
         <input name="photoFile" type="file" accept="image/*" capture="environment">
-        <span class="field-help">Cotacoes, conferencia de precificacao e verificacao de validades contam na meta pela foto registrada.</span>
+        <span class="field-help">Cotacoes, recebimentos, conferencia de precificacao e verificacao de validades contam na meta pela foto registrada.</span>
       </label>
       <label data-price-quantity-field>Quantidade de itens conferidos (opcional) <input name="priceDivergenceQuantity" type="number" min="1" step="1"></label>
       <label data-expired-quantity-field>Quantidade de itens conferidos (opcional) <input name="expiredProductsQuantity" type="number" min="1" step="1"></label>
@@ -1699,6 +1699,7 @@ function checklistProductDetails(row) {
 
 function checklistProductQuantity(row) {
   if (normalizeText(row.activity).includes("cotac")) return row.photo_path ? "1 foto" : "";
+  if (normalizeText(row.activity).includes("recebimento")) return row.photo_path ? "1 foto" : "";
   if (row.activity === PRICE_DIVERGENCE_ACTIVITY) return row.photo_path ? "1 foto" : "";
   if (row.activity === EXPIRED_PRODUCTS_ACTIVITY) return row.photo_path ? "1 foto" : "";
   return "";

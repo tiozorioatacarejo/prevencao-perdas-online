@@ -26,7 +26,7 @@ const RECEIPTS_ACTIVITY = "Acompanhamento de recebimentos";
 const INVENTORY_ACTIVITY = "Invent\u00e1rio";
 const GENERAL_STORE_OBSERVATION_ACTIVITY = "Observa\u00e7\u00e3o geral da loja";
 const SECTOR_REQUIRED_ACTIVITY_TERMS = ["validade", "ruptura", "precificacao", "preco"];
-const PHOTO_REQUIRED_ACTIVITY_TERMS = ["cotac", "precificacao", "preco", "validade"];
+const PHOTO_REQUIRED_ACTIVITY_TERMS = ["cotac", "recebimento", "precificacao", "preco", "validade"];
 const INVENTORY_TYPES = [
   { key: "inventory_butcher", label: "A\u00e7ougue" },
   { key: "inventory_flv", label: "FLV" },
@@ -72,7 +72,7 @@ const repoActivities = [
 const PREVENTION_MONTHLY_GOALS = [
   { key: "temperatures", label: "Temperaturas", target: 90, points: 10, unit: "registros" },
   { key: "quotations", label: "Cota\u00e7\u00f5es", target: 100, points: 10, unit: "fotos" },
-  { key: "receipts", label: "Recebimentos", target: 40, points: 10, unit: "registros" },
+  { key: "receipts", label: "Recebimentos", target: 40, points: 10, unit: "fotos" },
   { key: "pricing", label: "Precifica\u00e7\u00e3o", target: 700, points: 10, unit: "fotos" },
   { key: "validity", label: "Validade", target: 500, points: 10, unit: "fotos" },
   { key: "losses", label: "Perdas", target: 20, points: 5, unit: "dias" },
@@ -1140,7 +1140,7 @@ async function preventionGoalProgress(monthValue) {
     const activity = normalizeText(row.activity);
     if (activity.includes("temperatura")) realized.temperatures += 1;
     if (activity.includes("cotac")) realized.quotations += row.photo_path ? 1 : 0;
-    if (activity.includes("recebimento")) realized.receipts += 1;
+    if (activity.includes("recebimento")) realized.receipts += row.photo_path ? 1 : 0;
     if (activity.includes("precificacao") || activity.includes("preco")) {
       realized.pricing += row.photo_path ? 1 : 0;
     }
@@ -1264,6 +1264,7 @@ function checklistProductDetails(row) {
 
 function checklistProductQuantity(row) {
   if (normalizeText(row.activity).includes("cotac")) return row.photo_path ? "1 foto" : "";
+  if (normalizeText(row.activity).includes("recebimento")) return row.photo_path ? "1 foto" : "";
   if (row.activity === PRICE_DIVERGENCE_ACTIVITY) return row.photo_path ? "1 foto" : "";
   if (row.activity === EXPIRED_PRODUCTS_ACTIVITY) return row.photo_path ? "1 foto" : "";
   return "";
