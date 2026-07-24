@@ -1382,10 +1382,10 @@ function renderChecklist() {
       </label>
       <label data-checklist-photo-field>Foto do checklist
         <input name="photoFile" type="file" accept="image/*" capture="environment">
-        <span class="field-help">Use para cotacoes, conferencia de precificacao e verificacao de validades.</span>
+        <span class="field-help">Cotacoes, conferencia de precificacao e verificacao de validades contam na meta pela foto registrada.</span>
       </label>
-      <label data-price-quantity-field>Quantidade de itens conferidos <input name="priceDivergenceQuantity" type="number" min="1" step="1"></label>
-      <label data-expired-quantity-field>Quantidade de itens conferidos <input name="expiredProductsQuantity" type="number" min="1" step="1"></label>
+      <label data-price-quantity-field>Quantidade de itens conferidos (opcional) <input name="priceDivergenceQuantity" type="number" min="1" step="1"></label>
+      <label data-expired-quantity-field>Quantidade de itens conferidos (opcional) <input name="expiredProductsQuantity" type="number" min="1" step="1"></label>
       <label>ObservaÃ§Ã£o
         <textarea name="observation"></textarea>
       </label>
@@ -1455,8 +1455,8 @@ function renderChecklist() {
     inventoryField.classList.toggle("hidden", !showInventory);
     photoField.classList.toggle("hidden", !showPhoto);
     checklistForm.elements.sector.required = showSector;
-    checklistForm.elements.priceDivergenceQuantity.required = showPrice;
-    checklistForm.elements.expiredProductsQuantity.required = showExpired;
+    checklistForm.elements.priceDivergenceQuantity.required = false;
+    checklistForm.elements.expiredProductsQuantity.required = false;
     checklistForm.elements.inventoryType.required = showInventory;
     if (!showPrice) checklistForm.elements.priceDivergenceProducts.value = "";
     if (!showPrice) checklistForm.elements.priceDivergenceQuantity.value = "";
@@ -1474,18 +1474,18 @@ function renderChecklist() {
     const body = Object.fromEntries(new FormData(form).entries());
     delete body.photoFile;
     const photoFile = form.elements.photoFile?.files?.[0];
-    if (photoFile) {
-      if (photoFile.size > 8 * 1024 * 1024) {
-        toast("Foto muito grande. Envie uma imagem de ate 8 MB.");
-        return;
+    try {
+      if (photoFile) {
+        body.photoName = photoFile.name;
+        body.photoDataUrl = await imageFileToUploadDataUrl(photoFile);
       }
-      body.photoName = photoFile.name;
-      body.photoDataUrl = await fileToDataUrl(photoFile);
+      await api("/api/checklists", { method: "POST", body: JSON.stringify(body) });
+      form.reset();
+      syncChecklistSpecificFields();
+      toast("Checklist enviado com data e hora registradas.");
+    } catch (error) {
+      toast(error.message || "Nao foi possivel enviar o checklist com a foto.");
     }
-    await api("/api/checklists", { method: "POST", body: JSON.stringify(body) });
-    form.reset();
-    syncChecklistSpecificFields();
-    toast("Checklist enviado com data e hora registradas.");
   });
   const generalObservationForm = document.getElementById("generalStoreObservationForm");
   generalObservationForm.addEventListener("submit", async (event) => {
@@ -1665,12 +1665,14 @@ function renderReports() {
       </div>
     </div>
     <form class="panel grid" id="filterForm">${reportFiltersHtml()}<button class="btn primary" type="submit">Filtrar</button></form>
+    <div id="checklistEditPanel"></div>
     <div class="table-wrap" style="margin-top:14px" id="reportTable"></div>
   `;
   const form = document.getElementById("filterForm");
   const refresh = async () => {
     const qs = new URLSearchParams(Object.fromEntries(new FormData(form).entries()));
-    await loadChecklists(`?${qs.toString()}`);
+    state.reportParams = `?${qs.toString()}`;
+    await loadChecklists(state.reportParams);
     drawReportTable();
     return qs;
   };
@@ -1693,8 +1695,9 @@ function checklistProductDetails(row) {
 }
 
 function checklistProductQuantity(row) {
-  if (row.activity === PRICE_DIVERGENCE_ACTIVITY) return Number(row.price_divergence_quantity || 0) || "";
-  if (row.activity === EXPIRED_PRODUCTS_ACTIVITY) return Number(row.expired_products_quantity || 0) || "";
+  if (normalizeText(row.activity).includes("cotac")) return row.photo_path ? "1 foto" : "";
+  if (row.activity === PRICE_DIVERGENCE_ACTIVITY) return row.photo_path ? "1 foto" : "";
+  if (row.activity === EXPIRED_PRODUCTS_ACTIVITY) return row.photo_path ? "1 foto" : "";
   return "";
 }
 
@@ -1883,45 +1886,104 @@ function drawRepoReportTable(filters = {}) {
 
 function editChecklist(id) {
   const row = state.checklists.find((item) => item.id === id);
-  const answer = prompt("Resposta corrigida: Sim ou NÃ£o", row.answer);
-  if (!answer) return;
-  const observation = prompt("ObservaÃ§Ã£o corrigida", row.observation || "") || "";
-  const priceDivergenceProducts = row.activity === PRICE_DIVERGENCE_ACTIVITY
-    ? prompt("Produtos com divergÃªncia de preÃ§os", row.price_divergence_products || "") || ""
-    : "";
-  const priceDivergenceQuantity = row.activity === PRICE_DIVERGENCE_ACTIVITY
-    ? prompt("Quantidade de itens conferidos", row.price_divergence_quantity || "") || ""
-    : "";
-  const expiredProducts = row.activity === EXPIRED_PRODUCTS_ACTIVITY
-    ? prompt("Produtos vencidos encontrados", row.expired_products || "") || ""
-    : "";
-  const expiredProductsQuantity = row.activity === EXPIRED_PRODUCTS_ACTIVITY
-    ? prompt("Quantidade de itens conferidos", row.expired_products_quantity || "") || ""
-    : "";
-  const sector = activityNeedsProductSector(row.activity) || row.activity === GENERAL_STORE_OBSERVATION_ACTIVITY
-    ? prompt(row.activity === GENERAL_STORE_OBSERVATION_ACTIVITY ? "Setor da observação" : "Setor do produto", row.sector || "") || ""
-    : "";
-  const inventoryType = row.activity === INVENTORY_ACTIVITY
-    ? prompt("Tipo de inventário: inventory_butcher, inventory_flv, inventory_bakery, inventory_perishables ou inventory_rotating", row.inventory_type || "") || ""
-    : "";
-  api(`/api/checklists/${id}`, {
-    method: "PUT",
-    body: JSON.stringify({
-      collaboratorId: row.collaborator_id,
-      activity: row.activity,
-      answer,
-      observation,
-      sector,
-      priceDivergenceProducts,
-      priceDivergenceQuantity,
-      expiredProducts,
-      expiredProductsQuantity,
-      inventoryType,
-    }),
-  }).then(async () => {
-    await loadChecklists();
-    drawReportTable();
-    toast("Registro corrigido.");
+  if (!row) return;
+  const needsPhoto = checklistNeedsPhoto(row.activity);
+  const needsSector = activityNeedsProductSector(row.activity) || row.activity === GENERAL_STORE_OBSERVATION_ACTIVITY;
+  const isPrice = row.activity === PRICE_DIVERGENCE_ACTIVITY;
+  const isExpired = row.activity === EXPIRED_PRODUCTS_ACTIVITY;
+  const isInventory = row.activity === INVENTORY_ACTIVITY;
+  const panel = document.getElementById("checklistEditPanel");
+  panel.innerHTML = `
+    <form class="panel grid checklist-edit-panel" id="checklistEditForm">
+      <div class="section-title-row">
+        <div>
+          <h3>Editar registro do relatório</h3>
+          <div class="muted">${escapeHtml(row.activity)} de ${escapeHtml(row.collaborator || "-")} em ${fmtDate(row.date)}</div>
+        </div>
+        <button class="btn" type="button" id="cancelChecklistEdit">Cancelar</button>
+      </div>
+      <div class="grid two">
+        <label>Resposta
+          <select name="answer" required>
+            <option ${row.answer === "Sim" ? "selected" : ""}>Sim</option>
+            <option ${row.answer === "Não" || row.answer === "Nao" ? "selected" : ""}>Não</option>
+          </select>
+        </label>
+        ${needsSector ? `<label>${row.activity === GENERAL_STORE_OBSERVATION_ACTIVITY ? "Setor da observação" : "Setor do produto"}
+          <select name="sector" required><option value="">Selecione</option>${repoOptions(state.repo.sectors || [], row.sector || "")}</select>
+        </label>` : `<input type="hidden" name="sector" value="">`}
+      </div>
+      ${isPrice ? `
+        <label>Produtos com divergência de preços <textarea name="priceDivergenceProducts">${escapeHtml(row.price_divergence_products || "")}</textarea></label>
+        <label>Quantidade de itens conferidos <input name="priceDivergenceQuantity" type="number" min="0" step="1" value="${escapeHtml(row.price_divergence_quantity || "")}"></label>
+      ` : `
+        <input type="hidden" name="priceDivergenceProducts" value="">
+        <input type="hidden" name="priceDivergenceQuantity" value="">
+      `}
+      ${isExpired ? `
+        <label>Produtos vencidos encontrados <textarea name="expiredProducts">${escapeHtml(row.expired_products || "")}</textarea></label>
+        <label>Quantidade de itens conferidos <input name="expiredProductsQuantity" type="number" min="0" step="1" value="${escapeHtml(row.expired_products_quantity || "")}"></label>
+      ` : `
+        <input type="hidden" name="expiredProducts" value="">
+        <input type="hidden" name="expiredProductsQuantity" value="">
+      `}
+      ${isInventory ? `<label>Tipo de inventário
+        <select name="inventoryType" required>
+          <option value="">Selecione</option>
+          ${INVENTORY_TYPES.map(([value, label]) => `<option value="${escapeHtml(value)}" ${value === row.inventory_type ? "selected" : ""}>${escapeHtml(label)}</option>`).join("")}
+        </select>
+      </label>` : `<input type="hidden" name="inventoryType" value="">`}
+      ${needsPhoto ? `
+        <div class="checklist-photo-editor">
+          <div>
+            <strong>Foto atual</strong>
+            ${row.photo_path ? `<a class="report-photo large" href="${escapeHtml(row.photo_path)}" target="_blank" rel="noopener"><img src="${escapeHtml(row.photo_path)}" alt="Foto atual do checklist"></a>` : `<div class="muted">Sem foto registrada.</div>`}
+            ${["cotac", "precificacao", "preco", "validade"].some((term) => normalizeText(row.activity).includes(term)) ? `<div class="field-help">Para a meta, cada registro com foto conta como 1 realizado.</div>` : ""}
+          </div>
+          <label>Substituir/adicionar foto
+            <input name="photoFile" type="file" accept="image/*">
+          </label>
+          ${row.photo_path ? `<label class="inline-check"><input name="removePhoto" type="checkbox" value="true"> Remover foto atual</label>` : ""}
+        </div>
+      ` : ""}
+      <label>Observação <textarea name="observation">${escapeHtml(row.observation || "")}</textarea></label>
+      <div class="toolbar">
+        <button class="btn primary" type="submit">Salvar correção</button>
+        <button class="btn" type="button" id="cancelChecklistEditBottom">Cancelar</button>
+      </div>
+    </form>
+  `;
+  panel.scrollIntoView({ behavior: "smooth", block: "start" });
+  const form = document.getElementById("checklistEditForm");
+  const cancel = () => { panel.innerHTML = ""; };
+  document.getElementById("cancelChecklistEdit").addEventListener("click", cancel);
+  document.getElementById("cancelChecklistEditBottom").addEventListener("click", cancel);
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const body = Object.fromEntries(new FormData(form).entries());
+    delete body.photoFile;
+    const photoFile = form.elements.photoFile?.files?.[0];
+    try {
+      if (photoFile) {
+        body.photoName = photoFile.name;
+        body.photoDataUrl = await imageFileToUploadDataUrl(photoFile);
+      }
+      await api(`/api/checklists/${id}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          collaboratorId: row.collaborator_id,
+          activity: row.activity,
+          ...body,
+        }),
+      });
+      panel.innerHTML = "";
+      await loadChecklists(state.reportParams || "");
+      drawReportTable();
+      await loadPreventionGoals();
+      toast("Registro corrigido.");
+    } catch (error) {
+      toast(error.message || "Nao foi possivel salvar a foto.");
+    }
   });
 }
 
@@ -4297,6 +4359,37 @@ function fileToDataUrl(file) {
     reader.onerror = reject;
     reader.readAsDataURL(file);
   });
+}
+
+function canvasToDataUrl(canvas, quality) {
+  return canvas.toDataURL("image/jpeg", quality);
+}
+
+async function imageFileToUploadDataUrl(file) {
+  if (!file?.type?.startsWith("image/")) {
+    throw new Error("Selecione uma imagem válida.");
+  }
+  const originalDataUrl = await fileToDataUrl(file);
+  const img = new Image();
+  await new Promise((resolve, reject) => {
+    img.onload = resolve;
+    img.onerror = () => reject(new Error("Nao foi possivel ler a foto selecionada."));
+    img.src = originalDataUrl;
+  });
+  const maxSide = 1280;
+  const ratio = Math.min(1, maxSide / Math.max(img.naturalWidth || img.width, img.naturalHeight || img.height));
+  const width = Math.max(1, Math.round((img.naturalWidth || img.width) * ratio));
+  const height = Math.max(1, Math.round((img.naturalHeight || img.height) * ratio));
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d");
+  context.drawImage(img, 0, 0, width, height);
+  for (const quality of [0.82, 0.72, 0.62, 0.52]) {
+    const dataUrl = canvasToDataUrl(canvas, quality);
+    if (dataUrl.length < 5 * 1024 * 1024) return dataUrl;
+  }
+  return canvasToDataUrl(canvas, 0.48);
 }
 
 bootstrap();

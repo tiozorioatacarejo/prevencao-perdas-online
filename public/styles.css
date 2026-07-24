@@ -1414,6 +1414,35 @@ th {
   object-fit: cover;
 }
 
+.report-photo.large {
+  width: 160px;
+  height: 110px;
+  margin-top: 8px;
+}
+
+.checklist-edit-panel {
+  margin-top: 14px;
+}
+
+.checklist-photo-editor {
+  display: grid;
+  grid-template-columns: minmax(170px, 0.7fr) minmax(220px, 1fr) auto;
+  gap: 14px;
+  align-items: end;
+}
+
+.inline-check {
+  display: inline-flex;
+  flex-direction: row;
+  gap: 8px;
+  align-items: center;
+  min-height: 44px;
+}
+
+.inline-check input {
+  width: auto;
+}
+
 .hidden {
   display: none !important;
 }

@@ -71,10 +71,10 @@ const repoActivities = [
 
 const PREVENTION_MONTHLY_GOALS = [
   { key: "temperatures", label: "Temperaturas", target: 90, points: 10, unit: "registros" },
-  { key: "quotations", label: "Cota\u00e7\u00f5es", target: 100, points: 10, unit: "registros" },
+  { key: "quotations", label: "Cota\u00e7\u00f5es", target: 100, points: 10, unit: "fotos" },
   { key: "receipts", label: "Recebimentos", target: 40, points: 10, unit: "registros" },
-  { key: "pricing", label: "Precifica\u00e7\u00e3o", target: 700, points: 10, unit: "produtos" },
-  { key: "validity", label: "Validade", target: 500, points: 10, unit: "produtos" },
+  { key: "pricing", label: "Precifica\u00e7\u00e3o", target: 700, points: 10, unit: "fotos" },
+  { key: "validity", label: "Validade", target: 500, points: 10, unit: "fotos" },
   { key: "losses", label: "Perdas", target: 20, points: 5, unit: "dias" },
   { key: "consumption", label: "Consumo interno", target: 15, points: 5, unit: "dias" },
   { key: "bottles", label: "Vasilhames", target: 12, points: 10, unit: "dias" },
@@ -473,11 +473,17 @@ function send(res, status, data, headers = {}) {
 function readBody(req) {
   return new Promise((resolve, reject) => {
     let body = "";
+    let tooLarge = false;
     req.on("data", (chunk) => {
+      if (tooLarge) return;
       body += chunk;
-      if (body.length > 12 * 1024 * 1024) reject(new Error("Arquivo muito grande"));
+      if (body.length > 20 * 1024 * 1024) {
+        tooLarge = true;
+        reject(new Error("Foto muito grande. Tente novamente com uma imagem menor."));
+      }
     });
     req.on("end", () => {
+      if (tooLarge) return;
       if (!body) return resolve({});
       try {
         resolve(JSON.parse(body));
@@ -1097,7 +1103,7 @@ function inventoryBucket(sector) {
 async function preventionGoalProgress(monthValue) {
   const month = monthInfoFromValue(monthValue);
   const checklistRows = await query(
-    `SELECT date, activity, observation, price_divergence_products, price_divergence_quantity, expired_products, expired_products_quantity, inventory_type
+    `SELECT date, activity, observation, photo_path, price_divergence_products, price_divergence_quantity, expired_products, expired_products_quantity, inventory_type
      FROM checklists
      WHERE date BETWEEN ? AND ?`,
     [month.start, month.end]
@@ -1126,13 +1132,13 @@ async function preventionGoalProgress(monthValue) {
   checklistRows.forEach((row) => {
     const activity = normalizeText(row.activity);
     if (activity.includes("temperatura")) realized.temperatures += 1;
-    if (activity.includes("cotac")) realized.quotations += 1;
+    if (activity.includes("cotac")) realized.quotations += row.photo_path ? 1 : 0;
     if (activity.includes("recebimento")) realized.receipts += 1;
     if (activity.includes("precificacao") || activity.includes("preco")) {
-      realized.pricing += intValue(row.price_divergence_quantity) || productQuantityFromText(row.price_divergence_products, row.observation);
+      realized.pricing += row.photo_path ? 1 : 0;
     }
     if (activity.includes("validade")) {
-      realized.validity += intValue(row.expired_products_quantity) || productQuantityFromText(row.expired_products, row.observation);
+      realized.validity += row.photo_path ? 1 : 0;
     }
     if (activity.includes("inventario")) {
       const key = INVENTORY_TYPES.some((type) => type.key === row.inventory_type)
@@ -1244,8 +1250,9 @@ function checklistProductDetails(row) {
 }
 
 function checklistProductQuantity(row) {
-  if (row.activity === PRICE_DIVERGENCE_ACTIVITY) return intValue(row.price_divergence_quantity) || "";
-  if (row.activity === EXPIRED_PRODUCTS_ACTIVITY) return intValue(row.expired_products_quantity) || "";
+  if (normalizeText(row.activity).includes("cotac")) return row.photo_path ? "1 foto" : "";
+  if (row.activity === PRICE_DIVERGENCE_ACTIVITY) return row.photo_path ? "1 foto" : "";
+  if (row.activity === EXPIRED_PRODUCTS_ACTIVITY) return row.photo_path ? "1 foto" : "";
   return "";
 }
 
@@ -1505,6 +1512,10 @@ async function saveChecklistPhoto(activity, body) {
   if (!checklistNeedsPhoto(activity) || !body.photoDataUrl) return null;
   if (!/^data:image\/(png|jpeg|webp);base64,/.test(body.photoDataUrl)) return null;
   return await saveDataUrl(body.photoDataUrl, body.photoName || "checklist-foto");
+}
+
+function shouldRemoveChecklistPhoto(body) {
+  return body.removePhoto === true || body.removePhoto === "true" || body.removePhoto === "on";
 }
 
 function activityNeedsProductSector(activity) {
@@ -2862,8 +2873,9 @@ async function api(req, res, url) {
       return send(res, 400, { error: "Selecione o tipo de inventário." });
     }
     const photoPath = await saveChecklistPhoto(body.activity, body);
+    const removePhoto = shouldRemoveChecklistPhoto(body);
     await execute(
-      "UPDATE checklists SET collaborator_id = ?, activity = ?, answer = ?, observation = ?, sector = ?, price_divergence_products = ?, price_divergence_quantity = ?, expired_products = ?, expired_products_quantity = ?, inventory_type = ?, photo_path = COALESCE(?, photo_path), corrected_by = ?, corrected_at = ? WHERE id = ?",
+      "UPDATE checklists SET collaborator_id = ?, activity = ?, answer = ?, observation = ?, sector = ?, price_divergence_products = ?, price_divergence_quantity = ?, expired_products = ?, expired_products_quantity = ?, inventory_type = ?, photo_path = CASE WHEN ? IS NOT NULL THEN ? WHEN ? THEN NULL ELSE photo_path END, corrected_by = ?, corrected_at = ? WHERE id = ?",
       [
         collaboratorId,
         body.activity,
@@ -2876,6 +2888,8 @@ async function api(req, res, url) {
         specificFields.expiredProductsQuantity,
         specificFields.inventoryType,
         photoPath,
+        photoPath,
+        removePhoto ? 1 : 0,
         user.id,
         nowIso(),
         id,
