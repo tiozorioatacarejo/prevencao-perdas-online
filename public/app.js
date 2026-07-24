@@ -143,6 +143,23 @@ function api(path, options = {}) {
   });
 }
 
+function apiMultipart(path, formData, method = "POST") {
+  return fetch(path, {
+    method,
+    headers: {
+      ...(state.token ? { Authorization: `Bearer ${state.token}` } : {}),
+    },
+    body: formData,
+  }).then(async (response) => {
+    const contentType = response.headers.get("content-type") || "";
+    const data = contentType.includes("json") ? await response.json() : await response.text();
+    if (!response.ok) {
+      throw new Error(data.error || "Falha ao enviar a foto.");
+    }
+    return data;
+  });
+}
+
 function fmtMoney(value) {
   return Number(value || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
@@ -1336,6 +1353,25 @@ function checklistNeedsPhoto(activity) {
   return PHOTO_REQUIRED_ACTIVITY_TERMS.some((term) => normalized.includes(term));
 }
 
+function checklistFormData(body, photoFile) {
+  const formData = new FormData();
+  Object.entries(body).forEach(([key, value]) => {
+    if (value !== undefined && value !== null) formData.append(key, value);
+  });
+  if (photoFile) formData.append("photoFile", photoFile, photoFile.name || "checklist-foto.jpg");
+  return formData;
+}
+
+async function sendChecklistRequest(path, method, body, photoFile) {
+  if (photoFile) {
+    if (photoFile.size > 18 * 1024 * 1024) {
+      throw new Error("Foto muito pesada. Tire uma nova foto ou reduza a qualidade da imagem.");
+    }
+    return apiMultipart(path, checklistFormData(body, photoFile), method);
+  }
+  return api(path, { method, body: JSON.stringify(body) });
+}
+
 function renderChecklist() {
   const availableActivities = checklistActivitiesForUser();
   const linkedCollaborator = state.user?.collaborator_id
@@ -1478,11 +1514,7 @@ function renderChecklist() {
     delete body.photoFile;
     const photoFile = form.elements.photoFile?.files?.[0];
     try {
-      if (photoFile) {
-        body.photoName = photoFile.name;
-        body.photoDataUrl = await imageFileToUploadDataUrl(photoFile);
-      }
-      await api("/api/checklists", { method: "POST", body: JSON.stringify(body) });
+      await sendChecklistRequest("/api/checklists", "POST", body, photoFile);
       form.reset();
       syncChecklistSpecificFields();
       toast("Checklist enviado com data e hora registradas.");
@@ -1968,18 +2000,11 @@ function editChecklist(id) {
     delete body.photoFile;
     const photoFile = form.elements.photoFile?.files?.[0];
     try {
-      if (photoFile) {
-        body.photoName = photoFile.name;
-        body.photoDataUrl = await imageFileToUploadDataUrl(photoFile);
-      }
-      await api(`/api/checklists/${id}`, {
-        method: "PUT",
-        body: JSON.stringify({
-          collaboratorId: row.collaborator_id,
-          activity: row.activity,
-          ...body,
-        }),
-      });
+      await sendChecklistRequest(`/api/checklists/${id}`, "PUT", {
+        collaboratorId: row.collaborator_id,
+        activity: row.activity,
+        ...body,
+      }, photoFile);
       panel.innerHTML = "";
       await loadChecklists(state.reportParams || "");
       drawReportTable();

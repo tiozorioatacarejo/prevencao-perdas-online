@@ -478,25 +478,66 @@ function send(res, status, data, headers = {}) {
   res.end(body);
 }
 
+function parseMultipartBody(buffer, contentType) {
+  const boundaryMatch = /boundary=(?:"([^"]+)"|([^;]+))/i.exec(contentType || "");
+  const boundary = boundaryMatch?.[1] || boundaryMatch?.[2];
+  if (!boundary) throw new Error("Envio de arquivo inválido.");
+  const delimiter = Buffer.from(`--${boundary}`);
+  const result = {};
+  let start = buffer.indexOf(delimiter);
+  while (start !== -1) {
+    start += delimiter.length;
+    if (buffer[start] === 45 && buffer[start + 1] === 45) break;
+    if (buffer[start] === 13 && buffer[start + 1] === 10) start += 2;
+    const headerEnd = buffer.indexOf(Buffer.from("\r\n\r\n"), start);
+    if (headerEnd === -1) break;
+    const headerText = buffer.slice(start, headerEnd).toString("utf8");
+    let contentStart = headerEnd + 4;
+    let next = buffer.indexOf(delimiter, contentStart);
+    if (next === -1) break;
+    let contentEnd = next;
+    if (buffer[contentEnd - 2] === 13 && buffer[contentEnd - 1] === 10) contentEnd -= 2;
+    const content = buffer.slice(contentStart, contentEnd);
+    const name = /name="([^"]+)"/i.exec(headerText)?.[1];
+    if (name) {
+      const filename = /filename="([^"]*)"/i.exec(headerText)?.[1];
+      const contentTypeMatch = /content-type:\s*([^\r\n]+)/i.exec(headerText);
+      if (filename) {
+        result.photoName = filename;
+        result.photoDataUrl = `data:${(contentTypeMatch?.[1] || "image/jpeg").trim()};base64,${content.toString("base64")}`;
+      } else {
+        result[name] = content.toString("utf8");
+      }
+    }
+    start = next;
+  }
+  return result;
+}
+
 function readBody(req) {
   return new Promise((resolve, reject) => {
-    let body = "";
+    const contentType = req.headers["content-type"] || "";
+    const isMultipart = contentType.includes("multipart/form-data");
+    let body = isMultipart ? [] : "";
+    let bodyLength = 0;
     let tooLarge = false;
     req.on("data", (chunk) => {
       if (tooLarge) return;
-      body += chunk;
-      if (body.length > 20 * 1024 * 1024) {
+      bodyLength += chunk.length;
+      if (isMultipart) body.push(chunk);
+      else body += chunk;
+      if (bodyLength > 25 * 1024 * 1024) {
         tooLarge = true;
         reject(new Error("Foto muito grande. Tente novamente com uma imagem menor."));
       }
     });
     req.on("end", () => {
       if (tooLarge) return;
-      if (!body) return resolve({});
+      if (!bodyLength) return resolve({});
       try {
-        resolve(JSON.parse(body));
+        resolve(isMultipart ? parseMultipartBody(Buffer.concat(body), contentType) : JSON.parse(body));
       } catch {
-        reject(new Error("JSON invÃ¡lido"));
+        reject(new Error(isMultipart ? "Arquivo inválido." : "JSON invÃ¡lido"));
       }
     });
   });
@@ -1051,7 +1092,10 @@ async function saveDataUrl(dataUrl, originalName = "anexo") {
   const extMap = {
     "image/png": ".png",
     "image/jpeg": ".jpg",
+    "image/jpg": ".jpg",
     "image/webp": ".webp",
+    "image/heic": ".heic",
+    "image/heif": ".heif",
     "application/pdf": ".pdf",
   };
   const ext = extMap[contentType] || path.extname(originalName).slice(0, 8) || ".bin";
@@ -1525,7 +1569,7 @@ function checklistNeedsPhoto(activity) {
 
 async function saveChecklistPhoto(activity, body) {
   if (!checklistNeedsPhoto(activity) || !body.photoDataUrl) return null;
-  if (!/^data:image\/(png|jpeg|webp);base64,/.test(body.photoDataUrl)) return null;
+  if (!/^data:image\/(png|jpe?g|webp|heic|heif);base64,/.test(body.photoDataUrl)) return null;
   return await saveDataUrl(body.photoDataUrl, body.photoName || "checklist-foto");
 }
 
