@@ -4373,27 +4373,45 @@ async function imageFileToUploadDataUrl(file) {
   if (!file?.type?.startsWith("image/")) {
     throw new Error("Selecione uma imagem válida.");
   }
-  const originalDataUrl = await fileToDataUrl(file);
-  const img = new Image();
-  await new Promise((resolve, reject) => {
-    img.onload = resolve;
-    img.onerror = () => reject(new Error("Nao foi possivel ler a foto selecionada."));
-    img.src = originalDataUrl;
-  });
-  const maxSide = 1280;
-  const ratio = Math.min(1, maxSide / Math.max(img.naturalWidth || img.width, img.naturalHeight || img.height));
-  const width = Math.max(1, Math.round((img.naturalWidth || img.width) * ratio));
-  const height = Math.max(1, Math.round((img.naturalHeight || img.height) * ratio));
-  const canvas = document.createElement("canvas");
-  canvas.width = width;
-  canvas.height = height;
-  const context = canvas.getContext("2d");
-  context.drawImage(img, 0, 0, width, height);
-  for (const quality of [0.82, 0.72, 0.62, 0.52]) {
-    const dataUrl = canvasToDataUrl(canvas, quality);
-    if (dataUrl.length < 5 * 1024 * 1024) return dataUrl;
+  if (file.size > 18 * 1024 * 1024) {
+    throw new Error("Foto muito pesada. Tire uma nova foto ou reduza a qualidade da imagem.");
   }
-  return canvasToDataUrl(canvas, 0.48);
+  const objectUrl = URL.createObjectURL(file);
+  const img = new Image();
+  try {
+    await new Promise((resolve, reject) => {
+      img.onload = resolve;
+      img.onerror = () => reject(new Error("Nao foi possivel ler a foto selecionada."));
+      img.src = objectUrl;
+    });
+    const maxSide = 960;
+    const sourceWidth = img.naturalWidth || img.width;
+    const sourceHeight = img.naturalHeight || img.height;
+    const ratio = Math.min(1, maxSide / Math.max(sourceWidth, sourceHeight));
+    const width = Math.max(1, Math.round(sourceWidth * ratio));
+    const height = Math.max(1, Math.round(sourceHeight * ratio));
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext("2d", { alpha: false });
+    context.drawImage(img, 0, 0, width, height);
+    for (const quality of [0.72, 0.62, 0.52, 0.44]) {
+      const dataUrl = canvasToDataUrl(canvas, quality);
+      if (dataUrl.length < 2 * 1024 * 1024) {
+        canvas.width = 1;
+        canvas.height = 1;
+        return dataUrl;
+      }
+    }
+    const dataUrl = canvasToDataUrl(canvas, 0.38);
+    canvas.width = 1;
+    canvas.height = 1;
+    return dataUrl;
+  } catch (error) {
+    throw new Error(error.message || "Nao foi possivel preparar a foto neste celular.");
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
 }
 
 bootstrap();
