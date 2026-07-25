@@ -1364,8 +1364,8 @@ function checklistFormData(body, photoFile) {
 
 async function sendChecklistRequest(path, method, body, photoFile) {
   if (photoFile) {
-    if (photoFile.size > 18 * 1024 * 1024) {
-      throw new Error("Foto muito pesada. Tire uma nova foto ou reduza a qualidade da imagem.");
+    if (photoFile.size > 10 * 1024 * 1024) {
+      throw new Error("Foto muito pesada. Use uma foto menor ou tire pela camera do celular com qualidade reduzida.");
     }
     return apiMultipart(path, checklistFormData(body, photoFile), method);
   }
@@ -1420,8 +1420,8 @@ function renderChecklist() {
         </select>
       </label>
       <label data-checklist-photo-field>Foto do checklist
-        <input name="photoFile" type="file" accept="image/*" capture="environment">
-        <span class="field-help">Cotacoes, recebimentos, conferencia de precificacao e verificacao de validades contam na meta pela foto registrada.</span>
+        <input name="photoFile" type="file" accept="image/*">
+        <span class="field-help">Em celulares que travam ao abrir a camera, tire a foto fora do app e selecione pela Galeria. Cotacoes, recebimentos, conferencia de precificacao e verificacao de validades contam na meta pela foto registrada.</span>
       </label>
       <label data-price-quantity-field>Quantidade de itens conferidos (opcional) <input name="priceDivergenceQuantity" type="number" min="1" step="1"></label>
       <label data-expired-quantity-field>Quantidade de itens conferidos (opcional) <input name="expiredProductsQuantity" type="number" min="1" step="1"></label>
@@ -4398,8 +4398,8 @@ async function imageFileToUploadDataUrl(file) {
   if (!file?.type?.startsWith("image/")) {
     throw new Error("Selecione uma imagem válida.");
   }
-  if (file.size > 18 * 1024 * 1024) {
-    throw new Error("Foto muito pesada. Tire uma nova foto ou reduza a qualidade da imagem.");
+  if (file.size > 10 * 1024 * 1024) {
+    throw new Error("Foto muito pesada. Use uma foto menor ou tire pela camera do celular com qualidade reduzida.");
   }
   const objectUrl = URL.createObjectURL(file);
   const img = new Image();
