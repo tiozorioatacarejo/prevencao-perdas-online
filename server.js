@@ -2999,8 +2999,14 @@ async function api(req, res, url) {
     }
     const photoPath = await saveChecklistPhoto(body.activity, body);
     const removePhoto = shouldRemoveChecklistPhoto(body);
+    const photoSetClause = photoPath
+      ? ", photo_path = ?"
+      : removePhoto
+        ? ", photo_path = NULL"
+        : "";
+    const photoParams = photoPath ? [photoPath] : [];
     await execute(
-      "UPDATE checklists SET collaborator_id = ?, activity = ?, answer = ?, observation = ?, sector = ?, price_divergence_products = ?, price_divergence_quantity = ?, expired_products = ?, expired_products_quantity = ?, inventory_type = ?, photo_path = CASE WHEN ? IS NOT NULL THEN ? WHEN ? THEN NULL ELSE photo_path END, corrected_by = ?, corrected_at = ? WHERE id = ?",
+      `UPDATE checklists SET collaborator_id = ?, activity = ?, answer = ?, observation = ?, sector = ?, price_divergence_products = ?, price_divergence_quantity = ?, expired_products = ?, expired_products_quantity = ?, inventory_type = ?${photoSetClause}, corrected_by = ?, corrected_at = ? WHERE id = ?`,
       [
         collaboratorId,
         body.activity,
@@ -3012,9 +3018,7 @@ async function api(req, res, url) {
         specificFields.expiredProducts,
         specificFields.expiredProductsQuantity,
         specificFields.inventoryType,
-        photoPath,
-        photoPath,
-        removePhoto ? 1 : 0,
+        ...photoParams,
         user.id,
         nowIso(),
         id,
