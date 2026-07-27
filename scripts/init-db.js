@@ -61,6 +61,16 @@ async function initPostgres() {
       updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS prevention_goal_adjustments (
+      id SERIAL PRIMARY KEY,
+      period TEXT NOT NULL,
+      goal_key TEXT NOT NULL,
+      quantity REAL NOT NULL DEFAULT 0,
+      reason TEXT,
+      created_by INTEGER NOT NULL REFERENCES users(id),
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
     CREATE TABLE IF NOT EXISTS operational_summaries (
       id SERIAL PRIMARY KEY,
       date TEXT UNIQUE NOT NULL,
@@ -220,6 +230,17 @@ async function initPostgres() {
   await pool.query("ALTER TABLE checklists ADD COLUMN IF NOT EXISTS inventory_type TEXT");
   await pool.query("ALTER TABLE checklists ADD COLUMN IF NOT EXISTS price_divergence_quantity INTEGER NOT NULL DEFAULT 0");
   await pool.query("ALTER TABLE checklists ADD COLUMN IF NOT EXISTS expired_products_quantity INTEGER NOT NULL DEFAULT 0");
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS prevention_goal_adjustments (
+      id SERIAL PRIMARY KEY,
+      period TEXT NOT NULL,
+      goal_key TEXT NOT NULL,
+      quantity REAL NOT NULL DEFAULT 0,
+      reason TEXT,
+      created_by INTEGER NOT NULL REFERENCES users(id),
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
   await pool.query("ALTER TABLE agenda_slots DROP CONSTRAINT IF EXISTS agenda_slots_agenda_type_date_start_time_key");
   await pool.query("CREATE UNIQUE INDEX IF NOT EXISTS agenda_slots_owner_time_idx ON agenda_slots (agenda_type, date, start_time, created_by)");
   await pool.query("ALTER TABLE management_monthly ADD COLUMN IF NOT EXISTS sold_quantity REAL NOT NULL DEFAULT 0");

@@ -17,15 +17,12 @@ ACTIVITIES = [
     "Contagem e acompanhamento de vasilhames",
     "Acompanhamento de cotacoes",
     "Acompanhamento de recebimentos",
-    "Monitoramento loja / App Veesion",
     "Conferencia de precificacao",
     "Verificacao de validades",
-    "Verificacao de agua do bebedouro",
     "Acompanhamento da vitrine",
     "Portas e acessos conferidos",
-    "Cancelamentos e estornos verificados",
+    "Cancelamentos de cupons acompanhados",
     "Passagem de itens de forma correta no caixa",
-    "Devolucao de produtos acompanhadas",
 ]
 
 SEED_EXAMPLE_DATA = False
@@ -100,6 +97,17 @@ def init_db():
             updated_by INTEGER,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (updated_by) REFERENCES users(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS prevention_goal_adjustments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            period TEXT NOT NULL,
+            goal_key TEXT NOT NULL,
+            quantity REAL NOT NULL DEFAULT 0,
+            reason TEXT,
+            created_by INTEGER NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (created_by) REFERENCES users(id)
         );
 
         CREATE TABLE IF NOT EXISTS operational_summaries (

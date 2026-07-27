@@ -1022,13 +1022,22 @@ function fmtGoalNumber(value) {
   return numeric.toLocaleString("pt-BR", { maximumFractionDigits: Number.isInteger(numeric) ? 0 : 1 });
 }
 
+function signedGoalNumber(value) {
+  const numeric = Number(value || 0);
+  const sign = numeric > 0 ? "+" : "";
+  return `${sign}${fmtGoalNumber(numeric)}`;
+}
+
 function renderPreventionGoals() {
   const data = state.preventionGoals.data || {
     month: { label: "mês atual" },
     goals: [],
+    adjustments: [],
     summary: { configuredPoints: 120, targetPoints: 100, maxPoints: 120, totalPoints: 0, percent: 0, status: "EM ANDAMENTO" },
   };
   const summary = data.summary || {};
+  const isAdminUser = state.user?.role === "administrador";
+  const goalOptions = (data.goals || []).map((goal) => `<option value="${escapeHtml(goal.key)}">${escapeHtml(goal.label)} (${escapeHtml(goal.unit || "")})</option>`).join("");
   const adminSettings = state.user?.role === "administrador" ? `
     <section class="panel" style="margin-bottom:14px">
       <div class="setting-row">
@@ -1040,6 +1049,44 @@ function renderPreventionGoals() {
           <input id="preventionGoalsVisibilityToggle" type="checkbox" ${state.settings.preventionGoalsVisibleToTeam ? "checked" : ""}>
           <span>Liberar para prevenção</span>
         </label>
+      </div>
+    </section>
+    <section class="panel" style="margin-bottom:14px">
+      <h3>Ajustes manuais</h3>
+      <div class="muted" style="margin-top:4px">Use quantidade positiva para adicionar realizados e negativa para remover. O ajuste entra na apuração do mês selecionado.</div>
+      <form class="grid" id="preventionGoalAdjustmentForm" style="margin-top:12px">
+        <input type="hidden" name="period" value="${escapeHtml(state.preventionGoals.month || localMonthValue())}">
+        <div class="grid three">
+          <label>Indicador
+            <select name="goalKey" required>${goalOptions}</select>
+          </label>
+          <label>Quantidade
+            <input name="quantity" type="number" step="0.1" required placeholder="Ex.: 5 ou -2">
+          </label>
+          <label>Observação
+            <input name="reason" maxlength="500" placeholder="Motivo do ajuste">
+          </label>
+        </div>
+        <button class="btn primary" type="submit">Salvar ajuste</button>
+      </form>
+      <div class="table-wrap" style="margin-top:12px">
+        <table>
+          <thead><tr><th>Indicador</th><th>Quantidade</th><th>Observação</th><th>Criado por</th><th>Ação</th></tr></thead>
+          <tbody>
+            ${(data.adjustments || []).map((row) => {
+              const goal = (data.goals || []).find((item) => item.key === row.goal_key);
+              return `
+                <tr>
+                  <td data-label="Indicador">${escapeHtml(goal?.label || row.goal_key)}</td>
+                  <td data-label="Quantidade">${signedGoalNumber(row.quantity)}</td>
+                  <td data-label="Observação">${escapeHtml(row.reason || "")}</td>
+                  <td data-label="Criado por">${escapeHtml(row.created_by_name || "-")}</td>
+                  <td data-label="Ação"><button class="btn danger" type="button" data-delete-goal-adjustment="${row.id}">Remover</button></td>
+                </tr>
+              `;
+            }).join("") || `<tr><td colspan="5">Nenhum ajuste manual neste mês.</td></tr>`}
+          </tbody>
+        </table>
       </div>
     </section>
   ` : "";
@@ -1082,7 +1129,7 @@ function renderPreventionGoals() {
                 <td data-label="Previsto">${fmtGoalNumber(goal.target)}</td>
                 <td data-label="Realizado">
                   ${fmtGoalNumber(goal.realized)}
-                  ${goal.manualAdjustment ? `<div class="muted">+${fmtGoalNumber(goal.manualAdjustment)} ajuste antigo</div>` : ""}
+                  ${goal.manualAdjustment ? `<div class="muted">${signedGoalNumber(goal.manualAdjustment)} ajuste manual</div>` : ""}
                 </td>
                 <td data-label="Meta (%)">100%</td>
                 <td data-label="Realizado (%)">${percentBar(goal.percent)}</td>
@@ -1115,6 +1162,28 @@ function renderPreventionGoals() {
     toast(state.settings.preventionGoalsVisibleToTeam ? "Metas liberadas para a prevenção." : "Metas visíveis somente para administrador.");
     renderShell();
   });
+  if (isAdminUser) {
+    document.getElementById("preventionGoalAdjustmentForm")?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const body = Object.fromEntries(new FormData(event.currentTarget).entries());
+      await api("/api/prevention-goals/adjustments", {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+      await loadPreventionGoals();
+      renderPreventionGoals();
+      toast("Ajuste manual salvo.");
+    });
+    document.querySelectorAll("[data-delete-goal-adjustment]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        if (!confirm("Remover este ajuste manual?")) return;
+        await api(`/api/prevention-goals/adjustments/${button.dataset.deleteGoalAdjustment}`, { method: "DELETE" });
+        await loadPreventionGoals();
+        renderPreventionGoals();
+        toast("Ajuste manual removido.");
+      });
+    });
+  }
 }
 
 function exportDashboardCsv() {
@@ -1364,8 +1433,8 @@ function checklistFormData(body, photoFile) {
 
 async function sendChecklistRequest(path, method, body, photoFile) {
   if (photoFile) {
-    if (photoFile.size > 10 * 1024 * 1024) {
-      throw new Error("Foto muito pesada. Use uma foto menor ou tire pela camera do celular com qualidade reduzida.");
+    if (photoFile.size > 18 * 1024 * 1024) {
+      throw new Error("Foto muito pesada. Tire uma nova foto ou reduza a qualidade da imagem.");
     }
     return apiMultipart(path, checklistFormData(body, photoFile), method);
   }
@@ -1420,8 +1489,8 @@ function renderChecklist() {
         </select>
       </label>
       <label data-checklist-photo-field>Foto do checklist
-        <input name="photoFile" type="file" accept="image/*">
-        <span class="field-help">Em celulares que travam ao abrir a camera, tire a foto fora do app e selecione pela Galeria. Cotacoes, recebimentos, conferencia de precificacao e verificacao de validades contam na meta pela foto registrada.</span>
+        <input name="photoFile" type="file" accept="image/*" capture="environment">
+        <span class="field-help">Cotacoes, recebimentos, conferencia de precificacao e verificacao de validades contam na meta pela foto registrada.</span>
       </label>
       <label data-price-quantity-field>Quantidade de itens conferidos (opcional) <input name="priceDivergenceQuantity" type="number" min="1" step="1"></label>
       <label data-expired-quantity-field>Quantidade de itens conferidos (opcional) <input name="expiredProductsQuantity" type="number" min="1" step="1"></label>
@@ -4398,8 +4467,8 @@ async function imageFileToUploadDataUrl(file) {
   if (!file?.type?.startsWith("image/")) {
     throw new Error("Selecione uma imagem válida.");
   }
-  if (file.size > 10 * 1024 * 1024) {
-    throw new Error("Foto muito pesada. Use uma foto menor ou tire pela camera do celular com qualidade reduzida.");
+  if (file.size > 18 * 1024 * 1024) {
+    throw new Error("Foto muito pesada. Tire uma nova foto ou reduza a qualidade da imagem.");
   }
   const objectUrl = URL.createObjectURL(file);
   const img = new Image();

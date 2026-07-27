@@ -66,7 +66,6 @@ const repoActivities = [
   "Ruptura",
   "Ponta de g\u00f4ndola e ilhas organizadas",
   "Confer\u00eancia de estoque no dep\u00f3sito",
-  "Devolu\u00e7\u00e3o de produtos ao setor correto",
 ];
 
 const PREVENTION_MONTHLY_GOALS = [
@@ -86,14 +85,6 @@ const PREVENTION_MONTHLY_GOALS = [
 ];
 const PREVENTION_BONUS_TARGET_POINTS = 100;
 const PREVENTION_BONUS_MAX_POINTS = 120;
-const PREVENTION_GOAL_MANUAL_ADJUSTMENTS = {
-  "2026-07": {
-    quotations: 37,
-    receipts: 21,
-    pricing: 93,
-    validity: 19,
-  },
-};
 
 const activities = [
   "Temperatura 07h",
@@ -107,15 +98,12 @@ const activities = [
   "Acompanhamento de cota\u00e7\u00f5es",
   "Acompanhamento de recebimentos",
   "Invent\u00e1rio",
-  "Monitoramento loja / App Veesion",
   "Confer\u00eancia de precifica\u00e7\u00e3o",
   "Verifica\u00e7\u00e3o de validades",
-  "Verifica\u00e7\u00e3o de \u00e1gua do bebedouro",
   "Acompanhamento da vitrine",
   "Portas e acessos conferidos",
-  "Cancelamentos e estornos verificados",
+  "Cancelamentos de cupons acompanhados",
   "Passagem de itens de forma correta no caixa",
-  "Devolu\u00e7\u00e3o de produtos acompanhadas",
 ];
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -201,6 +189,16 @@ async function initPostgres(pool) {
       setting_value TEXT NOT NULL,
       updated_by INTEGER REFERENCES users(id),
       updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS prevention_goal_adjustments (
+      id SERIAL PRIMARY KEY,
+      period TEXT NOT NULL,
+      goal_key TEXT NOT NULL,
+      quantity REAL NOT NULL DEFAULT 0,
+      reason TEXT,
+      created_by INTEGER NOT NULL REFERENCES users(id),
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE TABLE IF NOT EXISTS operational_summaries (
@@ -421,6 +419,17 @@ async function initPostgres(pool) {
   await pool.query("ALTER TABLE checklists ADD COLUMN IF NOT EXISTS inventory_type TEXT");
   await pool.query("ALTER TABLE checklists ADD COLUMN IF NOT EXISTS price_divergence_quantity INTEGER NOT NULL DEFAULT 0");
   await pool.query("ALTER TABLE checklists ADD COLUMN IF NOT EXISTS expired_products_quantity INTEGER NOT NULL DEFAULT 0");
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS prevention_goal_adjustments (
+      id SERIAL PRIMARY KEY,
+      period TEXT NOT NULL,
+      goal_key TEXT NOT NULL,
+      quantity REAL NOT NULL DEFAULT 0,
+      reason TEXT,
+      created_by INTEGER NOT NULL REFERENCES users(id),
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
   await pool.query("ALTER TABLE repo_ruptures ADD COLUMN IF NOT EXISTS commercial_updated_by INTEGER REFERENCES users(id)");
   await pool.query("ALTER TABLE repo_expirations ADD COLUMN IF NOT EXISTS commercial_updated_by INTEGER REFERENCES users(id)");
   await pool.query("ALTER TABLE management_monthly ADD COLUMN IF NOT EXISTS sold_quantity REAL NOT NULL DEFAULT 0");
@@ -701,6 +710,10 @@ async function preventionGoalsVisibleToTeam() {
 async function canAccessPreventionGoals(user) {
   if (isAdmin(user)) return true;
   return canAccessPrevention(user) && await preventionGoalsVisibleToTeam();
+}
+
+function validPreventionGoalKey(goalKey) {
+  return PREVENTION_MONTHLY_GOALS.some((goal) => goal.key === goalKey);
 }
 
 function canAccessReposition(user) {
@@ -1173,6 +1186,14 @@ async function preventionGoalProgress(monthValue) {
      GROUP BY sector`,
     [month.month]
   );
+  const adjustmentRows = await query(
+    `SELECT a.id, a.period, a.goal_key, a.quantity, a.reason, a.created_at, u.display_name AS created_by_name
+     FROM prevention_goal_adjustments a
+     LEFT JOIN users u ON u.id = a.created_by
+     WHERE a.period = ?
+     ORDER BY a.created_at DESC, a.id DESC`,
+    [month.month]
+  );
 
   const realized = Object.fromEntries(PREVENTION_MONTHLY_GOALS.map((goal) => [goal.key, 0]));
   const daySets = {
@@ -1213,9 +1234,13 @@ async function preventionGoalProgress(monthValue) {
   realized.consumption = daySets.consumption.size;
   realized.bottles = daySets.bottles.size;
 
-  const manualAdjustments = PREVENTION_GOAL_MANUAL_ADJUSTMENTS[month.month] || {};
+  const manualAdjustments = Object.fromEntries(PREVENTION_MONTHLY_GOALS.map((goal) => [goal.key, 0]));
+  adjustmentRows.forEach((row) => {
+    if (!validPreventionGoalKey(row.goal_key)) return;
+    manualAdjustments[row.goal_key] += Number(row.quantity || 0);
+  });
   Object.entries(manualAdjustments).forEach(([key, value]) => {
-    realized[key] = Number(realized[key] || 0) + Number(value || 0);
+    realized[key] = Math.max(0, Number(realized[key] || 0) + Number(value || 0));
   });
 
   const checklistInventoryTotal = INVENTORY_TYPES.reduce((sum, type) => sum + Number(realized[type.key] || 0), 0);
@@ -1245,6 +1270,7 @@ async function preventionGoalProgress(monthValue) {
   return {
     month,
     goals,
+    adjustments: adjustmentRows,
     summary: {
       configuredPoints,
       targetPoints: PREVENTION_BONUS_TARGET_POINTS,
@@ -3155,6 +3181,34 @@ async function api(req, res, url) {
   if (method === "GET" && url.pathname === "/api/prevention-goals") {
     if (!await canAccessPreventionGoals(user)) return send(res, 403, { error: "Metas da prevenção ainda não liberadas para este acesso." });
     return send(res, 200, await preventionGoalProgress(url.searchParams.get("month")));
+  }
+
+  if (method === "POST" && url.pathname === "/api/prevention-goals/adjustments") {
+    if (!isAdmin(user)) return send(res, 403, { error: "Apenas administrador pode ajustar metas." });
+    const body = await readBody(req);
+    const period = String(body.period || "").trim();
+    const goalKey = String(body.goalKey || "").trim();
+    const quantity = Number(body.quantity);
+    if (!/^\d{4}-\d{2}$/.test(period)) return send(res, 400, { error: "Informe um mês válido." });
+    if (!validPreventionGoalKey(goalKey)) return send(res, 400, { error: "Selecione uma meta válida." });
+    if (!Number.isFinite(quantity) || quantity === 0) return send(res, 400, { error: "Informe uma quantidade positiva ou negativa." });
+    const reason = String(body.reason || "").trim().slice(0, 500);
+    const createdAt = nowIso();
+    const result = await execute(
+      "INSERT INTO prevention_goal_adjustments (period, goal_key, quantity, reason, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+      [period, goalKey, quantity, reason, user.id, createdAt]
+    );
+    await logAudit(user, "create", "prevention_goal_adjustments", result.lastrowid || `${period}:${goalKey}`, { period, goalKey, quantity, reason });
+    return send(res, 201, { ok: true });
+  }
+
+  if (method === "DELETE" && url.pathname.startsWith("/api/prevention-goals/adjustments/")) {
+    if (!isAdmin(user)) return send(res, 403, { error: "Apenas administrador pode remover ajustes de metas." });
+    const id = Number(url.pathname.split("/").pop());
+    if (!id) return send(res, 400, { error: "Ajuste inválido." });
+    await execute("DELETE FROM prevention_goal_adjustments WHERE id = ?", [id]);
+    await logAudit(user, "delete", "prevention_goal_adjustments", id);
+    return send(res, 200, { ok: true });
   }
 
   if (method === "GET" && url.pathname === "/api/pendencies") {
