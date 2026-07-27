@@ -85,6 +85,8 @@ const PREVENTION_MONTHLY_GOALS = [
 ];
 const PREVENTION_BONUS_TARGET_POINTS = 100;
 const PREVENTION_BONUS_MAX_POINTS = 120;
+const PREVENTION_QUANTITY_COUNT_START_DATE = "2026-07-27";
+const PREVENTION_QUANTITY_COUNT_START_AT = "2026-07-27T09:30:00-03:00";
 const LEGACY_PREVENTION_GOAL_ADJUSTMENTS = {
   "2026-07": {
     quotations: 37,
@@ -1146,9 +1148,11 @@ function normalizeText(value) {
 }
 
 function productQuantityFromText(...values) {
-  const text = values.map((value) => String(value || "").trim()).filter(Boolean).join("\n");
+  const parts = values.map((value) => String(value || "").trim()).filter(Boolean);
+  const text = parts.join("\n");
   if (!text) return 0;
   const explicit = text.match(/(?:^|\D)(\d{1,5})(?:[.,]\d+)?\s*(?:produtos?|itens?|unidades?|unds?|caixas?|cxs?|cx)\b/i)
+    || parts.map((part) => part.match(/^\s*(\d{1,5})(?:[.,]\d+)?\s*$/)).find(Boolean)
     || text.match(/^\s*(\d{1,5})(?:[.,]\d+)?\b/);
   if (explicit) return Number(explicit[1]) || 1;
   const items = text
@@ -1156,6 +1160,27 @@ function productQuantityFromText(...values) {
     .map((item) => item.trim())
     .filter(Boolean);
   return Math.max(items.length, 1);
+}
+
+function checklistIdentifiedProductQuantity(row, activity) {
+  if (activity === PRICE_DIVERGENCE_ACTIVITY) {
+    return productQuantityFromText(row.price_divergence_products, row.price_divergence_quantity);
+  }
+  if (activity === EXPIRED_PRODUCTS_ACTIVITY) {
+    return productQuantityFromText(row.expired_products, row.expired_products_quantity);
+  }
+  return 0;
+}
+
+function shouldCountChecklistQuantity(row) {
+  const sentAt = String(row.sent_at || "").trim();
+  if (sentAt) {
+    const normalized = sentAt.includes("T") ? sentAt : sentAt.replace(" ", "T");
+    const timestamp = new Date(normalized).getTime();
+    const cutoff = new Date(PREVENTION_QUANTITY_COUNT_START_AT).getTime();
+    if (Number.isFinite(timestamp) && Number.isFinite(cutoff)) return timestamp >= cutoff;
+  }
+  return String(row.date || "") > PREVENTION_QUANTITY_COUNT_START_DATE;
 }
 
 function goalStatus(percent) {
@@ -1176,7 +1201,7 @@ function inventoryBucket(sector) {
 async function preventionGoalProgress(monthValue) {
   const month = monthInfoFromValue(monthValue);
   const checklistRows = await query(
-    `SELECT date, activity, observation, photo_path, price_divergence_products, price_divergence_quantity, expired_products, expired_products_quantity, inventory_type
+    `SELECT date, sent_at, activity, observation, photo_path, price_divergence_products, price_divergence_quantity, expired_products, expired_products_quantity, inventory_type
      FROM checklists
      WHERE date BETWEEN ? AND ?`,
     [month.start, month.end]
@@ -1216,10 +1241,14 @@ async function preventionGoalProgress(monthValue) {
     if (activity.includes("cotac")) realized.quotations += row.photo_path ? 1 : 0;
     if (activity.includes("recebimento")) realized.receipts += row.photo_path ? 1 : 0;
     if (activity.includes("precificacao") || activity.includes("preco")) {
-      realized.pricing += row.photo_path ? 1 : 0;
+      realized.pricing += shouldCountChecklistQuantity(row)
+        ? checklistIdentifiedProductQuantity(row, PRICE_DIVERGENCE_ACTIVITY)
+        : (row.photo_path ? 1 : 0);
     }
     if (activity.includes("validade")) {
-      realized.validity += row.photo_path ? 1 : 0;
+      realized.validity += shouldCountChecklistQuantity(row)
+        ? checklistIdentifiedProductQuantity(row, EXPIRED_PRODUCTS_ACTIVITY)
+        : (row.photo_path ? 1 : 0);
     }
     if (activity.includes("inventario")) {
       const key = INVENTORY_TYPES.some((type) => type.key === row.inventory_type)
@@ -1347,8 +1376,8 @@ function checklistProductDetails(row) {
 function checklistProductQuantity(row) {
   if (normalizeText(row.activity).includes("cotac")) return row.photo_path ? "1 foto" : "";
   if (normalizeText(row.activity).includes("recebimento")) return row.photo_path ? "1 foto" : "";
-  if (row.activity === PRICE_DIVERGENCE_ACTIVITY) return row.photo_path ? "1 foto" : "";
-  if (row.activity === EXPIRED_PRODUCTS_ACTIVITY) return row.photo_path ? "1 foto" : "";
+  if (row.activity === PRICE_DIVERGENCE_ACTIVITY) return checklistIdentifiedProductQuantity(row, PRICE_DIVERGENCE_ACTIVITY) || "";
+  if (row.activity === EXPIRED_PRODUCTS_ACTIVITY) return checklistIdentifiedProductQuantity(row, EXPIRED_PRODUCTS_ACTIVITY) || "";
   return "";
 }
 

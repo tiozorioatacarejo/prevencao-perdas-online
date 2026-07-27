@@ -287,6 +287,31 @@ function withoutAccents(value) {
     .replace(/[\u0300-\u036f]/g, "");
 }
 
+function productQuantityFromText(...values) {
+  const parts = values.map((value) => String(value || "").trim()).filter(Boolean);
+  const text = parts.join("\n");
+  if (!text) return 0;
+  const explicit = text.match(/(?:^|\D)(\d{1,5})(?:[.,]\d+)?\s*(?:produtos?|itens?|unidades?|unds?|caixas?|cxs?|cx)\b/i)
+    || parts.map((part) => part.match(/^\s*(\d{1,5})(?:[.,]\d+)?\s*$/)).find(Boolean)
+    || text.match(/^\s*(\d{1,5})(?:[.,]\d+)?\b/);
+  if (explicit) return Number(explicit[1]) || 1;
+  const items = text
+    .split(/[\n;,]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+  return Math.max(items.length, 1);
+}
+
+function checklistIdentifiedProductQuantity(row, activity) {
+  if (activity === PRICE_DIVERGENCE_ACTIVITY) {
+    return productQuantityFromText(row.price_divergence_products, row.price_divergence_quantity);
+  }
+  if (activity === EXPIRED_PRODUCTS_ACTIVITY) {
+    return productQuantityFromText(row.expired_products, row.expired_products_quantity);
+  }
+  return 0;
+}
+
 function decodeBrokenUtf8(text) {
   try {
     if (typeof TextDecoder !== "undefined") {
@@ -1118,7 +1143,7 @@ function renderPreventionGoals() {
     </div>
     <section class="panel">
       <h3>Apuração mensal</h3>
-      <div class="muted" style="margin-top:4px">Cotações, recebimentos, precificações e validades contam por fotos registradas. Ajustes antigos sem foto aparecem somados no realizado do mês.</div>
+      <div class="muted" style="margin-top:4px">Cotações e recebimentos contam por fotos. Precificações e validades novas contam pela quantidade em produtos identificados; o histórico anterior permanece preservado.</div>
       <div class="table-wrap" style="margin-top:12px">
         <table class="goals-table">
           <thead><tr><th>Indicador</th><th>Previsto</th><th>Realizado</th><th>Meta (%)</th><th>Realizado (%)</th><th>Pontos obtidos</th><th>Status</th></tr></thead>
@@ -1490,7 +1515,7 @@ function renderChecklist() {
       </label>
       <label data-checklist-photo-field>Foto do checklist
         <input name="photoFile" type="file" accept="image/*" capture="environment">
-        <span class="field-help">Cotacoes, recebimentos, conferencia de precificacao e verificacao de validades contam na meta pela foto registrada.</span>
+        <span class="field-help">Cotacoes e recebimentos contam por foto. Precificacao e validade contam pela quantidade informada em produtos identificados.</span>
       </label>
       <label data-price-quantity-field>Quantidade de itens conferidos (opcional) <input name="priceDivergenceQuantity" type="number" min="1" step="1"></label>
       <label data-expired-quantity-field>Quantidade de itens conferidos (opcional) <input name="expiredProductsQuantity" type="number" min="1" step="1"></label>
@@ -1801,8 +1826,8 @@ function checklistProductDetails(row) {
 function checklistProductQuantity(row) {
   if (normalizeText(row.activity).includes("cotac")) return row.photo_path ? "1 foto" : "";
   if (normalizeText(row.activity).includes("recebimento")) return row.photo_path ? "1 foto" : "";
-  if (row.activity === PRICE_DIVERGENCE_ACTIVITY) return row.photo_path ? "1 foto" : "";
-  if (row.activity === EXPIRED_PRODUCTS_ACTIVITY) return row.photo_path ? "1 foto" : "";
+  if (row.activity === PRICE_DIVERGENCE_ACTIVITY) return checklistIdentifiedProductQuantity(row, PRICE_DIVERGENCE_ACTIVITY) || "";
+  if (row.activity === EXPIRED_PRODUCTS_ACTIVITY) return checklistIdentifiedProductQuantity(row, EXPIRED_PRODUCTS_ACTIVITY) || "";
   return "";
 }
 
