@@ -85,6 +85,14 @@ const PREVENTION_MONTHLY_GOALS = [
 ];
 const PREVENTION_BONUS_TARGET_POINTS = 100;
 const PREVENTION_BONUS_MAX_POINTS = 120;
+const LEGACY_PREVENTION_GOAL_ADJUSTMENTS = {
+  "2026-07": {
+    quotations: 37,
+    receipts: 21,
+    pricing: 93,
+    validity: 19,
+  },
+};
 
 const activities = [
   "Temperatura 07h",
@@ -1234,7 +1242,10 @@ async function preventionGoalProgress(monthValue) {
   realized.consumption = daySets.consumption.size;
   realized.bottles = daySets.bottles.size;
 
-  const manualAdjustments = Object.fromEntries(PREVENTION_MONTHLY_GOALS.map((goal) => [goal.key, 0]));
+  const legacyAdjustments = LEGACY_PREVENTION_GOAL_ADJUSTMENTS[month.month] || {};
+  const manualAdjustments = Object.fromEntries(
+    PREVENTION_MONTHLY_GOALS.map((goal) => [goal.key, Number(legacyAdjustments[goal.key] || 0)])
+  );
   adjustmentRows.forEach((row) => {
     if (!validPreventionGoalKey(row.goal_key)) return;
     manualAdjustments[row.goal_key] += Number(row.quantity || 0);

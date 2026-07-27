@@ -1129,7 +1129,7 @@ function renderPreventionGoals() {
                 <td data-label="Previsto">${fmtGoalNumber(goal.target)}</td>
                 <td data-label="Realizado">
                   ${fmtGoalNumber(goal.realized)}
-                  ${goal.manualAdjustment ? `<div class="muted">${signedGoalNumber(goal.manualAdjustment)} ajuste manual</div>` : ""}
+                  ${goal.manualAdjustment ? `<div class="muted">${signedGoalNumber(goal.manualAdjustment)} ajuste preservado/manual</div>` : ""}
                 </td>
                 <td data-label="Meta (%)">100%</td>
                 <td data-label="Realizado (%)">${percentBar(goal.percent)}</td>
