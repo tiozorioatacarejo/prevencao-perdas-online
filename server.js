@@ -211,6 +211,21 @@ async function initPostgres(pool) {
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS daily_tasks (
+      id SERIAL PRIMARY KEY,
+      title TEXT NOT NULL,
+      description TEXT,
+      assigned_to INTEGER NOT NULL REFERENCES users(id),
+      task_date TEXT NOT NULL,
+      due_time TEXT,
+      reminder_time TEXT,
+      priority TEXT NOT NULL DEFAULT 'Normal',
+      status TEXT NOT NULL DEFAULT 'Pendente',
+      created_by INTEGER NOT NULL REFERENCES users(id),
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
     CREATE TABLE IF NOT EXISTS operational_summaries (
       id SERIAL PRIMARY KEY,
       date TEXT UNIQUE NOT NULL,
@@ -438,6 +453,22 @@ async function initPostgres(pool) {
       reason TEXT,
       created_by INTEGER NOT NULL REFERENCES users(id),
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS daily_tasks (
+      id SERIAL PRIMARY KEY,
+      title TEXT NOT NULL,
+      description TEXT,
+      assigned_to INTEGER NOT NULL REFERENCES users(id),
+      task_date TEXT NOT NULL,
+      due_time TEXT,
+      reminder_time TEXT,
+      priority TEXT NOT NULL DEFAULT 'Normal',
+      status TEXT NOT NULL DEFAULT 'Pendente',
+      created_by INTEGER NOT NULL REFERENCES users(id),
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `);
   await pool.query("ALTER TABLE repo_ruptures ADD COLUMN IF NOT EXISTS commercial_updated_by INTEGER REFERENCES users(id)");
@@ -678,6 +709,10 @@ function canDeleteRecords(user) {
 
 function isAdmin(user) {
   return user.role === "administrador";
+}
+
+function canManageDailyTasks(user) {
+  return ["administrador", "encarregada", "gerente"].includes(user.role);
 }
 
 function loginAreaMatches(area, role) {
@@ -1052,6 +1087,24 @@ function today() {
   }).formatToParts(new Date());
   const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
   return `${values.year}-${values.month}-${values.day}`;
+}
+
+function validDateValue(value) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(String(value || ""));
+}
+
+function validTimeValue(value) {
+  return !value || /^\d{2}:\d{2}$/.test(String(value || ""));
+}
+
+function normalizeTaskStatus(value) {
+  const status = String(value || "Pendente").trim();
+  return ["Pendente", "Em andamento", "Concluida", "Cancelada"].includes(status) ? status : "Pendente";
+}
+
+function normalizeTaskPriority(value) {
+  const priority = String(value || "Normal").trim();
+  return ["Baixa", "Normal", "Alta", "Urgente"].includes(priority) ? priority : "Normal";
 }
 
 function monthBounds(date = new Date()) {
@@ -2139,6 +2192,17 @@ async function api(req, res, url) {
 
   if (method === "GET" && url.pathname === "/api/me") {
     return send(res, 200, { user, activities, sectors: repoSectors });
+  }
+
+  if (method === "GET" && url.pathname === "/api/task-users") {
+    const userWhere = canManageDailyTasks(user) ? "" : "WHERE id = ?";
+    const userParams = canManageDailyTasks(user) ? [] : [user.id];
+    return send(res, 200, {
+      rows: await query(
+        `SELECT id, display_name, role, status FROM users ${userWhere || "WHERE status = 'ativo'"}${userWhere ? " AND status = 'ativo'" : ""} ORDER BY display_name`,
+        userParams
+      ),
+    });
   }
 
   if (method === "GET" && url.pathname === "/api/app-settings") {
@@ -3288,6 +3352,111 @@ async function api(req, res, url) {
       "UPDATE pendencies SET description=?, responsible_id=?, opened_at=?, status=?, attachment_path=?, solution_observation=?, updated_at=? WHERE id=?",
       [body.description, body.responsibleId, body.openedAt, body.status, attachmentPath, body.solutionObservation || "", nowIso(), id]
     );
+    return send(res, 200, { ok: true });
+  }
+
+  if (method === "GET" && url.pathname === "/api/daily-tasks") {
+    const where = ["t.assigned_to = ?"];
+    const params = [user.id];
+    if (url.searchParams.get("date")) {
+      where.push("t.task_date = ?");
+      params.push(url.searchParams.get("date"));
+    } else {
+      where.push("t.task_date BETWEEN ? AND ?");
+      params.push(url.searchParams.get("startDate") || today(), url.searchParams.get("endDate") || url.searchParams.get("startDate") || today());
+    }
+    if (url.searchParams.get("status")) {
+      where.push("t.status = ?");
+      params.push(url.searchParams.get("status"));
+    }
+    return send(res, 200, {
+      rows: await query(
+        `SELECT t.*, assignee.display_name AS assigned_name, assignee.role AS assigned_role, creator.display_name AS created_by_name
+         FROM daily_tasks t
+         JOIN users assignee ON assignee.id = t.assigned_to
+         JOIN users creator ON creator.id = t.created_by
+         WHERE ${where.join(" AND ")}
+         ORDER BY t.task_date, COALESCE(t.due_time, t.reminder_time, '23:59'), CASE t.priority WHEN 'Urgente' THEN 1 WHEN 'Alta' THEN 2 WHEN 'Normal' THEN 3 ELSE 4 END, t.id DESC`,
+        params
+      ),
+    });
+  }
+
+  if (method === "POST" && url.pathname === "/api/daily-tasks") {
+    const body = await readBody(req);
+    const taskDate = body.taskDate || today();
+    if (!validDateValue(taskDate)) return send(res, 400, { error: "Informe uma data válida." });
+    if (!validTimeValue(body.dueTime) || !validTimeValue(body.reminderTime)) return send(res, 400, { error: "Informe horários válidos." });
+    const title = String(body.title || "").trim();
+    if (!title) return send(res, 400, { error: "Informe o título da tarefa." });
+    const assignedTo = canManageDailyTasks(user) ? Number(body.assignedTo || user.id) : user.id;
+    const assignee = await query("SELECT id FROM users WHERE id = ? AND status = 'ativo'", [assignedTo]);
+    if (!assignee[0]) return send(res, 400, { error: "Responsável inválido." });
+    await execute(
+      `INSERT INTO daily_tasks (title, description, assigned_to, task_date, due_time, reminder_time, priority, status, created_by, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        title,
+        String(body.description || "").trim(),
+        assignedTo,
+        taskDate,
+        body.dueTime || "",
+        body.reminderTime || "",
+        normalizeTaskPriority(body.priority),
+        normalizeTaskStatus(body.status),
+        user.id,
+        nowIso(),
+        nowIso(),
+      ]
+    );
+    await logAudit(user, "create", "daily_tasks", title, { assignedTo, taskDate });
+    return send(res, 201, { ok: true });
+  }
+
+  if (method === "PUT" && url.pathname.startsWith("/api/daily-tasks/")) {
+    const id = Number(url.pathname.split("/").pop());
+    const existing = (await query("SELECT * FROM daily_tasks WHERE id = ?", [id]))[0];
+    if (!existing) return send(res, 404, { error: "Tarefa não encontrada." });
+    if (Number(existing.assigned_to) !== Number(user.id)) {
+      return send(res, 403, { error: "Você só pode alterar suas tarefas." });
+    }
+    const body = await readBody(req);
+    const taskDate = body.taskDate || existing.task_date;
+    if (!validDateValue(taskDate)) return send(res, 400, { error: "Informe uma data válida." });
+    if (!validTimeValue(body.dueTime) || !validTimeValue(body.reminderTime)) return send(res, 400, { error: "Informe horários válidos." });
+    const assignedTo = canManageDailyTasks(user) ? Number(body.assignedTo || existing.assigned_to) : Number(existing.assigned_to);
+    const assignee = await query("SELECT id FROM users WHERE id = ? AND status = 'ativo'", [assignedTo]);
+    if (!assignee[0]) return send(res, 400, { error: "Responsável inválido." });
+    await execute(
+      `UPDATE daily_tasks
+       SET title = ?, description = ?, assigned_to = ?, task_date = ?, due_time = ?, reminder_time = ?, priority = ?, status = ?, updated_at = ?
+       WHERE id = ?`,
+      [
+        String(body.title || existing.title || "").trim(),
+        String(body.description || "").trim(),
+        assignedTo,
+        taskDate,
+        body.dueTime || "",
+        body.reminderTime || "",
+        normalizeTaskPriority(body.priority),
+        normalizeTaskStatus(body.status),
+        nowIso(),
+        id,
+      ]
+    );
+    await logAudit(user, "update", "daily_tasks", id, { assignedTo, taskDate, status: body.status });
+    return send(res, 200, { ok: true });
+  }
+
+  if (method === "DELETE" && url.pathname.startsWith("/api/daily-tasks/")) {
+    const id = Number(url.pathname.split("/").pop());
+    const existing = (await query("SELECT assigned_to FROM daily_tasks WHERE id = ?", [id]))[0];
+    if (!existing) return send(res, 404, { error: "Tarefa não encontrada." });
+    if (Number(existing.assigned_to) !== Number(user.id)) {
+      return send(res, 403, { error: "Você só pode excluir suas tarefas." });
+    }
+    await execute("DELETE FROM daily_tasks WHERE id = ?", [id]);
+    await logAudit(user, "delete", "daily_tasks", id);
     return send(res, 200, { ok: true });
   }
 

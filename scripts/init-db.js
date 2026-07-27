@@ -71,6 +71,21 @@ async function initPostgres() {
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS daily_tasks (
+      id SERIAL PRIMARY KEY,
+      title TEXT NOT NULL,
+      description TEXT,
+      assigned_to INTEGER NOT NULL REFERENCES users(id),
+      task_date TEXT NOT NULL,
+      due_time TEXT,
+      reminder_time TEXT,
+      priority TEXT NOT NULL DEFAULT 'Normal',
+      status TEXT NOT NULL DEFAULT 'Pendente',
+      created_by INTEGER NOT NULL REFERENCES users(id),
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
     CREATE TABLE IF NOT EXISTS operational_summaries (
       id SERIAL PRIMARY KEY,
       date TEXT UNIQUE NOT NULL,
@@ -239,6 +254,22 @@ async function initPostgres() {
       reason TEXT,
       created_by INTEGER NOT NULL REFERENCES users(id),
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS daily_tasks (
+      id SERIAL PRIMARY KEY,
+      title TEXT NOT NULL,
+      description TEXT,
+      assigned_to INTEGER NOT NULL REFERENCES users(id),
+      task_date TEXT NOT NULL,
+      due_time TEXT,
+      reminder_time TEXT,
+      priority TEXT NOT NULL DEFAULT 'Normal',
+      status TEXT NOT NULL DEFAULT 'Pendente',
+      created_by INTEGER NOT NULL REFERENCES users(id),
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `);
   await pool.query("ALTER TABLE agenda_slots DROP CONSTRAINT IF EXISTS agenda_slots_agenda_type_date_start_time_key");

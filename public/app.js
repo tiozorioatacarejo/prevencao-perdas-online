@@ -23,6 +23,14 @@
     preventionGoalsVisibleToTeam: false,
   },
   users: [],
+  taskUsers: [],
+  dailyTasks: [],
+  taskFilters: {
+    startDate: localDateValue(),
+    endDate: localDateValue(),
+    status: "",
+    assignedTo: "",
+  },
   auditFilters: {
     startDate: localDateValue(),
     endDate: localDateValue(),
@@ -121,6 +129,10 @@ const AUDIT_FOCUS_OPTIONS = [
   ["avaria", "Avaria"],
   ["tudo", "Tudo"],
 ];
+const TASK_MANAGER_ROLES = ["administrador", "encarregada", "gerente"];
+let taskAlertTimer = null;
+const alertedTaskKeys = new Set();
+
 function api(path, options = {}) {
   return fetch(path, {
     ...options,
@@ -207,6 +219,10 @@ function isLinkedCollaborator() {
 
 function canAccessSummary() {
   return ["administrador", "encarregada"].includes(state.user?.role);
+}
+
+function canManageDailyTasks() {
+  return TASK_MANAGER_ROLES.includes(state.user?.role);
 }
 
 function canAccessPrevention() {
@@ -462,11 +478,12 @@ async function bootstrap() {
       state.repo.commercialUsers = repoOptions.commercialUsers || [];
     }
     state.tab = defaultTab();
-    await loadCollaborators();
+    await Promise.all([loadCollaborators(), loadTaskUsers(), loadDailyTasks()]);
     if (state.tab === "dashboard") await loadDashboard();
     if (state.tab === "reposition" || state.tab === "repoDashboard" || state.tab === "commercial" || state.tab === "commercialDashboard") await loadReposition();
     renderShell();
     startSessionKeepAlive();
+    startTaskAlerts();
   } catch (error) {
     expireSession(error.message);
   }
@@ -499,6 +516,7 @@ function expireSession(message = "Sua sessão expirou. Entre novamente.") {
 
 function logout(message = "") {
   stopSessionKeepAlive();
+  stopTaskAlerts();
   state.token = "";
   state.user = null;
   localStorage.removeItem("token");
@@ -523,6 +541,7 @@ function tabIcon(id) {
     commercialDashboard: "&#128188;",
     commercialAgenda: "&#128197;",
     receivingAgenda: "&#128666;",
+    dailyTasks: "&#128197;",
     checklist: "&#9745;",
     summary: "&#128221;",
     reports: "&#128202;",
@@ -641,6 +660,12 @@ function navGroups(tabs) {
   const tabOrder = new Map(tabs.map(([id], index) => [id, index]));
   const groupDefs = [
     {
+      id: "tasks",
+      label: "Agenda/Tarefas",
+      icon: "📅",
+      tabs: ["dailyTasks"],
+    },
+    {
       id: "prevention",
       label: "Prevenção",
       icon: "📈",
@@ -697,6 +722,7 @@ function navGroups(tabs) {
 }
 
 async function refreshForTab() {
+  if (state.tab === "dailyTasks") await Promise.all([loadTaskUsers(), loadDailyTasks()]);
   if (state.tab === "dashboard") await loadDashboard();
   if (state.tab === "preventionGoals") await loadPreventionGoals();
   if (state.tab === "repoDashboard" || state.tab === "commercialDashboard" || state.tab === "repoGoals") await Promise.all([loadCollaborators(), loadReposition()]);
@@ -718,6 +744,7 @@ function renderView() {
   const map = {
     dashboard: renderDashboard,
     preventionGoals: renderPreventionGoals,
+    dailyTasks: renderDailyTasks,
     repoDashboard: renderRepoDashboard,
     commercialDashboard: renderCommercialDashboard,
     commercialAgenda: () => renderAgenda("comercial"),
@@ -747,12 +774,13 @@ function renderView() {
 }
 
 function allowedTabs() {
-  if (state.user?.role === "reposicao") return [["repoDashboard", "Painel Reposi\u00e7\u00e3o"], ["reposition", "Reposi\u00e7\u00e3o"], ["repoReports", "Relatórios Reposição"]];
-  if (state.user?.role === "recebimento") return [["receivingAgenda", "Agenda Recebimento"]];
-  if (state.user?.role === "comercial") return [["commercialDashboard", "Painel Comercial"], ["commercial", "Comercial"], ["commercialAgenda", "Agenda Comercial"]];
-  if (state.user?.role === "gerente") return [["sectorAudit", "Conferência Gerencial"], ["repoReports", "Relatórios Reposição"], ["pendencies", "Pendências"]];
+  if (state.user?.role === "reposicao") return [["dailyTasks", "Agenda/Tarefas"], ["repoDashboard", "Painel Reposi\u00e7\u00e3o"], ["reposition", "Reposi\u00e7\u00e3o"], ["repoReports", "Relatórios Reposição"]];
+  if (state.user?.role === "recebimento") return [["dailyTasks", "Agenda/Tarefas"], ["receivingAgenda", "Agenda Recebimento"]];
+  if (state.user?.role === "comercial") return [["dailyTasks", "Agenda/Tarefas"], ["commercialDashboard", "Painel Comercial"], ["commercial", "Comercial"], ["commercialAgenda", "Agenda Comercial"]];
+  if (state.user?.role === "gerente") return [["dailyTasks", "Agenda/Tarefas"], ["sectorAudit", "Conferência Gerencial"], ["repoReports", "Relatórios Reposição"], ["pendencies", "Pendências"]];
   if (state.user?.role === "encarregada") {
     const tabs = [
+      ["dailyTasks", "Agenda/Tarefas"],
       ["sectorAudit", "Conferência Gerencial"],
       ["repoGoals", "Metas Reposição"],
       ["receivingAgenda", "Agenda Recebimento"],
@@ -766,6 +794,7 @@ function allowedTabs() {
   }
   if (state.user?.role !== "administrador") {
     const tabs = [
+      ["dailyTasks", "Agenda/Tarefas"],
       ["dashboard", "Painel PrevenÃ§Ã£o"],
       ["checklist", "Checklist"],
       ["reposition", "ReposiÃ§Ã£o"],
@@ -776,6 +805,7 @@ function allowedTabs() {
     return tabs.filter(([id]) => id !== "reposition");
   }
   const tabs = [
+    ["dailyTasks", "Agenda/Tarefas"],
     ["dashboard", "Painel PrevenÃ§Ã£o"],
     ["preventionGoals", "Metas Prevenção"],
     ["repoDashboard", "Painel Reposi\u00e7\u00e3o"],
@@ -859,6 +889,22 @@ async function loadPendencies() {
 async function loadUsers() {
   const data = await api("/api/users");
   state.users = data.rows;
+}
+
+async function loadTaskUsers() {
+  const data = await api("/api/task-users");
+  state.taskUsers = data.rows;
+}
+
+async function loadDailyTasks() {
+  const filters = state.taskFilters;
+  const qs = new URLSearchParams({
+    startDate: filters.startDate || localDateValue(),
+    endDate: filters.endDate || filters.startDate || localDateValue(),
+  });
+  if (filters.status) qs.set("status", filters.status);
+  const data = await api(`/api/daily-tasks?${qs.toString()}`);
+  state.dailyTasks = data.rows;
 }
 
 async function loadManagementIndicators() {
@@ -3277,6 +3323,267 @@ function drawPendenciesTable() {
       `).join("") || `<tr><td colspan="5">Nenhuma pendÃªncia cadastrada.</td></tr>`}
     </tbody></table>
   `;
+}
+
+function taskUserOptions(selected = "") {
+  const users = state.taskUsers.length ? state.taskUsers : [state.user].filter(Boolean);
+  return users.map((user) => `<option value="${user.id}" ${Number(selected) === Number(user.id) ? "selected" : ""}>${escapeHtml(user.display_name)} - ${escapeHtml(roleLabel(user.role))}</option>`).join("");
+}
+
+function taskStatusClass(status) {
+  if (status === "Concluida") return "ok";
+  if (status === "Em andamento") return "warn";
+  if (status === "Cancelada") return "";
+  return "danger";
+}
+
+function taskAlertDate(task) {
+  const time = task.reminder_time || task.due_time;
+  if (!time) return null;
+  const date = new Date(`${task.task_date}T${time}:00`);
+  if (Number.isNaN(date.getTime())) return null;
+  if (!task.reminder_time && task.due_time) date.setMinutes(date.getMinutes() - 10);
+  return date;
+}
+
+function taskTimeLabel(task) {
+  if (task.due_time) return `Horario ${task.due_time}`;
+  if (task.reminder_time) return `Alerta ${task.reminder_time}`;
+  return "Sem horario";
+}
+
+async function requestTaskNotificationPermission() {
+  if (!("Notification" in window)) return toast("Este navegador nao suporta notificacoes.");
+  const permission = await Notification.requestPermission();
+  toast(permission === "granted" ? "Notificacoes liberadas." : "Notificacoes nao liberadas.");
+}
+
+function playTaskAlertSound() {
+  try {
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContext) return;
+    const context = new AudioContext();
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+    oscillator.type = "sine";
+    oscillator.frequency.value = 880;
+    gain.gain.setValueAtTime(0.001, context.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.2, context.currentTime + 0.03);
+    gain.gain.exponentialRampToValueAtTime(0.001, context.currentTime + 0.7);
+    oscillator.connect(gain);
+    gain.connect(context.destination);
+    oscillator.start();
+    oscillator.stop(context.currentTime + 0.75);
+  } catch {
+    // Som de alerta e opcional; o aviso visual continua funcionando.
+  }
+}
+
+function showTaskAlert(task) {
+  const message = `${task.title} - ${task.assigned_name || "tarefa do dia"}`;
+  toast(`Alerta: ${message}`);
+  playTaskAlertSound();
+  if ("Notification" in window && Notification.permission === "granted") {
+    new Notification("Agenda/Tarefas", {
+      body: message,
+      tag: `daily-task-${task.id}`,
+    });
+  }
+}
+
+async function checkTaskAlerts() {
+  if (!state.token || !state.user) return;
+  try {
+    const today = localDateValue();
+    const qs = new URLSearchParams({ date: today, assignedTo: state.user.id });
+    const data = await api(`/api/daily-tasks?${qs.toString()}`);
+    const now = Date.now();
+    data.rows
+      .filter((task) => ["Pendente", "Em andamento"].includes(task.status))
+      .forEach((task) => {
+        const alertDate = taskAlertDate(task);
+        if (!alertDate) return;
+        const delta = now - alertDate.getTime();
+        const key = `${task.id}:${task.updated_at}:${task.status}`;
+        if (delta >= 0 && delta <= 15 * 60 * 1000 && !alertedTaskKeys.has(key)) {
+          alertedTaskKeys.add(key);
+          showTaskAlert(task);
+        }
+      });
+  } catch {
+    // Se a rede oscilar, a proxima checagem tenta de novo.
+  }
+}
+
+function startTaskAlerts() {
+  stopTaskAlerts();
+  checkTaskAlerts();
+  taskAlertTimer = setInterval(checkTaskAlerts, 30 * 1000);
+}
+
+function stopTaskAlerts() {
+  if (taskAlertTimer) clearInterval(taskAlertTimer);
+  taskAlertTimer = null;
+  alertedTaskKeys.clear();
+}
+
+function renderDailyTasks() {
+  const manage = canManageDailyTasks();
+  const filters = state.taskFilters;
+  view.innerHTML = `
+    <div class="topbar">
+      <div>
+        <h2>Agenda/Tarefas</h2>
+        <div class="muted">Organizacao diaria por usuario com alerta simples no navegador</div>
+      </div>
+      <div class="toolbar">
+        <button class="btn" id="allowTaskNotifications">Permitir notificacoes</button>
+        <button class="btn" id="refreshTasks">Atualizar</button>
+      </div>
+    </div>
+    <form class="panel grid" id="taskFilterForm" style="margin-bottom:14px">
+      <div class="grid three">
+        <label>Inicio <input name="startDate" type="date" value="${escapeHtml(filters.startDate)}"></label>
+        <label>Fim <input name="endDate" type="date" value="${escapeHtml(filters.endDate)}"></label>
+        <label>Status
+          <select name="status">
+            <option value="">Todos</option>
+            ${["Pendente", "Em andamento", "Concluida", "Cancelada"].map((status) => `<option ${filters.status === status ? "selected" : ""}>${status}</option>`).join("")}
+          </select>
+        </label>
+      </div>
+      <button class="btn primary" type="submit">Filtrar</button>
+    </form>
+    <form class="panel grid" id="dailyTaskForm">
+      <input type="hidden" name="id">
+      <div class="grid three">
+        <label>Tarefa <input name="title" required placeholder="Ex.: Conferir validade do corredor"></label>
+        <label>Responsavel
+          <select name="assignedTo" ${manage ? "" : "disabled"}>${taskUserOptions(state.user?.id)}</select>
+        </label>
+        <label>Data <input name="taskDate" type="date" required value="${todayInputValue()}"></label>
+      </div>
+      <div class="grid four">
+        <label>Horario da tarefa <input name="dueTime" type="time"></label>
+        <label>Horario do alerta <input name="reminderTime" type="time"></label>
+        <label>Prioridade
+          <select name="priority"><option>Normal</option><option>Alta</option><option>Urgente</option><option>Baixa</option></select>
+        </label>
+        <label>Status
+          <select name="status"><option>Pendente</option><option>Em andamento</option><option>Concluida</option><option>Cancelada</option></select>
+        </label>
+      </div>
+      <label>Descricao <textarea name="description" placeholder="Detalhes rapidos para executar a tarefa"></textarea></label>
+      <div class="toolbar">
+        <button class="btn primary" id="taskSubmit" type="submit">Salvar tarefa</button>
+        <button class="btn hidden" id="cancelTaskEdit" type="button">Cancelar edicao</button>
+      </div>
+    </form>
+    <div class="table-wrap" style="margin-top:14px">
+      <table>
+        <thead><tr><th>Data</th><th>Responsavel</th><th>Tarefa</th><th>Horario/alerta</th><th>Prioridade</th><th>Status</th><th>Acoes</th></tr></thead>
+        <tbody>
+          ${state.dailyTasks.map((task) => `
+            <tr>
+              <td data-label="Data">${fmtDate(task.task_date)}</td>
+              <td data-label="Responsavel">${escapeHtml(task.assigned_name || "-")}</td>
+              <td data-label="Tarefa"><strong>${escapeHtml(task.title)}</strong>${task.description ? `<div class="muted">${escapeHtml(task.description)}</div>` : ""}</td>
+              <td data-label="Horario/alerta">${escapeHtml(taskTimeLabel(task))}</td>
+              <td data-label="Prioridade">${escapeHtml(task.priority)}</td>
+              <td data-label="Status"><span class="status ${taskStatusClass(task.status)}">${escapeHtml(task.status)}</span></td>
+              <td data-label="Acoes">
+                <div class="toolbar">
+                  ${task.status !== "Concluida" ? `<button class="btn" type="button" data-complete-task="${task.id}">Concluir</button>` : ""}
+                  <button class="btn" type="button" data-edit-task="${task.id}">Editar</button>
+                  <button class="btn danger" type="button" data-delete-task="${task.id}">Excluir</button>
+                </div>
+              </td>
+            </tr>
+          `).join("") || `<tr><td colspan="7">Nenhuma tarefa encontrada.</td></tr>`}
+        </tbody>
+      </table>
+    </div>
+  `;
+
+  const form = document.getElementById("dailyTaskForm");
+  const submit = document.getElementById("taskSubmit");
+  const cancel = document.getElementById("cancelTaskEdit");
+  const clearEdit = () => {
+    form.reset();
+    form.id.value = "";
+    form.taskDate.value = todayInputValue();
+    if (form.assignedTo) form.assignedTo.value = state.user?.id || "";
+    submit.textContent = "Salvar tarefa";
+    cancel.classList.add("hidden");
+  };
+
+  document.getElementById("taskFilterForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    state.taskFilters = Object.fromEntries(new FormData(event.currentTarget).entries());
+    await loadDailyTasks();
+    renderDailyTasks();
+  });
+  document.getElementById("refreshTasks").addEventListener("click", async () => {
+    await loadDailyTasks();
+    renderDailyTasks();
+  });
+  document.getElementById("allowTaskNotifications").addEventListener("click", requestTaskNotificationPermission);
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const body = Object.fromEntries(new FormData(form).entries());
+    if (!manage) body.assignedTo = state.user?.id;
+    const id = body.id;
+    delete body.id;
+    await api(id ? `/api/daily-tasks/${id}` : "/api/daily-tasks", {
+      method: id ? "PUT" : "POST",
+      body: JSON.stringify(body),
+    });
+    await loadDailyTasks();
+    renderDailyTasks();
+    toast(id ? "Tarefa atualizada." : "Tarefa criada.");
+  });
+  cancel.addEventListener("click", clearEdit);
+  document.querySelectorAll("[data-edit-task]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const task = state.dailyTasks.find((item) => Number(item.id) === Number(button.dataset.editTask));
+      if (!task) return;
+      form.id.value = task.id;
+      form.title.value = task.title || "";
+      form.description.value = task.description || "";
+      if (form.assignedTo) form.assignedTo.value = task.assigned_to;
+      form.taskDate.value = task.task_date || todayInputValue();
+      form.dueTime.value = task.due_time || "";
+      form.reminderTime.value = task.reminder_time || "";
+      form.priority.value = task.priority || "Normal";
+      form.status.value = task.status || "Pendente";
+      submit.textContent = "Salvar alteracoes";
+      cancel.classList.remove("hidden");
+      form.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  });
+  document.querySelectorAll("[data-complete-task]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const task = state.dailyTasks.find((item) => Number(item.id) === Number(button.dataset.completeTask));
+      if (!task) return;
+      await api(`/api/daily-tasks/${task.id}`, {
+        method: "PUT",
+        body: JSON.stringify({ ...task, taskDate: task.task_date, dueTime: task.due_time, reminderTime: task.reminder_time, assignedTo: task.assigned_to, status: "Concluida" }),
+      });
+      await loadDailyTasks();
+      renderDailyTasks();
+      toast("Tarefa concluida.");
+    });
+  });
+  document.querySelectorAll("[data-delete-task]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const task = state.dailyTasks.find((item) => Number(item.id) === Number(button.dataset.deleteTask));
+      if (!task || !confirm(`Excluir a tarefa "${task.title}"?`)) return;
+      await api(`/api/daily-tasks/${task.id}`, { method: "DELETE" });
+      await loadDailyTasks();
+      renderDailyTasks();
+      toast("Tarefa excluida.");
+    });
+  });
 }
 
 function renderCollaborators() {

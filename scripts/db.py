@@ -110,6 +110,23 @@ def init_db():
             FOREIGN KEY (created_by) REFERENCES users(id)
         );
 
+        CREATE TABLE IF NOT EXISTS daily_tasks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            description TEXT,
+            assigned_to INTEGER NOT NULL,
+            task_date TEXT NOT NULL,
+            due_time TEXT,
+            reminder_time TEXT,
+            priority TEXT NOT NULL DEFAULT 'Normal',
+            status TEXT NOT NULL DEFAULT 'Pendente',
+            created_by INTEGER NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (assigned_to) REFERENCES users(id),
+            FOREIGN KEY (created_by) REFERENCES users(id)
+        );
+
         CREATE TABLE IF NOT EXISTS operational_summaries (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             date TEXT UNIQUE NOT NULL,
