@@ -88,6 +88,8 @@ def init_db():
             filename TEXT PRIMARY KEY,
             content_type TEXT NOT NULL,
             data_base64 TEXT NOT NULL,
+            thumbnail_content_type TEXT,
+            thumbnail_data_base64 TEXT,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
 
@@ -387,6 +389,12 @@ def init_db():
         conn.execute("ALTER TABLE checklists ADD COLUMN sector TEXT")
     if "inventory_type" not in checklist_columns:
         conn.execute("ALTER TABLE checklists ADD COLUMN inventory_type TEXT")
+
+    upload_columns = [row["name"] for row in conn.execute("PRAGMA table_info(uploaded_files)").fetchall()]
+    if "thumbnail_content_type" not in upload_columns:
+        conn.execute("ALTER TABLE uploaded_files ADD COLUMN thumbnail_content_type TEXT")
+    if "thumbnail_data_base64" not in upload_columns:
+        conn.execute("ALTER TABLE uploaded_files ADD COLUMN thumbnail_data_base64 TEXT")
 
     rupture_columns = [row["name"] for row in conn.execute("PRAGMA table_info(repo_ruptures)").fetchall()]
     if "commercial_updated_by" not in rupture_columns:

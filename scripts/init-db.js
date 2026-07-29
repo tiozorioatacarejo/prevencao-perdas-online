@@ -51,6 +51,8 @@ async function initPostgres() {
       filename TEXT PRIMARY KEY,
       content_type TEXT NOT NULL,
       data_base64 TEXT NOT NULL,
+      thumbnail_content_type TEXT,
+      thumbnail_data_base64 TEXT,
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -245,6 +247,8 @@ async function initPostgres() {
   await pool.query("ALTER TABLE checklists ADD COLUMN IF NOT EXISTS inventory_type TEXT");
   await pool.query("ALTER TABLE checklists ADD COLUMN IF NOT EXISTS price_divergence_quantity INTEGER NOT NULL DEFAULT 0");
   await pool.query("ALTER TABLE checklists ADD COLUMN IF NOT EXISTS expired_products_quantity INTEGER NOT NULL DEFAULT 0");
+  await pool.query("ALTER TABLE uploaded_files ADD COLUMN IF NOT EXISTS thumbnail_content_type TEXT");
+  await pool.query("ALTER TABLE uploaded_files ADD COLUMN IF NOT EXISTS thumbnail_data_base64 TEXT");
   await pool.query(`
     CREATE TABLE IF NOT EXISTS prevention_goal_adjustments (
       id SERIAL PRIMARY KEY,

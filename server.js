@@ -87,6 +87,22 @@ const PREVENTION_BONUS_TARGET_POINTS = 100;
 const PREVENTION_BONUS_MAX_POINTS = 120;
 const PREVENTION_QUANTITY_COUNT_START_DATE = "2026-07-27";
 const PREVENTION_QUANTITY_COUNT_START_AT = "2026-07-27T09:30:00-03:00";
+const THUMBNAIL_CONTENT_TYPE = "image/jpeg";
+const THUMBNAIL_PYTHON = `
+import io
+import sys
+from PIL import Image, ImageOps
+
+source = sys.stdin.buffer.read()
+image = Image.open(io.BytesIO(source))
+image = ImageOps.exif_transpose(image)
+image.thumbnail((180, 120), Image.Resampling.LANCZOS)
+if image.mode not in ("RGB", "L"):
+    image = image.convert("RGB")
+output = io.BytesIO()
+image.save(output, format="JPEG", quality=62, optimize=True)
+sys.stdout.buffer.write(output.getvalue())
+`;
 const LEGACY_PREVENTION_GOAL_ADJUSTMENTS = {
   "2026-07": {
     quotations: 37,
@@ -191,6 +207,8 @@ async function initPostgres(pool) {
       filename TEXT PRIMARY KEY,
       content_type TEXT NOT NULL,
       data_base64 TEXT NOT NULL,
+      thumbnail_content_type TEXT,
+      thumbnail_data_base64 TEXT,
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -441,6 +459,8 @@ async function initPostgres(pool) {
   await pool.query("ALTER TABLE collaborators ADD COLUMN IF NOT EXISTS sector TEXT");
   await pool.query("ALTER TABLE checklists ADD COLUMN IF NOT EXISTS sector TEXT");
   await pool.query("ALTER TABLE checklists ADD COLUMN IF NOT EXISTS photo_path TEXT");
+  await pool.query("ALTER TABLE uploaded_files ADD COLUMN IF NOT EXISTS thumbnail_content_type TEXT");
+  await pool.query("ALTER TABLE uploaded_files ADD COLUMN IF NOT EXISTS thumbnail_data_base64 TEXT");
   await pool.query("ALTER TABLE checklists ADD COLUMN IF NOT EXISTS inventory_type TEXT");
   await pool.query("ALTER TABLE checklists ADD COLUMN IF NOT EXISTS price_divergence_quantity INTEGER NOT NULL DEFAULT 0");
   await pool.query("ALTER TABLE checklists ADD COLUMN IF NOT EXISTS expired_products_quantity INTEGER NOT NULL DEFAULT 0");
@@ -1159,12 +1179,31 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+function createImageThumbnail(contentType, buffer) {
+  if (!String(contentType || "").startsWith("image/")) return null;
+  try {
+    const result = spawnSync(PYTHON, ["-c", THUMBNAIL_PYTHON], {
+      input: buffer,
+      maxBuffer: 1024 * 1024,
+    });
+    if (result.status !== 0 || !result.stdout?.length) return null;
+    return {
+      contentType: THUMBNAIL_CONTENT_TYPE,
+      dataBase64: result.stdout.toString("base64"),
+    };
+  } catch {
+    return null;
+  }
+}
+
 async function saveDataUrl(dataUrl, originalName = "anexo") {
   if (!dataUrl) return null;
   const match = /^data:(.+);base64,(.+)$/.exec(dataUrl);
   if (!match) return null;
   const contentType = match[1];
   const dataBase64 = match[2];
+  const buffer = Buffer.from(dataBase64, "base64");
+  const thumbnail = createImageThumbnail(contentType, buffer);
   const extMap = {
     "image/png": ".png",
     "image/jpeg": ".jpg",
@@ -1176,10 +1215,10 @@ async function saveDataUrl(dataUrl, originalName = "anexo") {
   };
   const ext = extMap[contentType] || path.extname(originalName).slice(0, 8) || ".bin";
   const filename = `${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`;
-  fs.writeFileSync(path.join(UPLOAD_DIR, filename), Buffer.from(dataBase64, "base64"));
+  fs.writeFileSync(path.join(UPLOAD_DIR, filename), buffer);
   await execute(
-    "INSERT INTO uploaded_files (filename, content_type, data_base64, created_at) VALUES (?, ?, ?, ?)",
-    [filename, contentType, dataBase64, nowIso()]
+    "INSERT INTO uploaded_files (filename, content_type, data_base64, thumbnail_content_type, thumbnail_data_base64, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+    [filename, contentType, dataBase64, thumbnail?.contentType || null, thumbnail?.dataBase64 || null, nowIso()]
   );
   return `/uploads/${filename}`;
 }
@@ -3479,15 +3518,32 @@ async function api(req, res, url) {
   return send(res, 404, { error: "Rota nÃ£o encontrada." });
 }
 
-async function sendUploadFromDb(res, filename) {
+async function sendUploadFromDb(res, filename, thumbnail = false) {
   const rows = await query(
-    "SELECT content_type, data_base64 FROM uploaded_files WHERE filename = ?",
+    "SELECT content_type, data_base64, thumbnail_content_type, thumbnail_data_base64 FROM uploaded_files WHERE filename = ?",
     [filename]
   );
   if (!rows.length) return false;
-  send(res, 200, Buffer.from(rows[0].data_base64, "base64"), {
-    "Content-Type": rows[0].content_type,
-    "Cache-Control": "no-store",
+  let contentType = rows[0].content_type;
+  let dataBase64 = rows[0].data_base64;
+  if (thumbnail && String(contentType || "").startsWith("image/")) {
+    if (!rows[0].thumbnail_data_base64) {
+      const generated = createImageThumbnail(contentType, Buffer.from(dataBase64, "base64"));
+      if (generated) {
+        rows[0].thumbnail_content_type = generated.contentType;
+        rows[0].thumbnail_data_base64 = generated.dataBase64;
+        await execute(
+          "UPDATE uploaded_files SET thumbnail_content_type = ?, thumbnail_data_base64 = ? WHERE filename = ?",
+          [generated.contentType, generated.dataBase64, filename]
+        );
+      }
+    }
+    contentType = rows[0].thumbnail_content_type || contentType;
+    dataBase64 = rows[0].thumbnail_data_base64 || dataBase64;
+  }
+  send(res, 200, Buffer.from(dataBase64, "base64"), {
+    "Content-Type": contentType,
+    "Cache-Control": "public, max-age=31536000, immutable",
   });
   return true;
 }
@@ -3500,11 +3556,13 @@ async function serveStatic(req, res, url) {
     uploadName = decodeURIComponent(url.pathname.replace(/^\/uploads\//, ""));
     filePath = path.join(UPLOAD_DIR, uploadName);
   }
+  const wantsThumbnail = isUpload && url.searchParams.get("thumb") === "1";
+  if (wantsThumbnail && /^[A-Za-z0-9._-]+$/.test(uploadName) && await sendUploadFromDb(res, uploadName, true)) return;
   const allowedRoot = isUpload ? UPLOAD_DIR : ROOT;
   const resolvedFilePath = path.resolve(filePath);
   const resolvedAllowedRoot = path.resolve(allowedRoot);
   if (!resolvedFilePath.startsWith(resolvedAllowedRoot + path.sep) || !fs.existsSync(resolvedFilePath) || fs.statSync(resolvedFilePath).isDirectory()) {
-    if (isUpload && /^[A-Za-z0-9._-]+$/.test(uploadName) && await sendUploadFromDb(res, uploadName)) return;
+    if (isUpload && /^[A-Za-z0-9._-]+$/.test(uploadName) && await sendUploadFromDb(res, uploadName, false)) return;
     return send(res, 404, "Arquivo nÃ£o encontrado", { "Content-Type": "text/plain; charset=utf-8" });
   }
   const ext = path.extname(resolvedFilePath).toLowerCase();
@@ -3522,7 +3580,7 @@ async function serveStatic(req, res, url) {
   };
   send(res, 200, fs.readFileSync(resolvedFilePath), {
     "Content-Type": types[ext] || "application/octet-stream",
-    "Cache-Control": "no-store",
+    "Cache-Control": isUpload ? "public, max-age=31536000, immutable" : "no-store",
   });
 }
 

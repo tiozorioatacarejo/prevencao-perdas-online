@@ -1889,7 +1889,7 @@ function drawReportTable() {
           <td data-label="Setor">${escapeHtml(row.sector || "-")}</td>
           <td data-label="Produtos identificados">${escapeHtml(checklistProductDetails(row) || "-")}</td>
           <td data-label="Qtd. itens">${escapeHtml(checklistProductQuantity(row) || "-")}</td>
-          <td data-label="Foto">${row.photo_path ? `<a class="report-photo" href="${escapeHtml(row.photo_path)}" target="_blank" rel="noopener"><img src="${escapeHtml(row.photo_path)}" alt="Foto do checklist"></a>` : "-"}</td>
+          <td data-label="Foto">${row.photo_path ? `<a class="report-photo" href="${escapeHtml(row.photo_path)}" target="_blank" rel="noopener"><img src="${escapeHtml(row.photo_path)}?thumb=1" alt="Foto do checklist" loading="lazy" decoding="async"></a>` : "-"}</td>
           <td data-label="Resposta"><span class="status ${row.answer === "Sim" ? "ok" : "danger"}">${row.answer}</span></td>
           <td data-label="ObservaÃ§Ã£o">${escapeHtml(row.observation || "")}</td>
           <td data-label="Enviado em">${new Date(row.sent_at).toLocaleString("pt-BR")}</td>
@@ -2113,7 +2113,7 @@ function editChecklist(id) {
         <div class="checklist-photo-editor">
           <div>
             <strong>Foto atual</strong>
-            ${row.photo_path ? `<a class="report-photo large" href="${escapeHtml(row.photo_path)}" target="_blank" rel="noopener"><img src="${escapeHtml(row.photo_path)}" alt="Foto atual do checklist"></a>` : `<div class="muted">Sem foto registrada.</div>`}
+            ${row.photo_path ? `<a class="report-photo large" href="${escapeHtml(row.photo_path)}" target="_blank" rel="noopener"><img src="${escapeHtml(row.photo_path)}" alt="Foto atual do checklist" loading="lazy" decoding="async"></a>` : `<div class="muted">Sem foto registrada.</div>`}
             ${["cotac", "precificacao", "preco", "validade"].some((term) => normalizeText(row.activity).includes(term)) ? `<div class="field-help">Para a meta, cada registro com foto conta como 1 realizado.</div>` : ""}
           </div>
           <label>Substituir/adicionar foto
@@ -4810,7 +4810,7 @@ async function imageFileToUploadDataUrl(file) {
       img.onerror = () => reject(new Error("Nao foi possivel ler a foto selecionada."));
       img.src = objectUrl;
     });
-    const maxSide = 960;
+    const maxSide = 720;
     const sourceWidth = img.naturalWidth || img.width;
     const sourceHeight = img.naturalHeight || img.height;
     const ratio = Math.min(1, maxSide / Math.max(sourceWidth, sourceHeight));
@@ -4821,15 +4821,15 @@ async function imageFileToUploadDataUrl(file) {
     canvas.height = height;
     const context = canvas.getContext("2d", { alpha: false });
     context.drawImage(img, 0, 0, width, height);
-    for (const quality of [0.72, 0.62, 0.52, 0.44]) {
+    for (const quality of [0.68, 0.56, 0.46, 0.36]) {
       const dataUrl = canvasToDataUrl(canvas, quality);
-      if (dataUrl.length < 2 * 1024 * 1024) {
+      if (dataUrl.length < 800 * 1024) {
         canvas.width = 1;
         canvas.height = 1;
         return dataUrl;
       }
     }
-    const dataUrl = canvasToDataUrl(canvas, 0.38);
+    const dataUrl = canvasToDataUrl(canvas, 0.32);
     canvas.width = 1;
     canvas.height = 1;
     return dataUrl;
