@@ -96,11 +96,11 @@ from PIL import Image, ImageOps
 source = sys.stdin.buffer.read()
 image = Image.open(io.BytesIO(source))
 image = ImageOps.exif_transpose(image)
-image.thumbnail((180, 120), Image.Resampling.LANCZOS)
+image.thumbnail((96, 72), Image.Resampling.LANCZOS)
 if image.mode not in ("RGB", "L"):
     image = image.convert("RGB")
 output = io.BytesIO()
-image.save(output, format="JPEG", quality=62, optimize=True)
+image.save(output, format="JPEG", quality=45, optimize=True)
 sys.stdout.buffer.write(output.getvalue())
 `;
 const LEGACY_PREVENTION_GOAL_ADJUSTMENTS = {
@@ -3527,7 +3527,10 @@ async function sendUploadFromDb(res, filename, thumbnail = false) {
   let contentType = rows[0].content_type;
   let dataBase64 = rows[0].data_base64;
   if (thumbnail && String(contentType || "").startsWith("image/")) {
-    if (!rows[0].thumbnail_data_base64) {
+    const currentThumbnailSize = rows[0].thumbnail_data_base64
+      ? Buffer.byteLength(rows[0].thumbnail_data_base64, "base64")
+      : 0;
+    if (!rows[0].thumbnail_data_base64 || currentThumbnailSize > 12000) {
       const generated = createImageThumbnail(contentType, Buffer.from(dataBase64, "base64"));
       if (generated) {
         rows[0].thumbnail_content_type = generated.contentType;
@@ -3556,7 +3559,7 @@ async function serveStatic(req, res, url) {
     uploadName = decodeURIComponent(url.pathname.replace(/^\/uploads\//, ""));
     filePath = path.join(UPLOAD_DIR, uploadName);
   }
-  const wantsThumbnail = isUpload && url.searchParams.get("thumb") === "1";
+  const wantsThumbnail = isUpload && url.searchParams.has("thumb");
   if (wantsThumbnail && /^[A-Za-z0-9._-]+$/.test(uploadName) && await sendUploadFromDb(res, uploadName, true)) return;
   const allowedRoot = isUpload ? UPLOAD_DIR : ROOT;
   const resolvedFilePath = path.resolve(filePath);

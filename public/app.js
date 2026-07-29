@@ -79,6 +79,14 @@
       operatorName: "",
     },
   },
+  reportFilters: {
+    date: localDateValue(),
+    startDate: "",
+    endDate: "",
+    collaboratorId: "",
+    activity: "",
+    sector: "",
+  },
   openNavGroup: "",
 };
 let sessionRefreshTimer = null;
@@ -877,7 +885,8 @@ async function loadAppSettings() {
 }
 
 async function loadChecklists(params = "") {
-  const data = await api(`/api/checklists${params}`);
+  const query = params || `?${new URLSearchParams(state.reportFilters).toString()}`;
+  const data = await api(`/api/checklists${query}`);
   state.checklists = data.rows;
 }
 
@@ -1358,7 +1367,7 @@ function collaboratorOptions(activeOnly = true) {
     .join("");
 }
 
-function preventionCollaboratorOptions(activeOnly = true) {
+function preventionCollaboratorOptions(activeOnly = true, selected = "") {
   const repo = new Set((state.repo.repoCollaboratorIds || []).map((id) => Number(id)));
   const commercial = new Set((state.repo.commercialCollaboratorIds || []).map((id) => Number(id)));
   return state.collaborators
@@ -1369,7 +1378,7 @@ function preventionCollaboratorOptions(activeOnly = true) {
       && !isCommercialCollaborator(item)
       && isPreventionCollaborator(item)
     ))
-    .map((item) => `<option value="${item.id}">${escapeHtml(item.name)} - ${escapeHtml(item.role)}</option>`)
+    .map((item) => `<option value="${item.id}" ${Number(selected) === Number(item.id) ? "selected" : ""}>${escapeHtml(item.name)} - ${escapeHtml(item.role)}</option>`)
     .join("");
 }
 
@@ -1813,16 +1822,17 @@ function renderSummary() {
 }
 
 function reportFiltersHtml() {
+  const filters = state.reportFilters || {};
   return `
     <div class="grid four">
-      <label>Data <input name="date" type="date"></label>
-      <label>InÃ­cio <input name="startDate" type="date"></label>
-      <label>Fim <input name="endDate" type="date"></label>
-      <label>Colaborador <select name="collaboratorId"><option value="">Todos</option>${preventionCollaboratorOptions(false)}</select></label>
+      <label>Data <input name="date" type="date" value="${escapeHtml(filters.date || "")}"></label>
+      <label>InÃ­cio <input name="startDate" type="date" value="${escapeHtml(filters.startDate || "")}"></label>
+      <label>Fim <input name="endDate" type="date" value="${escapeHtml(filters.endDate || "")}"></label>
+      <label>Colaborador <select name="collaboratorId"><option value="">Todos</option>${preventionCollaboratorOptions(false, filters.collaboratorId)}</select></label>
     </div>
     <div class="grid two">
-      <label>Atividade <select name="activity"><option value="">Todas</option>${state.activities.map((item) => `<option>${escapeHtml(item)}</option>`).join("")}</select></label>
-      <label>Setor <select name="sector"><option value="">Todos</option>${repoOptions(state.repo.sectors || [])}</select></label>
+      <label>Atividade <select name="activity"><option value="">Todas</option>${state.activities.map((item) => `<option ${filters.activity === item ? "selected" : ""}>${escapeHtml(item)}</option>`).join("")}</select></label>
+      <label>Setor <select name="sector"><option value="">Todos</option>${repoOptions(state.repo.sectors || [], filters.sector)}</select></label>
     </div>
   `;
 }
@@ -1845,7 +1855,8 @@ function renderReports() {
   `;
   const form = document.getElementById("filterForm");
   const refresh = async () => {
-    const qs = new URLSearchParams(Object.fromEntries(new FormData(form).entries()));
+    state.reportFilters = Object.fromEntries(new FormData(form).entries());
+    const qs = new URLSearchParams(state.reportFilters);
     state.reportParams = `?${qs.toString()}`;
     await loadChecklists(state.reportParams);
     drawReportTable();
@@ -1889,7 +1900,7 @@ function drawReportTable() {
           <td data-label="Setor">${escapeHtml(row.sector || "-")}</td>
           <td data-label="Produtos identificados">${escapeHtml(checklistProductDetails(row) || "-")}</td>
           <td data-label="Qtd. itens">${escapeHtml(checklistProductQuantity(row) || "-")}</td>
-          <td data-label="Foto">${row.photo_path ? `<a class="report-photo" href="${escapeHtml(row.photo_path)}" target="_blank" rel="noopener"><img src="${escapeHtml(row.photo_path)}?thumb=1" alt="Foto do checklist" loading="lazy" decoding="async"></a>` : "-"}</td>
+          <td data-label="Foto">${row.photo_path ? `<a class="report-photo" href="${escapeHtml(row.photo_path)}" target="_blank" rel="noopener"><img src="${escapeHtml(row.photo_path)}?thumb=2" alt="Foto do checklist" loading="lazy" decoding="async"></a>` : "-"}</td>
           <td data-label="Resposta"><span class="status ${row.answer === "Sim" ? "ok" : "danger"}">${row.answer}</span></td>
           <td data-label="ObservaÃ§Ã£o">${escapeHtml(row.observation || "")}</td>
           <td data-label="Enviado em">${new Date(row.sent_at).toLocaleString("pt-BR")}</td>
