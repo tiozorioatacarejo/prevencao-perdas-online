@@ -112,6 +112,115 @@ const LEGACY_PREVENTION_GOAL_ADJUSTMENTS = {
   },
 };
 
+const MANAGER_STORE = "Atacarejo Antônio de Ozorio";
+const MANAGER_CHECKLIST_MIN_TIME = "08:00";
+const MANAGER_CHECKLIST_MAX_TIME = "18:00";
+const MANAGER_CHECKLIST_TEMPLATES = [
+  {
+    id: "abertura",
+    order: 1,
+    title: "1 - Gerente Loja - Abertura",
+    dueTime: "08:00",
+    items: [
+      { id: "abertura-reuniao-lideres", text: "Reunião rápida de 5 minutos com os líderes de setor para alinhar o dia", photo: false },
+      { id: "abertura-escala", text: "Escala do dia conferida e ausências tratadas com o RH", photo: false },
+      { id: "abertura-ronda-externa", text: "Ronda externa: fachada, estacionamento e entrada com padrão visual em ordem", photo: true },
+      { id: "abertura-frente-caixa", text: "Frente de caixa aberta no horário", photo: false },
+    ],
+  },
+  {
+    id: "acougue-peixaria-frios",
+    order: 2,
+    title: "2 - Gerente Loja - Açougue, Peixaria e Frios",
+    dueTime: "08:00",
+    items: [
+      { id: "apf-higiene", text: "Conferir higiene da equipe e dos equipamentos (facas, fatiador, bandejas)", photo: true },
+      { id: "apf-temperatura", text: "Validar temperatura dos balcões refrigerados", photo: false },
+      { id: "apf-exposicao", text: "Acompanhar exposição de carnes e frios (aparência, etiquetas, validade)", photo: true },
+    ],
+  },
+  {
+    id: "padaria",
+    order: 3,
+    title: "3 - Gerente Loja - Padaria",
+    dueTime: "10:00",
+    items: [
+      { id: "padaria-fornada", text: "Acompanhar a fornada da manhã e a reposição da vitrine", photo: true },
+      { id: "padaria-limpeza", text: "Validar limpeza da vitrine, balcão e bancadas", photo: true },
+      { id: "padaria-etiquetas", text: "Conferir etiquetas de preço e data de fabricação dos produtos expostos", photo: false },
+    ],
+  },
+  {
+    id: "hortifrut",
+    order: 4,
+    title: "4 - Gerente Loja - Hortifrut",
+    dueTime: "08:00",
+    items: [
+      { id: "hortifrut-retirada", text: "Validar a retirada de produtos murchos ou estragados", photo: true },
+      { id: "hortifrut-etiquetas", text: "Conferir etiquetas de preço legíveis e alinhadas ao sistema", photo: false },
+      { id: "hortifrut-reposicao", text: "Acompanhar a reposição de frutas, verduras e legumes na exposição", photo: true },
+    ],
+  },
+  {
+    id: "mercearia-bebidas-limpeza",
+    order: 5,
+    title: "5 - Gerente Loja - Mercearia, Bebidas e Limpeza",
+    dueTime: "11:00",
+    items: [
+      { id: "mbl-limpeza-gondolas", text: "Validar limpeza das gôndolas e prateleiras (sem poeira, sem produto sujo)", photo: true },
+      { id: "mbl-corredores", text: "Caminhar corredor a corredor acompanhando a reposição das gôndolas", photo: false },
+      { id: "mbl-pontas", text: "Conferir pontas de gôndola e cartazes de promoção corretos", photo: true },
+    ],
+  },
+  {
+    id: "limpeza-organizacao",
+    order: 6,
+    title: "6 - Gerente Loja - Ronda de Limpeza e Organização",
+    dueTime: "12:00",
+    items: [
+      { id: "loja-piso", text: "Validar piso da loja limpo, seco e sem obstruções nos corredores", photo: false },
+      { id: "loja-carrinhos", text: "Solicitar recolhimento de carrinhos no estacionamento", photo: false },
+      { id: "loja-refeitorio", text: "Conferir refeitório limpo e organizado após o almoço da equipe", photo: false },
+      { id: "loja-banheiros", text: "Validar limpeza dos banheiros de clientes e funcionários", photo: false },
+    ],
+  },
+  {
+    id: "recebimento-estoque",
+    order: 7,
+    title: "7 - Gerente Loja - Recebimento e Estoque",
+    dueTime: "12:00",
+    items: [
+      { id: "recebimento-doca", text: "Conferir doca e depósito limpos, organizados e sem obstruções", photo: true },
+      { id: "recebimento-critico", text: "Acompanhar o recebimento crítico do dia (acompanhar pelo menos conferência de 1 NF)", photo: false },
+      { id: "recebimento-quebras", text: "Validar registro de quebras e produtos avariados", photo: false },
+    ],
+  },
+  {
+    id: "pico-movimento",
+    order: 8,
+    title: "8 - Gerente Loja - Preparação para Pico de Movimento",
+    dueTime: "16:00",
+    items: [
+      { id: "pico-frente-caixa", text: "Reforçar frente de caixa para o pico do fim de tarde - se necessário", photo: false },
+      { id: "pico-reposicao", text: "Acompanhar reforço de reposição em mercearia, bebidas e hortifruti", photo: false },
+      { id: "pico-acougue", text: "Acompanhar reposição de bandejas no açougue e limpeza do setor", photo: false },
+      { id: "pico-padaria", text: "Validar nova fornada de pães da padaria para o fim de tarde", photo: false },
+    ],
+  },
+  {
+    id: "padrao-loja",
+    order: 9,
+    title: "9 - Gerente Loja - Checagem de Padrão de Loja",
+    dueTime: "17:00",
+    items: [
+      { id: "padrao-pendencias", text: "Registrar pendências críticas para o turno da noite e dia seguinte", photo: false },
+      { id: "padrao-indicadores", text: "Conferir indicadores do dia: vendas, ticket médio e quebras", photo: false },
+      { id: "padrao-feedback", text: "Dar feedback rápido aos líderes sobre os pontos do dia", photo: false },
+      { id: "padrao-caminhada", text: "Caminhar pela loja inteira validando o padrão geral de exposição", photo: false },
+    ],
+  },
+];
+
 const activities = [
   "Temperatura 07h",
   "Temperatura 10h",
@@ -242,6 +351,30 @@ async function initPostgres(pool) {
       created_by INTEGER NOT NULL REFERENCES users(id),
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS manager_checklist_runs (
+      id SERIAL PRIMARY KEY,
+      template_id TEXT NOT NULL,
+      date TEXT NOT NULL,
+      store TEXT NOT NULL DEFAULT 'Atacarejo Antônio de Ozorio',
+      status TEXT NOT NULL DEFAULT 'Pendente',
+      started_at TIMESTAMP,
+      finished_at TIMESTAMP,
+      created_by INTEGER NOT NULL REFERENCES users(id),
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(template_id, date, created_by)
+    );
+
+    CREATE TABLE IF NOT EXISTS manager_checklist_answers (
+      id SERIAL PRIMARY KEY,
+      run_id INTEGER NOT NULL REFERENCES manager_checklist_runs(id) ON DELETE CASCADE,
+      item_id TEXT NOT NULL,
+      answer TEXT NOT NULL DEFAULT 'Pendente',
+      observation TEXT,
+      photo_path TEXT,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(run_id, item_id)
     );
 
     CREATE TABLE IF NOT EXISTS operational_summaries (
@@ -489,6 +622,32 @@ async function initPostgres(pool) {
       created_by INTEGER NOT NULL REFERENCES users(id),
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS manager_checklist_runs (
+      id SERIAL PRIMARY KEY,
+      template_id TEXT NOT NULL,
+      date TEXT NOT NULL,
+      store TEXT NOT NULL DEFAULT 'Atacarejo Antônio de Ozorio',
+      status TEXT NOT NULL DEFAULT 'Pendente',
+      started_at TIMESTAMP,
+      finished_at TIMESTAMP,
+      created_by INTEGER NOT NULL REFERENCES users(id),
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(template_id, date, created_by)
+    )
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS manager_checklist_answers (
+      id SERIAL PRIMARY KEY,
+      run_id INTEGER NOT NULL REFERENCES manager_checklist_runs(id) ON DELETE CASCADE,
+      item_id TEXT NOT NULL,
+      answer TEXT NOT NULL DEFAULT 'Pendente',
+      observation TEXT,
+      photo_path TEXT,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(run_id, item_id)
     )
   `);
   await pool.query("ALTER TABLE repo_ruptures ADD COLUMN IF NOT EXISTS commercial_updated_by INTEGER REFERENCES users(id)");
@@ -770,6 +929,11 @@ async function setAppSetting(key, value, user) {
 
 async function preventionGoalsVisibleToTeam() {
   return (await appSetting("prevention_goals_visible_to_team", "false")) === "true";
+}
+
+async function managerChecklistDailyGoal() {
+  const value = intValue(await appSetting("manager_checklist_daily_goal", String(MANAGER_CHECKLIST_TEMPLATES.length)));
+  return Math.max(0, value);
 }
 
 async function canAccessPreventionGoals(user) {
@@ -1125,6 +1289,232 @@ function normalizeTaskStatus(value) {
 function normalizeTaskPriority(value) {
   const priority = String(value || "Normal").trim();
   return ["Baixa", "Normal", "Alta", "Urgente"].includes(priority) ? priority : "Normal";
+}
+
+function canAccessManagerChecklists(user) {
+  return ["administrador", "gerente", "encarregada"].includes(user.role);
+}
+
+function managerChecklistOwnerId(user, requestedId = 0) {
+  if (user.role === "administrador" && Number(requestedId || 0)) return Number(requestedId);
+  return user.id;
+}
+
+function managerChecklistTemplate(id) {
+  return MANAGER_CHECKLIST_TEMPLATES.find((template) => template.id === id) || null;
+}
+
+function managerChecklistItem(template, itemId) {
+  return template?.items.find((item) => item.id === itemId) || null;
+}
+
+function dateFromValue(value) {
+  if (!validDateValue(value)) return null;
+  const date = new Date(`${value}T00:00:00`);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function isSunday(value) {
+  const date = dateFromValue(value);
+  return date ? date.getDay() === 0 : false;
+}
+
+function addDaysValue(value, amount) {
+  const date = dateFromValue(value);
+  date.setDate(date.getDate() + amount);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function dateValuesBetween(start, end) {
+  const dates = [];
+  let current = start;
+  for (let guard = 0; validDateValue(current) && current <= end && guard < 370; guard += 1) {
+    dates.push(current);
+    current = addDaysValue(current, 1);
+  }
+  return dates;
+}
+
+function normalizeManagerChecklistAnswer(value) {
+  const answer = String(value || "Pendente").trim();
+  return ["Pendente", "Conforme", "Não conforme"].includes(answer) ? answer : "Pendente";
+}
+
+function boundedManagerChecklistTime(value) {
+  const time = validTimeValue(value) && value ? value : MANAGER_CHECKLIST_MIN_TIME;
+  if (time < MANAGER_CHECKLIST_MIN_TIME) return MANAGER_CHECKLIST_MIN_TIME;
+  if (time > MANAGER_CHECKLIST_MAX_TIME) return MANAGER_CHECKLIST_MAX_TIME;
+  return time;
+}
+
+function currentLocalDateTimeParts() {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Fortaleza",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return {
+    date: `${values.year}-${values.month}-${values.day}`,
+    time: `${values.hour}:${values.minute}`,
+  };
+}
+
+function managerChecklistIsOverdue(template, date, status) {
+  if (status === "Concluido" || isSunday(date)) return false;
+  const now = currentLocalDateTimeParts();
+  const dueTime = boundedManagerChecklistTime(template.dueTime);
+  return date < now.date || (date === now.date && now.time > dueTime);
+}
+
+function managerChecklistDisplayStatus(template, date, status) {
+  return managerChecklistIsOverdue(template, date, status) ? "Atrasado" : status;
+}
+
+function managerChecklistSummary(template, answers = []) {
+  const byItem = new Map(answers.map((answer) => [answer.item_id, answer]));
+  const total = template.items.length;
+  let conformes = 0;
+  let naoConformes = 0;
+  let answered = 0;
+  template.items.forEach((item) => {
+    const answer = byItem.get(item.id)?.answer || "Pendente";
+    if (answer === "Conforme") conformes += 1;
+    if (answer === "Não conforme") naoConformes += 1;
+    if (answer !== "Pendente") answered += 1;
+  });
+  const status = answered === 0 ? "Pendente" : answered < total ? "Em andamento" : "Concluido";
+  return {
+    total,
+    conformes,
+    naoConformes,
+    answered,
+    conformityRate: total ? Math.round((conformes / total) * 100) : 0,
+    status,
+  };
+}
+
+async function managerChecklistRunsByDate(date, ownerId) {
+  const runs = await query(
+    `SELECT r.*, u.display_name AS created_by_name
+     FROM manager_checklist_runs r
+     LEFT JOIN users u ON u.id = r.created_by
+     WHERE r.date = ? AND r.created_by = ?`,
+    [date, ownerId]
+  );
+  if (!runs.length) return new Map();
+  const answers = await query(
+    `SELECT a.*
+     FROM manager_checklist_answers a
+     INNER JOIN manager_checklist_runs r ON r.id = a.run_id
+     WHERE r.date = ? AND r.created_by = ?
+     ORDER BY a.item_id`,
+    [date, ownerId]
+  );
+  const byRun = new Map();
+  answers.forEach((answer) => {
+    if (!byRun.has(answer.run_id)) byRun.set(answer.run_id, []);
+    byRun.get(answer.run_id).push(answer);
+  });
+  return new Map(runs.map((run) => [run.template_id, { ...run, answers: byRun.get(run.id) || [] }]));
+}
+
+function managerChecklistDto(template, date, run = null) {
+  const answers = run?.answers || [];
+  const answerMap = new Map(answers.map((answer) => [answer.item_id, answer]));
+  const summary = managerChecklistSummary(template, answers);
+  const dueTime = boundedManagerChecklistTime(template.dueTime);
+  const displayStatus = managerChecklistDisplayStatus(template, date, summary.status);
+  const displaySummary = { ...summary, status: displayStatus, overdue: displayStatus === "Atrasado" };
+  return {
+    id: template.id,
+    order: template.order,
+    title: template.title,
+    store: run?.store || MANAGER_STORE,
+    date,
+    dueTime,
+    status: displayStatus,
+    startedAt: run?.started_at || "",
+    finishedAt: run?.finished_at || "",
+    updatedAt: run?.updated_at || "",
+    summary: displaySummary,
+    items: template.items.map((item) => {
+      const answer = answerMap.get(item.id);
+      return {
+        id: item.id,
+        text: item.text,
+        photoRequired: !!item.photo,
+        answer: answer?.answer || "Pendente",
+        observation: answer?.observation || "",
+        photoPath: answer?.photo_path || "",
+        updatedAt: answer?.updated_at || "",
+      };
+    }),
+  };
+}
+
+async function managerChecklistDay(date, ownerId) {
+  if (isSunday(date)) return [];
+  const runs = await managerChecklistRunsByDate(date, ownerId);
+  return MANAGER_CHECKLIST_TEMPLATES.map((template) => managerChecklistDto(template, date, runs.get(template.id)));
+}
+
+function managerChecklistDaySummary(rows, dailyGoal) {
+  const totalChecklists = rows.length;
+  const completedChecklists = rows.filter((row) => row.summary.status === "Concluido").length;
+  const inProgressChecklists = rows.filter((row) => row.summary.status === "Em andamento").length;
+  const pendingChecklists = rows.filter((row) => row.summary.status === "Pendente").length;
+  const overdueChecklists = rows.filter((row) => row.summary.status === "Atrasado").length;
+  const totalActivities = rows.reduce((sum, row) => sum + Number(row.summary.total || 0), 0);
+  const completedActivities = rows.reduce((sum, row) => sum + Number(row.summary.answered || 0), 0);
+  const conformes = rows.reduce((sum, row) => sum + Number(row.summary.conformes || 0), 0);
+  const naoConformes = rows.reduce((sum, row) => sum + Number(row.summary.naoConformes || 0), 0);
+  const goal = Math.max(0, Number(dailyGoal || 0));
+  return {
+    totalChecklists,
+    completedChecklists,
+    inProgressChecklists,
+    pendingChecklists,
+    overdueChecklists,
+    dailyGoal: goal,
+    goalPercent: goal ? Math.min(100, Math.round((completedChecklists / goal) * 100)) : 0,
+    totalActivities,
+    completedActivities,
+    pendingActivities: Math.max(0, totalActivities - completedActivities),
+    conformes,
+    naoConformes,
+    conformityRate: totalActivities ? Math.round((conformes / totalActivities) * 100) : 0,
+  };
+}
+
+async function managerChecklistHistory(startDate, endDate, ownerId, filters = {}) {
+  const dates = dateValuesBetween(startDate, endDate).filter((date) => !isSunday(date));
+  const rows = [];
+  for (const date of dates) {
+    const day = await managerChecklistDay(date, ownerId);
+    rows.push(...day.map((item) => ({
+      id: item.id,
+      title: item.title,
+      store: item.store,
+      date: item.date,
+      dueTime: item.dueTime,
+      status: item.summary.status,
+      total: item.summary.total,
+      conformes: item.summary.conformes,
+      naoConformes: item.summary.naoConformes,
+      conformityRate: item.summary.conformityRate,
+    })));
+  }
+  const search = normalizeText(filters.search || "");
+  const status = String(filters.status || "").trim();
+  return rows
+    .filter((row) => !search || normalizeText(row.title).includes(search))
+    .filter((row) => !status || row.status === status)
+    .sort((a, b) => `${b.date} ${b.dueTime}`.localeCompare(`${a.date} ${a.dueTime}`));
 }
 
 function monthBounds(date = new Date()) {
@@ -2247,7 +2637,102 @@ async function api(req, res, url) {
   if (method === "GET" && url.pathname === "/api/app-settings") {
     return send(res, 200, {
       preventionGoalsVisibleToTeam: await preventionGoalsVisibleToTeam(),
+      managerChecklistDailyGoal: await managerChecklistDailyGoal(),
     });
+  }
+
+  if (method === "GET" && url.pathname === "/api/manager-checklists") {
+    if (!canAccessManagerChecklists(user)) return send(res, 403, { error: "Acesso restrito ao checklist da gerente." });
+    const date = validDateValue(url.searchParams.get("date")) ? url.searchParams.get("date") : today();
+    const ownerId = managerChecklistOwnerId(user, url.searchParams.get("userId"));
+    const rows = await managerChecklistDay(date, ownerId);
+    const dailyGoal = await managerChecklistDailyGoal();
+    return send(res, 200, {
+      date,
+      store: MANAGER_STORE,
+      scheduled: !isSunday(date),
+      dailyGoal,
+      summary: managerChecklistDaySummary(rows, dailyGoal),
+      rows,
+    });
+  }
+
+  if (method === "GET" && url.pathname === "/api/manager-checklists/history") {
+    if (!canAccessManagerChecklists(user)) return send(res, 403, { error: "Acesso restrito ao histórico da gerente." });
+    const startDate = validDateValue(url.searchParams.get("startDate")) ? url.searchParams.get("startDate") : today();
+    const endDate = validDateValue(url.searchParams.get("endDate")) ? url.searchParams.get("endDate") : startDate;
+    const ownerId = managerChecklistOwnerId(user, url.searchParams.get("userId"));
+    return send(res, 200, {
+      rows: await managerChecklistHistory(startDate, endDate, ownerId, {
+        search: url.searchParams.get("search") || "",
+        status: url.searchParams.get("status") || "",
+      }),
+    });
+  }
+
+  if (method === "PUT" && url.pathname.startsWith("/api/manager-checklists/")) {
+    if (!canAccessManagerChecklists(user)) return send(res, 403, { error: "Acesso restrito ao checklist da gerente." });
+    const parts = url.pathname.split("/").filter(Boolean);
+    const templateId = parts[2];
+    const itemId = parts[4];
+    if (parts[3] !== "items" || !templateId || !itemId) return send(res, 404, { error: "Item não encontrado." });
+    const template = managerChecklistTemplate(templateId);
+    const item = managerChecklistItem(template, itemId);
+    if (!template || !item) return send(res, 404, { error: "Item não encontrado." });
+    const body = await readBody(req);
+    const date = validDateValue(body.date) ? body.date : today();
+    if (isSunday(date)) return send(res, 400, { error: "Domingo não possui checklist programado." });
+    const answer = normalizeManagerChecklistAnswer(body.answer);
+    const now = nowIso();
+    await execute(
+      `INSERT INTO manager_checklist_runs (template_id, date, store, status, started_at, created_by, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(template_id, date, created_by) DO UPDATE SET
+         started_at=COALESCE(manager_checklist_runs.started_at, excluded.started_at),
+         updated_at=excluded.updated_at`,
+      [template.id, date, MANAGER_STORE, "Em andamento", now, user.id, now]
+    );
+    const run = (await query(
+      "SELECT * FROM manager_checklist_runs WHERE template_id = ? AND date = ? AND created_by = ?",
+      [template.id, date, user.id]
+    ))[0];
+    if (!run) return send(res, 500, { error: "Não foi possível salvar o checklist." });
+    const current = (await query("SELECT photo_path FROM manager_checklist_answers WHERE run_id = ? AND item_id = ?", [run.id, item.id]))[0];
+    let photoPath = current?.photo_path || "";
+    if (body.photoDataUrl) {
+      photoPath = await saveDataUrl(body.photoDataUrl, body.photoName || "checklist-gerente-foto") || photoPath;
+    } else if (shouldRemoveChecklistPhoto(body)) {
+      photoPath = "";
+    }
+    await execute(
+      `INSERT INTO manager_checklist_answers (run_id, item_id, answer, observation, photo_path, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(run_id, item_id) DO UPDATE SET
+         answer=excluded.answer,
+         observation=excluded.observation,
+         photo_path=excluded.photo_path,
+         updated_at=excluded.updated_at`,
+      [run.id, item.id, answer, body.observation || "", photoPath || null, now]
+    );
+    const answers = await query("SELECT * FROM manager_checklist_answers WHERE run_id = ?", [run.id]);
+    const summary = managerChecklistSummary(template, answers);
+    await execute(
+      "UPDATE manager_checklist_runs SET status = ?, finished_at = ?, updated_at = ? WHERE id = ?",
+      [summary.status, summary.status === "Concluido" ? now : null, now, run.id]
+    );
+    await logAudit(user, "upsert", "manager_checklist_answers", `${date}|${template.id}|${item.id}`, { answer });
+    const freshRuns = await managerChecklistRunsByDate(date, user.id);
+    return send(res, 200, { row: managerChecklistDto(template, date, freshRuns.get(template.id)) });
+  }
+
+  if (method === "PUT" && url.pathname === "/api/app-settings/manager-checklists") {
+    if (!isAdmin(user)) return send(res, 403, { error: "Apenas administrador pode alterar esta configuração." });
+    const body = await readBody(req);
+    const dailyGoal = intValue(body.dailyGoal);
+    if (dailyGoal < 0 || dailyGoal > 99) return send(res, 400, { error: "Informe uma meta entre 0 e 99 checklists." });
+    await setAppSetting("manager_checklist_daily_goal", String(dailyGoal), user);
+    await logAudit(user, "update", "app_settings", "manager_checklist_daily_goal", { dailyGoal });
+    return send(res, 200, { managerChecklistDailyGoal: dailyGoal });
   }
 
   if (method === "PUT" && url.pathname === "/api/app-settings/prevention-goals") {

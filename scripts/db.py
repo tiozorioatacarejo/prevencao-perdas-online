@@ -129,6 +129,32 @@ def init_db():
             FOREIGN KEY (created_by) REFERENCES users(id)
         );
 
+        CREATE TABLE IF NOT EXISTS manager_checklist_runs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            template_id TEXT NOT NULL,
+            date TEXT NOT NULL,
+            store TEXT NOT NULL DEFAULT 'Atacarejo Antônio de Ozorio',
+            status TEXT NOT NULL DEFAULT 'Pendente',
+            started_at TEXT,
+            finished_at TEXT,
+            created_by INTEGER NOT NULL,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(template_id, date, created_by),
+            FOREIGN KEY (created_by) REFERENCES users(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS manager_checklist_answers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_id INTEGER NOT NULL,
+            item_id TEXT NOT NULL,
+            answer TEXT NOT NULL DEFAULT 'Pendente',
+            observation TEXT,
+            photo_path TEXT,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(run_id, item_id),
+            FOREIGN KEY (run_id) REFERENCES manager_checklist_runs(id) ON DELETE CASCADE
+        );
+
         CREATE TABLE IF NOT EXISTS operational_summaries (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             date TEXT UNIQUE NOT NULL,

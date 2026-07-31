@@ -15,12 +15,41 @@
   pendencies: [],
   sectorAudits: [],
   sectorAuditSummary: { evaluatedByUser: 0, evaluatedTotal: 0 },
+  managerChecklists: {
+    date: localDateValue(),
+    scheduled: true,
+    dailyGoal: 9,
+    summary: {
+      totalChecklists: 0,
+      completedChecklists: 0,
+      inProgressChecklists: 0,
+      pendingChecklists: 0,
+      overdueChecklists: 0,
+      dailyGoal: 9,
+      goalPercent: 0,
+      totalActivities: 0,
+      completedActivities: 0,
+      pendingActivities: 0,
+      conformes: 0,
+      naoConformes: 0,
+      conformityRate: 0,
+    },
+    rows: [],
+    history: [],
+    historyFilters: {
+      startDate: localDateValue(),
+      endDate: localDateValue(),
+      status: "",
+      search: "",
+    },
+  },
   preventionGoals: {
     month: localMonthValue(),
     data: null,
   },
   settings: {
     preventionGoalsVisibleToTeam: false,
+    managerChecklistDailyGoal: 9,
   },
   users: [],
   taskUsers: [],
@@ -231,6 +260,10 @@ function canAccessSummary() {
 
 function canManageDailyTasks() {
   return TASK_MANAGER_ROLES.includes(state.user?.role);
+}
+
+function canAccessManagerChecklists() {
+  return ["administrador", "gerente", "encarregada"].includes(state.user?.role);
 }
 
 function canAccessPrevention() {
@@ -564,6 +597,7 @@ function tabIcon(id) {
     managementProductivity: "&#128200;",
     managementOperators: "&#128101;",
     sectorAudit: "&#128269;",
+    managerChecklists: "&#9745;",
     pendencies: "&#9888;",
     collaborators: "&#128101;",
     users: "&#9881;",
@@ -701,7 +735,7 @@ function navGroups(tabs) {
       id: "management",
       label: "Gerencial",
       icon: "🔎",
-      tabs: ["sectorAudit", "pendencies"],
+      tabs: ["managerChecklists", "pendencies"],
     },
     {
       id: "admin",
@@ -731,6 +765,7 @@ function navGroups(tabs) {
 
 async function refreshForTab() {
   if (state.tab === "dailyTasks") await Promise.all([loadTaskUsers(), loadDailyTasks()]);
+  if (state.tab === "managerChecklists") await Promise.all([loadManagerChecklists(), loadManagerChecklistHistory()]);
   if (state.tab === "dashboard") await loadDashboard();
   if (state.tab === "preventionGoals") await loadPreventionGoals();
   if (state.tab === "repoDashboard" || state.tab === "commercialDashboard" || state.tab === "repoGoals") await Promise.all([loadCollaborators(), loadReposition()]);
@@ -764,6 +799,7 @@ function renderView() {
     reposition: renderReposition,
     commercial: renderCommercial,
     repoGoals: renderRepoGoals,
+    managerChecklists: renderManagerChecklists,
     sectorAudit: renderSectorAudit,
     pendencies: renderPendencies,
     collaborators: renderCollaborators,
@@ -785,11 +821,11 @@ function allowedTabs() {
   if (state.user?.role === "reposicao") return [["dailyTasks", "Agenda/Tarefas"], ["repoDashboard", "Painel Reposi\u00e7\u00e3o"], ["reposition", "Reposi\u00e7\u00e3o"], ["repoReports", "Relatórios Reposição"]];
   if (state.user?.role === "recebimento") return [["dailyTasks", "Agenda/Tarefas"], ["receivingAgenda", "Agenda Recebimento"]];
   if (state.user?.role === "comercial") return [["dailyTasks", "Agenda/Tarefas"], ["commercialDashboard", "Painel Comercial"], ["commercial", "Comercial"], ["commercialAgenda", "Agenda Comercial"]];
-  if (state.user?.role === "gerente") return [["dailyTasks", "Agenda/Tarefas"], ["sectorAudit", "Conferência Gerencial"], ["repoReports", "Relatórios Reposição"], ["pendencies", "Pendências"]];
+  if (state.user?.role === "gerente") return [["dailyTasks", "Agenda/Tarefas"], ["managerChecklists", "Checklist Gerente Loja"]];
   if (state.user?.role === "encarregada") {
     const tabs = [
       ["dailyTasks", "Agenda/Tarefas"],
-      ["sectorAudit", "Conferência Gerencial"],
+      ["managerChecklists", "Checklist Gerente Loja"],
       ["repoGoals", "Metas Reposição"],
       ["receivingAgenda", "Agenda Recebimento"],
       ["repoReports", "Relatórios Reposição"],
@@ -819,7 +855,7 @@ function allowedTabs() {
     ["repoDashboard", "Painel Reposi\u00e7\u00e3o"],
     ["repoGoals", "Metas Reposição"],
     ["commercialDashboard", "Painel Comercial"],
-    ["sectorAudit", "Confer\u00eancia Gerencial"],
+    ["managerChecklists", "Checklist Gerente Loja"],
     ["checklist", "Checklist"],
     ["reposition", "ReposiÃ§Ã£o"],
     ["commercial", "Comercial"],
@@ -846,8 +882,8 @@ function defaultTab() {
   if (state.user?.role === "reposicao") return "repoDashboard";
   if (state.user?.role === "recebimento") return "receivingAgenda";
   if (state.user?.role === "comercial") return "commercialDashboard";
-  if (state.user?.role === "gerente") return "sectorAudit";
-  if (state.user?.role === "encarregada") return "sectorAudit";
+  if (state.user?.role === "gerente") return "managerChecklists";
+  if (state.user?.role === "encarregada") return "managerChecklists";
   return "dashboard";
 }
 
@@ -969,6 +1005,21 @@ async function loadSectorAudits() {
   const data = await api(`/api/sector-audits?${qs.toString()}`);
   state.sectorAudits = data.rows || [];
   state.sectorAuditSummary = data.summary || { evaluatedByUser: 0, evaluatedTotal: 0 };
+}
+
+async function loadManagerChecklists() {
+  const qs = new URLSearchParams({ date: state.managerChecklists.date || localDateValue() });
+  const data = await api(`/api/manager-checklists?${qs.toString()}`);
+  state.managerChecklists.scheduled = data.scheduled !== false;
+  state.managerChecklists.dailyGoal = data.dailyGoal ?? state.settings.managerChecklistDailyGoal ?? 9;
+  state.managerChecklists.summary = data.summary || state.managerChecklists.summary;
+  state.managerChecklists.rows = data.rows || [];
+}
+
+async function loadManagerChecklistHistory() {
+  const qs = new URLSearchParams(state.managerChecklists.historyFilters);
+  const data = await api(`/api/manager-checklists/history?${qs.toString()}`);
+  state.managerChecklists.history = data.rows || [];
 }
 
 function renderDashboard() {
@@ -3116,6 +3167,229 @@ function auditStatusClass(status) {
   if (status === "Aten\u00e7\u00e3o" || status === "Corrigir") return "warn";
   if (status === "Cr\u00edtico" || status === "N\u00e3o confere") return "danger";
   return "";
+}
+
+function managerChecklistStatusClass(status) {
+  if (status === "Concluido") return "ok";
+  if (status === "Em andamento") return "warn";
+  if (status === "Atrasado") return "danger";
+  if (status === "Não conforme") return "danger";
+  return "danger";
+}
+
+function managerChecklistAnswerClass(answer) {
+  if (answer === "Conforme") return "ok";
+  if (answer === "Não conforme") return "danger";
+  return "danger";
+}
+
+function managerChecklistPhotoCell(item) {
+  if (!item.photoPath) return `<span class="muted">${item.photoRequired ? "Sem foto" : "-"}</span>`;
+  return `
+    <a href="${escapeHtml(item.photoPath)}" target="_blank" rel="noopener">
+      <img src="${escapeHtml(item.photoPath)}?thumb=2" alt="Foto do item" style="width:78px;height:54px;object-fit:cover;border-radius:6px">
+    </a>
+  `;
+}
+
+function renderManagerChecklistRow(checklist) {
+  return `
+    <details class="panel" style="margin-bottom:14px">
+      <summary>
+        <strong>${escapeHtml(checklist.title)}</strong>
+        <span class="status ${managerChecklistStatusClass(checklist.summary.status)}" style="margin-left:8px">${escapeHtml(checklist.summary.status)}</span>
+        <span class="muted" style="margin-left:8px">Prazo ${escapeHtml(checklist.dueTime)}</span>
+      </summary>
+      <div class="muted" style="margin-top:8px">${escapeHtml(checklist.store)} · ${fmtDate(checklist.date)}</div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Item</th><th>Resposta</th><th>Observação</th><th>Foto</th><th>Ação</th></tr></thead>
+          <tbody>
+            ${checklist.items.map((item, index) => `
+              <tr data-manager-checklist-row data-template-id="${escapeHtml(checklist.id)}" data-item-id="${escapeHtml(item.id)}">
+                <td data-label="Item">
+                  <strong>${index + 1}. ${escapeHtml(item.text)}</strong>
+                  ${item.photoRequired ? `<div class="muted">Foto esperada</div>` : ""}
+                </td>
+                <td data-label="Resposta">
+                  <select name="answer">
+                    ${["Pendente", "Conforme", "Não conforme"].map((answer) => `<option ${item.answer === answer ? "selected" : ""}>${answer}</option>`).join("")}
+                  </select>
+                </td>
+                <td data-label="Observação">
+                  <textarea name="observation" placeholder="Observação">${escapeHtml(item.observation || "")}</textarea>
+                </td>
+                <td data-label="Foto">
+                  <div class="grid" style="gap:8px">
+                    ${managerChecklistPhotoCell(item)}
+                    <input name="photo" type="file" accept="image/*">
+                    ${item.photoPath ? `<label class="inline-check"><input name="removePhoto" type="checkbox"> Remover foto</label>` : ""}
+                  </div>
+                </td>
+                <td data-label="Ação">
+                  <button class="btn primary" type="button" data-save-manager-checklist>Salvar</button>
+                </td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      </div>
+    </details>
+  `;
+}
+
+function renderManagerChecklistHistory() {
+  const rows = state.managerChecklists.history || [];
+  return `
+    <section class="panel">
+      <h3>Histórico</h3>
+      <form class="grid" id="managerChecklistHistoryForm" style="margin-top:10px">
+        <div class="grid four">
+          <label>Início <input name="startDate" type="date" value="${escapeHtml(state.managerChecklists.historyFilters.startDate)}"></label>
+          <label>Fim <input name="endDate" type="date" value="${escapeHtml(state.managerChecklists.historyFilters.endDate)}"></label>
+          <label>Status
+            <select name="status">
+              <option value="">Todos</option>
+              ${["Pendente", "Em andamento", "Atrasado", "Concluido"].map((status) => `<option value="${status}" ${state.managerChecklists.historyFilters.status === status ? "selected" : ""}>${status}</option>`).join("")}
+            </select>
+          </label>
+          <label>Buscar <input name="search" value="${escapeHtml(state.managerChecklists.historyFilters.search)}" placeholder="Nome do checklist"></label>
+        </div>
+        <button class="btn primary" type="submit">Filtrar</button>
+      </form>
+      <div class="table-wrap" style="margin-top:14px">
+        <table>
+          <thead><tr><th>Checklist</th><th>Data</th><th>Prazo</th><th>Status</th><th>Conformes</th><th>Não conformes</th><th>Taxa</th></tr></thead>
+          <tbody>
+            ${rows.map((row) => `
+              <tr>
+                <td data-label="Checklist">${escapeHtml(row.title)}</td>
+                <td data-label="Data">${fmtDate(row.date)}</td>
+                <td data-label="Prazo">${escapeHtml(row.dueTime || "-")}</td>
+                <td data-label="Status"><span class="status ${managerChecklistStatusClass(row.status)}">${escapeHtml(row.status)}</span></td>
+                <td data-label="Conformes">${row.conformes || 0}/${row.total || 0}</td>
+                <td data-label="Não conformes">${row.naoConformes || 0}</td>
+                <td data-label="Taxa">${row.conformityRate || 0}%</td>
+              </tr>
+            `).join("") || `<tr><td colspan="7">Nenhum checklist encontrado.</td></tr>`}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  `;
+}
+
+function renderManagerChecklistGeneralPanel() {
+  const summary = state.managerChecklists.summary || {};
+  const goal = Number(summary.dailyGoal ?? state.managerChecklists.dailyGoal ?? state.settings.managerChecklistDailyGoal ?? 9);
+  const completed = Number(summary.completedChecklists || 0);
+  const goalPercent = Number(summary.goalPercent || 0);
+  const adminConfig = state.user?.role === "administrador" ? `
+    <form class="toolbar" id="managerChecklistGoalForm" style="align-items:end">
+      <label style="min-width:220px">Meta diária
+        <input name="dailyGoal" type="number" min="0" max="99" step="1" value="${goal}">
+      </label>
+      <button class="btn primary" type="submit">Salvar meta</button>
+    </form>
+  ` : "";
+  return `
+    <section class="panel" style="margin-bottom:14px">
+      <div class="topbar" style="margin-bottom:10px;align-items:flex-end">
+        <div>
+          <h3>Painel geral do dia</h3>
+          <div class="muted">Resumo de ${fmtDate(state.managerChecklists.date)}</div>
+        </div>
+        ${adminConfig}
+      </div>
+      <div class="manager-general-strip">
+        <div><span>Checklists</span><strong>${completed}/${goal}</strong><small>${goalPercent}% da meta</small></div>
+        <div><span>Atividades</span><strong>${summary.completedActivities || 0}/${summary.totalActivities || 0}</strong><small>${summary.pendingActivities || 0} pendente(s)</small></div>
+        <div><span>Conformes</span><strong>${summary.conformes || 0}</strong><small>${summary.conformityRate || 0}% conformidade</small></div>
+        <div><span>Atrasados</span><strong>${summary.overdueChecklists || 0}</strong><small>${summary.inProgressChecklists || 0} em andamento</small></div>
+      </div>
+      <div class="progress"><span style="width:${Math.min(100, Math.max(0, goalPercent))}%"></span></div>
+    </section>
+  `;
+}
+
+function renderManagerChecklists() {
+  const rows = state.managerChecklists.rows || [];
+  view.innerHTML = `
+    <div class="topbar">
+      <div>
+        <h2>Checklist Gerente Loja</h2>
+        <div class="muted">Rotinas diárias da gerente, de segunda a sábado</div>
+      </div>
+      <button class="btn" id="refreshManagerChecklists">Atualizar</button>
+    </div>
+    <form class="panel grid" id="managerChecklistDateForm" style="margin-bottom:14px">
+      <div class="grid three">
+        <label>Data <input name="date" type="date" value="${escapeHtml(state.managerChecklists.date)}"></label>
+      </div>
+      <button class="btn primary" type="submit">Aplicar data</button>
+    </form>
+    ${renderManagerChecklistGeneralPanel()}
+    ${state.managerChecklists.scheduled
+      ? rows.map(renderManagerChecklistRow).join("")
+      : `<section class="panel"><h3>Domingo sem checklist programado</h3><p class="muted">As rotinas da gerente aparecem automaticamente de segunda a sábado.</p></section>`}
+    ${renderManagerChecklistHistory()}
+  `;
+
+  document.getElementById("refreshManagerChecklists").addEventListener("click", async () => {
+    await Promise.all([loadManagerChecklists(), loadManagerChecklistHistory()]);
+    renderManagerChecklists();
+  });
+  document.getElementById("managerChecklistDateForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    state.managerChecklists.date = new FormData(event.currentTarget).get("date") || localDateValue();
+    await loadManagerChecklists();
+    renderManagerChecklists();
+  });
+  document.getElementById("managerChecklistHistoryForm").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    state.managerChecklists.historyFilters = Object.fromEntries(new FormData(event.currentTarget).entries());
+    await loadManagerChecklistHistory();
+    renderManagerChecklists();
+  });
+  const goalForm = document.getElementById("managerChecklistGoalForm");
+  if (goalForm) {
+    goalForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const body = Object.fromEntries(new FormData(goalForm).entries());
+      const result = await api("/api/app-settings/manager-checklists", {
+        method: "PUT",
+        body: JSON.stringify(body),
+      });
+      state.settings.managerChecklistDailyGoal = result.managerChecklistDailyGoal;
+      await loadManagerChecklists();
+      renderManagerChecklists();
+      toast("Meta diária atualizada.");
+    });
+  }
+  document.querySelectorAll("[data-save-manager-checklist]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const row = button.closest("[data-manager-checklist-row]");
+      const body = {
+        answer: row.querySelector('[name="answer"]').value,
+        observation: row.querySelector('[name="observation"]').value,
+        removePhoto: row.querySelector('[name="removePhoto"]')?.checked || false,
+      };
+      body.date = state.managerChecklists.date;
+      const file = row.querySelector('[name="photo"]')?.files?.[0];
+      if (file) {
+        body.photoDataUrl = await imageFileToUploadDataUrl(file);
+        body.photoName = file.name;
+      }
+      await api(`/api/manager-checklists/${row.dataset.templateId}/items/${row.dataset.itemId}`, {
+        method: "PUT",
+        body: JSON.stringify(body),
+      });
+      await Promise.all([loadManagerChecklists(), loadManagerChecklistHistory()]);
+      renderManagerChecklists();
+      toast("Checklist salvo.");
+    });
+  });
+  fixVisibleText(view);
 }
 
 function renderSectorAudit() {

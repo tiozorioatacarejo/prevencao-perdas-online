@@ -88,6 +88,30 @@ async function initPostgres() {
       updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS manager_checklist_runs (
+      id SERIAL PRIMARY KEY,
+      template_id TEXT NOT NULL,
+      date TEXT NOT NULL,
+      store TEXT NOT NULL DEFAULT 'Atacarejo Antônio de Ozorio',
+      status TEXT NOT NULL DEFAULT 'Pendente',
+      started_at TIMESTAMP,
+      finished_at TIMESTAMP,
+      created_by INTEGER NOT NULL REFERENCES users(id),
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(template_id, date, created_by)
+    );
+
+    CREATE TABLE IF NOT EXISTS manager_checklist_answers (
+      id SERIAL PRIMARY KEY,
+      run_id INTEGER NOT NULL REFERENCES manager_checklist_runs(id) ON DELETE CASCADE,
+      item_id TEXT NOT NULL,
+      answer TEXT NOT NULL DEFAULT 'Pendente',
+      observation TEXT,
+      photo_path TEXT,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(run_id, item_id)
+    );
+
     CREATE TABLE IF NOT EXISTS operational_summaries (
       id SERIAL PRIMARY KEY,
       date TEXT UNIQUE NOT NULL,
@@ -274,6 +298,32 @@ async function initPostgres() {
       created_by INTEGER NOT NULL REFERENCES users(id),
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS manager_checklist_runs (
+      id SERIAL PRIMARY KEY,
+      template_id TEXT NOT NULL,
+      date TEXT NOT NULL,
+      store TEXT NOT NULL DEFAULT 'Atacarejo Antônio de Ozorio',
+      status TEXT NOT NULL DEFAULT 'Pendente',
+      started_at TIMESTAMP,
+      finished_at TIMESTAMP,
+      created_by INTEGER NOT NULL REFERENCES users(id),
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(template_id, date, created_by)
+    )
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS manager_checklist_answers (
+      id SERIAL PRIMARY KEY,
+      run_id INTEGER NOT NULL REFERENCES manager_checklist_runs(id) ON DELETE CASCADE,
+      item_id TEXT NOT NULL,
+      answer TEXT NOT NULL DEFAULT 'Pendente',
+      observation TEXT,
+      photo_path TEXT,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(run_id, item_id)
     )
   `);
   await pool.query("ALTER TABLE agenda_slots DROP CONSTRAINT IF EXISTS agenda_slots_agenda_type_date_start_time_key");

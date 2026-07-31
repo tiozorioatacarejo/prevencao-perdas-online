@@ -969,6 +969,35 @@ textarea {
   margin-top: 6px;
 }
 
+.manager-general-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  align-items: stretch;
+  margin: 10px 0;
+}
+
+.manager-general-strip > div {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  min-width: 0;
+}
+
+.manager-general-strip span,
+.manager-general-strip small {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.manager-general-strip strong {
+  display: block;
+  font-size: 22px;
+  line-height: 1.1;
+  margin: 4px 0;
+}
+
 .repo-dashboard-filter {
   grid-template-columns: minmax(180px, 260px) minmax(180px, 260px) auto;
   gap: 10px;
@@ -1512,6 +1541,7 @@ th {
   .agenda-card-main,
   .agenda-booking,
   .metrics,
+  .manager-general-strip,
   .management-filter,
   .management-filter.without-sector,
   .management-module-grid {
