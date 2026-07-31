@@ -53,6 +53,11 @@ async function initPostgres() {
       data_base64 TEXT NOT NULL,
       thumbnail_content_type TEXT,
       thumbnail_data_base64 TEXT,
+      storage_provider TEXT,
+      object_key TEXT,
+      public_url TEXT,
+      thumbnail_object_key TEXT,
+      thumbnail_url TEXT,
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -273,6 +278,11 @@ async function initPostgres() {
   await pool.query("ALTER TABLE checklists ADD COLUMN IF NOT EXISTS expired_products_quantity INTEGER NOT NULL DEFAULT 0");
   await pool.query("ALTER TABLE uploaded_files ADD COLUMN IF NOT EXISTS thumbnail_content_type TEXT");
   await pool.query("ALTER TABLE uploaded_files ADD COLUMN IF NOT EXISTS thumbnail_data_base64 TEXT");
+  await pool.query("ALTER TABLE uploaded_files ADD COLUMN IF NOT EXISTS storage_provider TEXT");
+  await pool.query("ALTER TABLE uploaded_files ADD COLUMN IF NOT EXISTS object_key TEXT");
+  await pool.query("ALTER TABLE uploaded_files ADD COLUMN IF NOT EXISTS public_url TEXT");
+  await pool.query("ALTER TABLE uploaded_files ADD COLUMN IF NOT EXISTS thumbnail_object_key TEXT");
+  await pool.query("ALTER TABLE uploaded_files ADD COLUMN IF NOT EXISTS thumbnail_url TEXT");
   await pool.query(`
     CREATE TABLE IF NOT EXISTS prevention_goal_adjustments (
       id SERIAL PRIMARY KEY,

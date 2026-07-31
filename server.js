@@ -13,7 +13,13 @@ const PYTHON = process.env.PYTHON_EXE || (fs.existsSync(BUNDLED_PYTHON) ? BUNDLE
 const DATA_DIR = process.env.APP_DATA_DIR || path.join(ROOT, "data");
 const UPLOAD_DIR = process.env.APP_UPLOAD_DIR || path.join(ROOT, "uploads");
 const DATABASE_URL = process.env.DATABASE_URL || "";
+const R2_ACCOUNT_ID = (process.env.R2_ACCOUNT_ID || "").trim();
+const R2_ACCESS_KEY_ID = (process.env.R2_ACCESS_KEY_ID || "").trim();
+const R2_SECRET_ACCESS_KEY = (process.env.R2_SECRET_ACCESS_KEY || "").trim();
+const R2_BUCKET = (process.env.R2_BUCKET || "").trim();
+const R2_PUBLIC_BASE_URL = (process.env.R2_PUBLIC_BASE_URL || "").trim().replace(/\/+$/, "");
 let pgPool = null;
+let r2ClientInstance = null;
 
 const sessions = new Map();
 const loginAttempts = new Map();
@@ -318,6 +324,11 @@ async function initPostgres(pool) {
       data_base64 TEXT NOT NULL,
       thumbnail_content_type TEXT,
       thumbnail_data_base64 TEXT,
+      storage_provider TEXT,
+      object_key TEXT,
+      public_url TEXT,
+      thumbnail_object_key TEXT,
+      thumbnail_url TEXT,
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -594,6 +605,11 @@ async function initPostgres(pool) {
   await pool.query("ALTER TABLE checklists ADD COLUMN IF NOT EXISTS photo_path TEXT");
   await pool.query("ALTER TABLE uploaded_files ADD COLUMN IF NOT EXISTS thumbnail_content_type TEXT");
   await pool.query("ALTER TABLE uploaded_files ADD COLUMN IF NOT EXISTS thumbnail_data_base64 TEXT");
+  await pool.query("ALTER TABLE uploaded_files ADD COLUMN IF NOT EXISTS storage_provider TEXT");
+  await pool.query("ALTER TABLE uploaded_files ADD COLUMN IF NOT EXISTS object_key TEXT");
+  await pool.query("ALTER TABLE uploaded_files ADD COLUMN IF NOT EXISTS public_url TEXT");
+  await pool.query("ALTER TABLE uploaded_files ADD COLUMN IF NOT EXISTS thumbnail_object_key TEXT");
+  await pool.query("ALTER TABLE uploaded_files ADD COLUMN IF NOT EXISTS thumbnail_url TEXT");
   await pool.query("ALTER TABLE checklists ADD COLUMN IF NOT EXISTS inventory_type TEXT");
   await pool.query("ALTER TABLE checklists ADD COLUMN IF NOT EXISTS price_divergence_quantity INTEGER NOT NULL DEFAULT 0");
   await pool.query("ALTER TABLE checklists ADD COLUMN IF NOT EXISTS expired_products_quantity INTEGER NOT NULL DEFAULT 0");
@@ -1610,6 +1626,43 @@ function createImageThumbnail(contentType, buffer) {
   }
 }
 
+function r2IsConfigured() {
+  return Boolean(R2_ACCOUNT_ID && R2_ACCESS_KEY_ID && R2_SECRET_ACCESS_KEY && R2_BUCKET && R2_PUBLIC_BASE_URL);
+}
+
+function r2PublicUrlForKey(key) {
+  return `${R2_PUBLIC_BASE_URL}/${encodeURIComponent(key).replace(/%2F/g, "/")}`;
+}
+
+async function getR2Client() {
+  if (!r2IsConfigured()) return null;
+  if (r2ClientInstance) return r2ClientInstance;
+  const { S3Client } = require("@aws-sdk/client-s3");
+  r2ClientInstance = new S3Client({
+    region: "auto",
+    endpoint: `https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+    credentials: {
+      accessKeyId: R2_ACCESS_KEY_ID,
+      secretAccessKey: R2_SECRET_ACCESS_KEY,
+    },
+  });
+  return r2ClientInstance;
+}
+
+async function uploadBufferToR2(key, contentType, buffer) {
+  const client = await getR2Client();
+  if (!client) return null;
+  const { PutObjectCommand } = require("@aws-sdk/client-s3");
+  await client.send(new PutObjectCommand({
+    Bucket: R2_BUCKET,
+    Key: key,
+    Body: buffer,
+    ContentType: contentType,
+    CacheControl: "public, max-age=31536000, immutable",
+  }));
+  return r2PublicUrlForKey(key);
+}
+
 async function saveDataUrl(dataUrl, originalName = "anexo") {
   if (!dataUrl) return null;
   const match = /^data:(.+);base64,(.+)$/.exec(dataUrl);
@@ -1630,9 +1683,57 @@ async function saveDataUrl(dataUrl, originalName = "anexo") {
   const ext = extMap[contentType] || path.extname(originalName).slice(0, 8) || ".bin";
   const filename = `${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`;
   fs.writeFileSync(path.join(UPLOAD_DIR, filename), buffer);
+  let storageProvider = null;
+  let objectKey = null;
+  let publicUrl = null;
+  let thumbnailObjectKey = null;
+  let thumbnailUrl = null;
+  let storedDataBase64 = dataBase64;
+  let storedThumbnailBase64 = thumbnail?.dataBase64 || null;
+  try {
+    if (r2IsConfigured()) {
+      objectKey = `uploads/${filename}`;
+      publicUrl = await uploadBufferToR2(objectKey, contentType, buffer);
+      if (thumbnail) {
+        thumbnailObjectKey = `uploads/thumbs/${filename}.jpg`;
+        thumbnailUrl = await uploadBufferToR2(
+          thumbnailObjectKey,
+          thumbnail.contentType,
+          Buffer.from(thumbnail.dataBase64, "base64")
+        );
+      }
+      storageProvider = "r2";
+      storedDataBase64 = "";
+      storedThumbnailBase64 = null;
+    }
+  } catch (error) {
+    console.error("Falha ao enviar upload para R2; salvando no banco como fallback.", error);
+    storageProvider = null;
+    objectKey = null;
+    publicUrl = null;
+    thumbnailObjectKey = null;
+    thumbnailUrl = null;
+    storedDataBase64 = dataBase64;
+    storedThumbnailBase64 = thumbnail?.dataBase64 || null;
+  }
   await execute(
-    "INSERT INTO uploaded_files (filename, content_type, data_base64, thumbnail_content_type, thumbnail_data_base64, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-    [filename, contentType, dataBase64, thumbnail?.contentType || null, thumbnail?.dataBase64 || null, nowIso()]
+    `INSERT INTO uploaded_files (
+      filename, content_type, data_base64, thumbnail_content_type, thumbnail_data_base64,
+      storage_provider, object_key, public_url, thumbnail_object_key, thumbnail_url, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      filename,
+      contentType,
+      storedDataBase64,
+      thumbnail?.contentType || null,
+      storedThumbnailBase64,
+      storageProvider,
+      objectKey,
+      publicUrl,
+      thumbnailObjectKey,
+      thumbnailUrl,
+      nowIso(),
+    ]
   );
   return `/uploads/${filename}`;
 }
@@ -4027,12 +4128,24 @@ async function api(req, res, url) {
 
 async function sendUploadFromDb(res, filename, thumbnail = false) {
   const rows = await query(
-    "SELECT content_type, data_base64, thumbnail_content_type, thumbnail_data_base64 FROM uploaded_files WHERE filename = ?",
+    `SELECT content_type, data_base64, thumbnail_content_type, thumbnail_data_base64,
+      public_url, thumbnail_url
+     FROM uploaded_files WHERE filename = ?`,
     [filename]
   );
   if (!rows.length) return false;
+  const redirectUrl = thumbnail ? (rows[0].thumbnail_url || rows[0].public_url) : rows[0].public_url;
+  if (redirectUrl) {
+    res.writeHead(302, {
+      Location: redirectUrl,
+      "Cache-Control": "public, max-age=31536000, immutable",
+    });
+    res.end();
+    return true;
+  }
   let contentType = rows[0].content_type;
   let dataBase64 = rows[0].data_base64;
+  if (!dataBase64) return false;
   if (thumbnail && String(contentType || "").startsWith("image/")) {
     const currentThumbnailSize = rows[0].thumbnail_data_base64
       ? Buffer.byteLength(rows[0].thumbnail_data_base64, "base64")

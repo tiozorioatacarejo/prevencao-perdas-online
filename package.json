@@ -8,6 +8,7 @@
     "init-db": "node scripts/init-db.js"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.637.0",
     "pg": "^8.13.1"
   }
 }

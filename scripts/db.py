@@ -90,6 +90,11 @@ def init_db():
             data_base64 TEXT NOT NULL,
             thumbnail_content_type TEXT,
             thumbnail_data_base64 TEXT,
+            storage_provider TEXT,
+            object_key TEXT,
+            public_url TEXT,
+            thumbnail_object_key TEXT,
+            thumbnail_url TEXT,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
 
@@ -421,6 +426,16 @@ def init_db():
         conn.execute("ALTER TABLE uploaded_files ADD COLUMN thumbnail_content_type TEXT")
     if "thumbnail_data_base64" not in upload_columns:
         conn.execute("ALTER TABLE uploaded_files ADD COLUMN thumbnail_data_base64 TEXT")
+    if "storage_provider" not in upload_columns:
+        conn.execute("ALTER TABLE uploaded_files ADD COLUMN storage_provider TEXT")
+    if "object_key" not in upload_columns:
+        conn.execute("ALTER TABLE uploaded_files ADD COLUMN object_key TEXT")
+    if "public_url" not in upload_columns:
+        conn.execute("ALTER TABLE uploaded_files ADD COLUMN public_url TEXT")
+    if "thumbnail_object_key" not in upload_columns:
+        conn.execute("ALTER TABLE uploaded_files ADD COLUMN thumbnail_object_key TEXT")
+    if "thumbnail_url" not in upload_columns:
+        conn.execute("ALTER TABLE uploaded_files ADD COLUMN thumbnail_url TEXT")
 
     rupture_columns = [row["name"] for row in conn.execute("PRAGMA table_info(repo_ruptures)").fetchall()]
     if "commercial_updated_by" not in rupture_columns:
