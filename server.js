@@ -134,9 +134,9 @@ const MANAGER_CHECKLIST_TEMPLATES = [
     title: "2 - Gerente Loja - Açougue, Peixaria e Frios",
     dueTime: "08:00",
     items: [
-      { id: "apf-higiene", text: "Conferir higiene da equipe e dos equipamentos (facas, fatiador, bandejas)", photo: true },
-      { id: "apf-temperatura", text: "Validar temperatura dos balcões refrigerados", photo: false },
-      { id: "apf-exposicao", text: "Acompanhar exposição de carnes e frios (aparência, etiquetas, validade)", photo: true },
+      { id: "apf-higiene", text: "Validar balcões limpos, organizados e com apresentação adequada para venda", photo: true },
+      { id: "apf-temperatura", text: "Validar balcões cheios e sem rupturas visíveis nos itens de maior saída", photo: true },
+      { id: "apf-exposicao", text: "Registrar não conformidade com foto e cobrar o responsável do setor quando houver desvio", photo: true },
     ],
   },
   {
@@ -147,7 +147,7 @@ const MANAGER_CHECKLIST_TEMPLATES = [
     items: [
       { id: "padaria-fornada", text: "Acompanhar a fornada da manhã e a reposição da vitrine", photo: true },
       { id: "padaria-limpeza", text: "Validar limpeza da vitrine, balcão e bancadas", photo: true },
-      { id: "padaria-etiquetas", text: "Conferir etiquetas de preço e data de fabricação dos produtos expostos", photo: false },
+      { id: "padaria-etiquetas", text: "Registrar vitrine vazia, desorganizada ou produto fora do padrão com foto e cobrar responsável", photo: true },
     ],
   },
   {
