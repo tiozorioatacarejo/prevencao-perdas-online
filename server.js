@@ -18,6 +18,7 @@ const R2_ACCESS_KEY_ID = (process.env.R2_ACCESS_KEY_ID || "").trim();
 const R2_SECRET_ACCESS_KEY = (process.env.R2_SECRET_ACCESS_KEY || "").trim();
 const R2_BUCKET = (process.env.R2_BUCKET || "").trim();
 const R2_PUBLIC_BASE_URL = (process.env.R2_PUBLIC_BASE_URL || "").trim().replace(/\/+$/, "");
+const ONLINE_UPLOADS_REQUIRE_R2 = Boolean(DATABASE_URL) && process.env.ALLOW_NEON_FILE_UPLOADS !== "true";
 let pgPool = null;
 let r2ClientInstance = null;
 
@@ -1630,6 +1631,16 @@ function r2IsConfigured() {
   return Boolean(R2_ACCOUNT_ID && R2_ACCESS_KEY_ID && R2_SECRET_ACCESS_KEY && R2_BUCKET && R2_PUBLIC_BASE_URL);
 }
 
+function missingR2ConfigKeys() {
+  return [
+    ["R2_ACCOUNT_ID", R2_ACCOUNT_ID],
+    ["R2_BUCKET", R2_BUCKET],
+    ["R2_PUBLIC_BASE_URL", R2_PUBLIC_BASE_URL],
+    ["R2_ACCESS_KEY_ID", R2_ACCESS_KEY_ID],
+    ["R2_SECRET_ACCESS_KEY", R2_SECRET_ACCESS_KEY],
+  ].filter(([, value]) => !value).map(([key]) => key);
+}
+
 function r2PublicUrlForKey(key) {
   return `${R2_PUBLIC_BASE_URL}/${encodeURIComponent(key).replace(/%2F/g, "/")}`;
 }
@@ -1690,6 +1701,10 @@ async function saveDataUrl(dataUrl, originalName = "anexo") {
   let thumbnailUrl = null;
   let storedDataBase64 = dataBase64;
   let storedThumbnailBase64 = thumbnail?.dataBase64 || null;
+  const missingR2Keys = missingR2ConfigKeys();
+  if (ONLINE_UPLOADS_REQUIRE_R2 && missingR2Keys.length) {
+    throw new Error(`R2 não configurado no Render. Faltando: ${missingR2Keys.join(", ")}.`);
+  }
   try {
     if (r2IsConfigured()) {
       objectKey = `uploads/${filename}`;
@@ -1707,7 +1722,10 @@ async function saveDataUrl(dataUrl, originalName = "anexo") {
       storedThumbnailBase64 = null;
     }
   } catch (error) {
-    console.error("Falha ao enviar upload para R2; salvando no banco como fallback.", error);
+    console.error("Falha ao enviar upload para R2.", error);
+    if (ONLINE_UPLOADS_REQUIRE_R2) {
+      throw new Error("Falha ao enviar a foto para o Cloudflare R2. Confira as variáveis R2 no Render e tente novamente.");
+    }
     storageProvider = null;
     objectKey = null;
     publicUrl = null;
