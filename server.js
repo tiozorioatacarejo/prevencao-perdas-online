@@ -1509,12 +1509,36 @@ async function managerChecklistHistory(startDate, endDate, ownerId, filters = {}
       conformityRate: item.summary.conformityRate,
     })));
   }
+  const totalActivities = rows.reduce((sum, row) => sum + Number(row.total || 0), 0);
+  const completedActivities = rows.reduce((sum, row) => sum + Number(row.conformes || 0) + Number(row.naoConformes || 0), 0);
+  const completedChecklists = rows.filter((row) => row.status === "Concluido").length;
+  const overdueChecklists = rows.filter((row) => row.status === "Atrasado").length;
+  const conformes = rows.reduce((sum, row) => sum + Number(row.conformes || 0), 0);
+  const naoConformes = rows.reduce((sum, row) => sum + Number(row.naoConformes || 0), 0);
+  const summary = {
+    startDate,
+    endDate,
+    scheduledDays: dates.length,
+    totalChecklists: rows.length,
+    completedChecklists,
+    overdueChecklists,
+    pendingChecklists: rows.filter((row) => row.status === "Pendente").length,
+    inProgressChecklists: rows.filter((row) => row.status === "Em andamento").length,
+    totalActivities,
+    completedActivities,
+    pendingActivities: Math.max(0, totalActivities - completedActivities),
+    conformes,
+    naoConformes,
+    completionRate: totalActivities ? Math.round((completedActivities / totalActivities) * 100) : 0,
+    conformityRate: completedActivities ? Math.round((conformes / completedActivities) * 100) : 0,
+  };
   const search = normalizeText(filters.search || "");
   const status = String(filters.status || "").trim();
-  return rows
+  const filteredRows = rows
     .filter((row) => !search || normalizeText(row.title).includes(search))
     .filter((row) => !status || row.status === status)
     .sort((a, b) => `${b.date} ${b.dueTime}`.localeCompare(`${a.date} ${a.dueTime}`));
+  return { rows: filteredRows, summary };
 }
 
 function monthBounds(date = new Date()) {
@@ -2662,12 +2686,10 @@ async function api(req, res, url) {
     const startDate = validDateValue(url.searchParams.get("startDate")) ? url.searchParams.get("startDate") : today();
     const endDate = validDateValue(url.searchParams.get("endDate")) ? url.searchParams.get("endDate") : startDate;
     const ownerId = managerChecklistOwnerId(user, url.searchParams.get("userId"));
-    return send(res, 200, {
-      rows: await managerChecklistHistory(startDate, endDate, ownerId, {
-        search: url.searchParams.get("search") || "",
-        status: url.searchParams.get("status") || "",
-      }),
-    });
+    return send(res, 200, await managerChecklistHistory(startDate, endDate, ownerId, {
+      search: url.searchParams.get("search") || "",
+      status: url.searchParams.get("status") || "",
+    }));
   }
 
   if (method === "PUT" && url.pathname.startsWith("/api/manager-checklists/")) {

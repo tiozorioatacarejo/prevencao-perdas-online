@@ -36,6 +36,17 @@
     },
     rows: [],
     history: [],
+    historySummary: {
+      scheduledDays: 0,
+      totalChecklists: 0,
+      completedChecklists: 0,
+      overdueChecklists: 0,
+      totalActivities: 0,
+      completedActivities: 0,
+      pendingActivities: 0,
+      completionRate: 0,
+      conformityRate: 0,
+    },
     historyFilters: {
       startDate: localDateValue(),
       endDate: localDateValue(),
@@ -1020,6 +1031,7 @@ async function loadManagerChecklistHistory() {
   const qs = new URLSearchParams(state.managerChecklists.historyFilters);
   const data = await api(`/api/manager-checklists/history?${qs.toString()}`);
   state.managerChecklists.history = data.rows || [];
+  state.managerChecklists.historySummary = data.summary || state.managerChecklists.historySummary;
 }
 
 function renderDashboard() {
@@ -3240,6 +3252,10 @@ function renderManagerChecklistRow(checklist) {
 
 function renderManagerChecklistHistory() {
   const rows = state.managerChecklists.history || [];
+  const summary = state.managerChecklists.historySummary || {};
+  const periodLabel = summary.startDate === summary.endDate
+    ? fmtDate(summary.startDate)
+    : `${fmtDate(summary.startDate)} a ${fmtDate(summary.endDate)}`;
   return `
     <section class="panel">
       <h3>Histórico</h3>
@@ -3257,6 +3273,21 @@ function renderManagerChecklistHistory() {
         </div>
         <button class="btn primary" type="submit">Filtrar</button>
       </form>
+      <div class="panel subtle-panel" style="margin-top:14px">
+        <div class="topbar" style="margin-bottom:10px">
+          <div>
+            <h3>Painel gerencial</h3>
+            <div class="muted">${periodLabel} · ${summary.scheduledDays || 0} dia(s) programado(s)</div>
+          </div>
+        </div>
+        <div class="manager-general-strip">
+          <div><span>Atividades realizadas</span><strong>${summary.completedActivities || 0}/${summary.totalActivities || 0}</strong><small>${summary.completionRate || 0}% realizadas</small></div>
+          <div><span>Checklists concluídos</span><strong>${summary.completedChecklists || 0}/${summary.totalChecklists || 0}</strong><small>${summary.overdueChecklists || 0} atrasado(s)</small></div>
+          <div><span>Pendentes</span><strong>${summary.pendingActivities || 0}</strong><small>atividades em aberto</small></div>
+          <div><span>Conformidade</span><strong>${summary.conformityRate || 0}%</strong><small>${summary.naoConformes || 0} não conforme(s)</small></div>
+        </div>
+        <div class="progress"><span style="width:${Math.min(100, Math.max(0, Number(summary.completionRate || 0)))}%"></span></div>
+      </div>
       <div class="table-wrap" style="margin-top:14px">
         <table>
           <thead><tr><th>Checklist</th><th>Data</th><th>Prazo</th><th>Status</th><th>Conformes</th><th>Não conformes</th><th>Taxa</th></tr></thead>

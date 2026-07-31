@@ -969,6 +969,11 @@ textarea {
   margin-top: 6px;
 }
 
+.subtle-panel {
+  background: var(--surface-2);
+  box-shadow: none;
+}
+
 .manager-general-strip {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
