@@ -1757,6 +1757,76 @@ async function saveDataUrl(dataUrl, originalName = "anexo") {
   return `/uploads/${filename}`;
 }
 
+async function uploadedFilesStorageStatus() {
+  const rows = await query(`
+    SELECT COUNT(*) AS total,
+      COALESCE(SUM(LENGTH(COALESCE(data_base64, ''))), 0) AS base64_chars,
+      COALESCE(SUM(LENGTH(COALESCE(thumbnail_data_base64, ''))), 0) AS thumbnail_base64_chars
+    FROM uploaded_files
+  `);
+  const row = rows[0] || {};
+  const base64Chars = Number(row.base64_chars || 0);
+  const thumbnailBase64Chars = Number(row.thumbnail_base64_chars || 0);
+  return {
+    total: Number(row.total || 0),
+    approximateBytes: Math.round((base64Chars + thumbnailBase64Chars) * 0.75),
+    r2Configured: r2IsConfigured(),
+    missingR2Keys: missingR2ConfigKeys(),
+  };
+}
+
+async function migrateUploadedFilesBatchToR2(limit = 10) {
+  if (!r2IsConfigured()) {
+    throw new Error(`R2 não configurado no Render. Faltando: ${missingR2ConfigKeys().join(", ")}.`);
+  }
+  const safeLimit = Math.min(Math.max(Number(limit) || 10, 1), 25);
+  const rows = await query(
+    `SELECT filename, content_type, data_base64, thumbnail_content_type, thumbnail_data_base64
+     FROM uploaded_files
+     WHERE COALESCE(data_base64, '') <> ''
+     ORDER BY created_at, filename
+     LIMIT ?`,
+    [safeLimit]
+  );
+  let migrated = 0;
+  let skipped = 0;
+  let bytes = 0;
+  for (const row of rows) {
+    const filename = String(row.filename || "");
+    if (!/^[A-Za-z0-9._-]+$/.test(filename) || !row.data_base64) {
+      skipped += 1;
+      continue;
+    }
+    const contentType = row.content_type || "application/octet-stream";
+    const buffer = Buffer.from(row.data_base64, "base64");
+    await uploadBufferToR2(`uploads/${filename}`, contentType, buffer);
+    if (String(contentType).startsWith("image/")) {
+      let thumbnailBase64 = row.thumbnail_data_base64 || "";
+      let thumbnailContentType = row.thumbnail_content_type || THUMBNAIL_CONTENT_TYPE;
+      if (!thumbnailBase64) {
+        const generated = createImageThumbnail(contentType, buffer);
+        thumbnailBase64 = generated?.dataBase64 || "";
+        thumbnailContentType = generated?.contentType || thumbnailContentType;
+      }
+      if (thumbnailBase64) {
+        await uploadBufferToR2(`uploads/thumbs/${filename}.jpg`, thumbnailContentType, Buffer.from(thumbnailBase64, "base64"));
+      }
+    }
+    await execute("DELETE FROM uploaded_files WHERE filename = ?", [filename]);
+    migrated += 1;
+    bytes += buffer.length;
+  }
+  const status = await uploadedFilesStorageStatus();
+  if (status.total === 0) {
+    try {
+      await execute(DATABASE_URL ? "TRUNCATE TABLE uploaded_files" : "DELETE FROM uploaded_files");
+    } catch (error) {
+      console.error("Falha ao truncar tabela uploaded_files:", error.message);
+    }
+  }
+  return { migrated, skipped, bytes, remaining: status.total, status: await uploadedFilesStorageStatus() };
+}
+
 function escapeHtml(value) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -2783,6 +2853,19 @@ async function api(req, res, url) {
       preventionGoalsVisibleToTeam: await preventionGoalsVisibleToTeam(),
       managerChecklistDailyGoal: await managerChecklistDailyGoal(),
     });
+  }
+
+  if (method === "GET" && url.pathname === "/api/storage/status") {
+    if (!isAdmin(user)) return send(res, 403, { error: "Apenas administrador pode ver o armazenamento." });
+    return send(res, 200, await uploadedFilesStorageStatus());
+  }
+
+  if (method === "POST" && url.pathname === "/api/storage/migrate-r2") {
+    if (!isAdmin(user)) return send(res, 403, { error: "Apenas administrador pode migrar fotos." });
+    const body = await readBody(req);
+    const result = await migrateUploadedFilesBatchToR2(body.limit || 10);
+    await logAudit(user, "migrate", "uploaded_files", "r2", { migrated: result.migrated, remaining: result.remaining });
+    return send(res, 200, result);
   }
 
   if (method === "GET" && url.pathname === "/api/manager-checklists") {
@@ -4152,7 +4235,16 @@ async function sendUploadFromDb(res, filename, thumbnail = false) {
      FROM uploaded_files WHERE filename = ?`,
     [filename]
   );
-  if (!rows.length) return false;
+  if (!rows.length) {
+    if (!r2IsConfigured()) return false;
+    const key = thumbnail ? `uploads/thumbs/${filename}.jpg` : `uploads/${filename}`;
+    res.writeHead(302, {
+      Location: r2PublicUrlForKey(key),
+      "Cache-Control": "public, max-age=31536000, immutable",
+    });
+    res.end();
+    return true;
+  }
   const redirectUrl = thumbnail ? (rows[0].thumbnail_url || rows[0].public_url) : rows[0].public_url;
   if (redirectUrl) {
     res.writeHead(302, {

@@ -63,6 +63,7 @@
     managerChecklistDailyGoal: 9,
   },
   users: [],
+  storage: null,
   taskUsers: [],
   dailyTasks: [],
   taskFilters: {
@@ -756,7 +757,7 @@ function navGroups(tabs) {
         "managementIndicators", "managementStore", "managementDelivery",
         "managementQuotations", "managementSectors", "managementProductivity",
         "managementOperators",
-        "collaborators", "users",
+        "collaborators", "users", "storageMaintenance",
       ],
     },
   ];
@@ -789,6 +790,7 @@ async function refreshForTab() {
   if (state.tab === "reports") await loadChecklists();
   if (state.tab === "pendencies") await loadPendencies();
   if (state.tab === "users") await Promise.all([loadUsers(), loadCollaborators()]);
+  if (state.tab === "storageMaintenance") await loadStorageStatus();
   if (state.tab.startsWith("management")) await loadManagementIndicators();
 }
 
@@ -815,6 +817,7 @@ function renderView() {
     pendencies: renderPendencies,
     collaborators: renderCollaborators,
     users: renderUsers,
+    storageMaintenance: renderStorageMaintenance,
     managementIndicators: renderManagementIndicators,
     managementStore: renderManagementStore,
     managementDelivery: renderManagementDelivery,
@@ -886,6 +889,7 @@ function allowedTabs() {
     ["managementOperators", "Operadores"],
   ];
   tabs.push(["users", "Acessos"]);
+  tabs.push(["storageMaintenance", "Armazenamento"]);
   return tabs;
 }
 
@@ -945,6 +949,10 @@ async function loadPendencies() {
 async function loadUsers() {
   const data = await api("/api/users");
   state.users = data.rows;
+}
+
+async function loadStorageStatus() {
+  state.storage = await api("/api/storage/status");
 }
 
 async function loadTaskUsers() {
@@ -5095,6 +5103,62 @@ function renderUsers() {
       renderUsers();
       toast(result.message || "Acesso excluÃ­do.");
     });
+  });
+}
+
+function formatStorageBytes(bytes) {
+  const value = Number(bytes || 0);
+  if (value >= 1024 * 1024 * 1024) return `${(value / 1024 / 1024 / 1024).toLocaleString("pt-BR", { maximumFractionDigits: 2 })} GB`;
+  if (value >= 1024 * 1024) return `${(value / 1024 / 1024).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} MB`;
+  if (value >= 1024) return `${(value / 1024).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} KB`;
+  return `${value.toLocaleString("pt-BR")} B`;
+}
+
+function renderStorageMaintenance() {
+  const storage = state.storage || {};
+  const missing = storage.missingR2Keys || [];
+  view.innerHTML = `
+    <div class="topbar">
+      <div>
+        <h2>Armazenamento</h2>
+        <div class="muted">Migração das fotos antigas do Neon para o Cloudflare R2</div>
+      </div>
+    </div>
+    <section class="panel grid">
+      <div class="grid three">
+        <div class="metric-card"><span>Fotos antigas no Neon</span><strong>${Number(storage.total || 0).toLocaleString("pt-BR")}</strong></div>
+        <div class="metric-card"><span>Peso aproximado</span><strong>${formatStorageBytes(storage.approximateBytes)}</strong></div>
+        <div class="metric-card"><span>R2</span><strong>${storage.r2Configured ? "Configurado" : "Pendente"}</strong></div>
+      </div>
+      ${missing.length ? `<div class="alert danger">Faltam variáveis no Render: ${missing.map(escapeHtml).join(", ")}</div>` : ""}
+      <div class="toolbar">
+        <button class="btn primary" type="button" id="migrateStorageBatch" ${storage.r2Configured && Number(storage.total || 0) ? "" : "disabled"}>Migrar lote para R2</button>
+        <button class="btn" type="button" id="refreshStorageStatus">Atualizar</button>
+      </div>
+      <div class="muted">Use este botão até as fotos antigas chegarem a zero. Os links antigos continuam funcionando pelo mesmo endereço /uploads.</div>
+    </section>
+  `;
+  document.getElementById("refreshStorageStatus").addEventListener("click", async () => {
+    await loadStorageStatus();
+    renderStorageMaintenance();
+  });
+  document.getElementById("migrateStorageBatch")?.addEventListener("click", async (event) => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    button.textContent = "Migrando...";
+    try {
+      const result = await api("/api/storage/migrate-r2", {
+        method: "POST",
+        body: JSON.stringify({ limit: 10 }),
+      });
+      state.storage = result.status;
+      toast(`Migradas ${result.migrated} foto(s). Restam ${result.remaining}.`);
+      renderStorageMaintenance();
+    } catch (error) {
+      toast(error.message || "Falha ao migrar fotos.");
+      button.disabled = false;
+      button.textContent = "Migrar lote para R2";
+    }
   });
 }
 
