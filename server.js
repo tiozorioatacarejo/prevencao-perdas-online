@@ -3236,17 +3236,51 @@ async function api(req, res, url) {
   if (method === "PUT" && url.pathname.startsWith("/api/agenda/")) {
     const id = Number(url.pathname.split("/").pop());
     const body = await readBody(req);
-    const rows = await query("SELECT agenda_type, created_by FROM agenda_slots WHERE id = ?", [id]);
-    if (!rows[0]) return send(res, 404, { error: "Horário não encontrado." });
-    const type = normalizeAgendaType(rows[0].agenda_type);
+    const rows = await query("SELECT * FROM agenda_slots WHERE id = ?", [id]);
+    const current = rows[0];
+    if (!current) return send(res, 404, { error: "Horário não encontrado." });
+    const type = normalizeAgendaType(current.agenda_type);
     if (!canAccessAgenda(user, type)) return send(res, 403, { error: "Acesso restrito à agenda." });
-    if (type === "comercial" && user.role === "comercial" && Number(rows[0].created_by) !== Number(user.id)) {
+    if (type === "comercial" && user.role === "comercial" && Number(current.created_by) !== Number(user.id)) {
       return send(res, 403, { error: "Você só pode alterar sua própria agenda comercial." });
     }
     const allowed = ["Disponivel", "Agendado", "Recebido", "Atendido", "Cancelado", "Atrasado", "Reagendado"];
-    const status = allowed.includes(body.status) ? body.status : "Disponivel";
-    await execute("UPDATE agenda_slots SET status = ?, updated_at = ? WHERE id = ?", [status, nowIso(), id]);
-    await logAudit(user, "update", "agenda_slots", id, { status });
+    const status = allowed.includes(body.status) ? body.status : current.status;
+    const hasFullUpdate = ["date", "startTime", "endTime", "name", "company", "phone", "document", "observation"].some((field) => Object.prototype.hasOwnProperty.call(body, field));
+    if (!hasFullUpdate) {
+      await execute("UPDATE agenda_slots SET status = ?, updated_at = ? WHERE id = ?", [status, nowIso(), id]);
+      await logAudit(user, "update", "agenda_slots", id, { status });
+      return send(res, 200, { ok: true });
+    }
+    const date = body.date || current.date;
+    const startTime = String(body.startTime || current.start_time || "").trim();
+    const endTime = String(body.endTime || body.startTime || current.end_time || startTime || "").trim();
+    if (!date || !startTime || !endTime) return send(res, 400, { error: type === "recebimento" ? "Informe data e horário." : "Informe data, início e fim." });
+    try {
+      await execute(
+        `UPDATE agenda_slots
+         SET date = ?, start_time = ?, end_time = ?, status = ?, booked_name = ?, booked_company = ?,
+             booked_phone = ?, booked_document = ?, booked_observation = ?, booked_at = ?, updated_at = ?
+         WHERE id = ?`,
+        [
+          date,
+          startTime,
+          endTime,
+          status,
+          body.name ?? current.booked_name ?? "",
+          body.company ?? current.booked_company ?? "",
+          body.phone ?? current.booked_phone ?? "",
+          body.document ?? current.booked_document ?? "",
+          body.observation ?? current.booked_observation ?? "",
+          status === "Agendado" && !current.booked_at ? nowIso() : current.booked_at,
+          nowIso(),
+          id,
+        ]
+      );
+    } catch (error) {
+      return send(res, 409, { error: "Já existe horário cadastrado para essa agenda, data e início." });
+    }
+    await logAudit(user, "update", "agenda_slots", id, { status, date, startTime, endTime });
     return send(res, 200, { ok: true });
   }
 
@@ -4240,7 +4274,7 @@ async function sendUploadFromDb(res, filename, thumbnail = false) {
   );
   if (!rows.length) {
     if (!r2IsConfigured()) return false;
-    const key = thumbnail ? `uploads/thumbs/${filename}.jpg` : `uploads/${filename}`;
+    const key = `uploads/${filename}`;
     res.writeHead(302, {
       Location: r2PublicUrlForKey(key),
       "Cache-Control": "public, max-age=31536000, immutable",

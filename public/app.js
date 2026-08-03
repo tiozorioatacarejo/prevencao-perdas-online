@@ -2506,6 +2506,7 @@ function renderAgenda(type) {
       ${agendaMonthlyCalendar(state.agenda.rows, state.agenda.filters.month, type)}
     </section>
       <form class="panel grid agenda-compact-form ${isReceiving ? "agenda-receiving-form" : ""}" id="agendaForm">
+        <input type="hidden" name="id">
         <h3>${isReceiving ? "Novo recebimento agendado" : "Novo horario"}</h3>
         ${isReceiving ? "" : `
           <div class="agenda-mode" role="group" aria-label="Tipo de cadastro">
@@ -2526,6 +2527,9 @@ function renderAgenda(type) {
           <label>Contato / motorista <input name="name"></label>
           <label>Telefone <input name="phone"></label>
           <label>NF / pedido / placa <input name="document"></label>
+          <label>Situação
+            <select name="status">${statusOptions.map((status) => `<option value="${status}" ${status === "Agendado" ? "selected" : ""}>${status}</option>`).join("")}</select>
+          </label>
           <label>Observacao <textarea name="observation"></textarea></label>
         ` : `
           <div class="grid agenda-manual-fields hidden" data-agenda-manual-fields>
@@ -2536,7 +2540,10 @@ function renderAgenda(type) {
             <label>Observacao <textarea name="observation"></textarea></label>
           </div>
         `}
-        <button class="btn primary" type="submit">${isReceiving ? "Salvar recebimento" : "Adicionar horario"}</button>
+        <div class="toolbar">
+          <button class="btn primary" type="submit" id="agendaSubmit">${isReceiving ? "Salvar recebimento" : "Adicionar horario"}</button>
+          ${isReceiving ? `<button class="btn hidden" type="button" id="cancelAgendaEdit">Cancelar edição</button>` : ""}
+        </div>
       </form>
     <section class="panel agenda-report-panel" style="margin-top:14px">
       <div class="section-title-row">
@@ -2595,12 +2602,15 @@ function renderAgenda(type) {
   document.getElementById("agendaForm").addEventListener("submit", async (event) => {
     event.preventDefault();
     const body = Object.fromEntries(new FormData(event.currentTarget).entries());
+    const id = body.id;
+    delete body.id;
     if (isReceiving) body.endTime = body.startTime;
-    await api("/api/agenda", { method: "POST", body: JSON.stringify({ type, ...body }) });
+    await api(id ? `/api/agenda/${id}` : "/api/agenda", { method: id ? "PUT" : "POST", body: JSON.stringify({ type, ...body }) });
     await loadAgenda(type);
     renderAgenda(type);
-    toast(isReceiving ? "Recebimento agendado." : (body.bookingMode === "manual" ? "Agendamento cadastrado." : "Horario criado."));
+    toast(id ? "Recebimento atualizado." : (isReceiving ? "Recebimento agendado." : (body.bookingMode === "manual" ? "Agendamento cadastrado." : "Horario criado.")));
   });
+  document.getElementById("cancelAgendaEdit")?.addEventListener("click", () => renderAgenda(type));
   document.getElementById("agendaFilterForm").addEventListener("submit", async (event) => {
     event.preventDefault();
     state.agenda.filters = Object.fromEntries(new FormData(event.currentTarget).entries());
@@ -2613,6 +2623,26 @@ function renderAgenda(type) {
       await loadAgenda(type);
       renderAgenda(type);
       toast("Status atualizado.");
+    });
+  });
+  document.querySelectorAll("[data-edit-agenda]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const row = state.agenda.rows.find((item) => Number(item.id) === Number(button.dataset.editAgenda));
+      if (!row) return;
+      const form = document.getElementById("agendaForm");
+      form.elements.id.value = row.id;
+      form.elements.date.value = row.date || todayInputValue();
+      form.elements.startTime.value = row.start_time || "";
+      form.elements.company.value = row.booked_company || "";
+      form.elements.name.value = row.booked_name || "";
+      form.elements.phone.value = row.booked_phone || "";
+      form.elements.document.value = row.booked_document || "";
+      form.elements.status.value = row.status || "Agendado";
+      form.elements.observation.value = row.booked_observation || "";
+      form.querySelector("h3").textContent = "Editar recebimento agendado";
+      document.getElementById("agendaSubmit").textContent = "Salvar alterações";
+      document.getElementById("cancelAgendaEdit")?.classList.remove("hidden");
+      form.scrollIntoView({ behavior: "smooth", block: "start" });
     });
   });
   fixVisibleText(view);
@@ -2628,9 +2658,12 @@ function agendaCards(rows, statusOptions, type = "comercial") {
             <div class="agenda-date">${fmtDate(row.date)}</div>
             <strong>${isReceiving ? escapeHtml(row.start_time) : `${escapeHtml(row.start_time)} as ${escapeHtml(row.end_time)}`}</strong>
           </div>
-          <select data-agenda-status="${row.id}">
-            ${statusOptions.map((status) => `<option value="${status}" ${status === row.status ? "selected" : ""}>${status}</option>`).join("")}
-          </select>
+          <div class="toolbar">
+            ${isReceiving ? `<button class="btn" type="button" data-edit-agenda="${row.id}">Editar</button>` : ""}
+            <select data-agenda-status="${row.id}">
+              ${statusOptions.map((status) => `<option value="${status}" ${status === row.status ? "selected" : ""}>${status}</option>`).join("")}
+            </select>
+          </div>
         </div>
         <div class="agenda-booking">
           <div><span>${isReceiving ? "Contato" : "Nome"}</span><strong>${escapeHtml(row.booked_name || (isReceiving ? "-" : "Horario livre"))}</strong></div>
