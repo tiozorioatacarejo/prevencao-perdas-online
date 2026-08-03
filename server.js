@@ -1759,7 +1759,9 @@ async function saveDataUrl(dataUrl, originalName = "anexo") {
 
 async function uploadedFilesStorageStatus() {
   const rows = await query(`
-    SELECT COUNT(*) AS total,
+    SELECT
+      COUNT(*) AS total,
+      COALESCE(SUM(CASE WHEN COALESCE(data_base64, '') <> '' THEN 1 ELSE 0 END), 0) AS pending_files,
       COALESCE(SUM(LENGTH(COALESCE(data_base64, ''))), 0) AS base64_chars,
       COALESCE(SUM(LENGTH(COALESCE(thumbnail_data_base64, ''))), 0) AS thumbnail_base64_chars
     FROM uploaded_files
@@ -1768,7 +1770,8 @@ async function uploadedFilesStorageStatus() {
   const base64Chars = Number(row.base64_chars || 0);
   const thumbnailBase64Chars = Number(row.thumbnail_base64_chars || 0);
   return {
-    total: Number(row.total || 0),
+    total: Number(row.pending_files || 0),
+    metadataRows: Number(row.total || 0),
     approximateBytes: Math.round((base64Chars + thumbnailBase64Chars) * 0.75),
     r2Configured: r2IsConfigured(),
     missingR2Keys: missingR2ConfigKeys(),
