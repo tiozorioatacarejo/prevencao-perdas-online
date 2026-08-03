@@ -1720,6 +1720,7 @@ async function saveDataUrl(dataUrl, originalName = "anexo") {
       storageProvider = "r2";
       storedDataBase64 = "";
       storedThumbnailBase64 = null;
+      return publicUrl;
     }
   } catch (error) {
     console.error("Falha ao enviar upload para R2.", error);
