@@ -581,7 +581,7 @@ textarea {
 }
 
 .agenda-receiving-toolbar {
-  grid-template-columns: minmax(220px, 320px) minmax(180px, 1fr);
+  grid-template-columns: minmax(360px, 520px) minmax(180px, 1fr);
 }
 
 .agenda-toolbar-note {
@@ -591,7 +591,7 @@ textarea {
 
 .agenda-month-form {
   display: grid;
-  grid-template-columns: minmax(160px, 1fr) auto;
+  grid-template-columns: minmax(140px, 1fr) minmax(145px, 1fr) auto;
   gap: 8px;
   align-items: end;
 }
@@ -796,6 +796,11 @@ textarea {
   color: #17603a;
 }
 
+.agenda-month-item.received {
+  background: #dbeafe;
+  color: #1d4f91;
+}
+
 .agenda-month-item.alert {
   background: #f8dddd;
   color: #a52b2b;
@@ -837,9 +842,30 @@ textarea {
   border-color: #bfe7ca;
 }
 
+.agenda-status-card.received {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+}
+
 .agenda-status-card.alert {
   background: #fff0f0;
   border-color: #f2caca;
+}
+
+.agenda-table-row.received td:first-child {
+  border-left: 4px solid #2f80ed;
+}
+
+.agenda-table-row.alert td:first-child {
+  border-left: 4px solid #d63b3b;
+}
+
+.agenda-table-row.done td:first-child {
+  border-left: 4px solid #21a35b;
+}
+
+.agenda-table-row.booked td:first-child {
+  border-left: 4px solid #d9822b;
 }
 
 .agenda-report-table select {
@@ -850,11 +876,30 @@ textarea {
 .agenda-card {
   background: #fff;
   border: 1px solid var(--line);
+  border-left-width: 5px;
   border-radius: 8px;
   padding: 16px;
   box-shadow: 0 6px 18px rgba(33, 47, 39, 0.05);
   display: grid;
   gap: 14px;
+}
+
+.agenda-card.booked {
+  border-left-color: #d9822b;
+}
+
+.agenda-card.done {
+  border-left-color: #21a35b;
+}
+
+.agenda-card.received {
+  border-left-color: #2f80ed;
+  background: #f8fbff;
+}
+
+.agenda-card.alert {
+  border-left-color: #d63b3b;
+  background: #fff8f8;
 }
 
 .agenda-card-main {

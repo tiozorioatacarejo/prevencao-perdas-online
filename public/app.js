@@ -1248,6 +1248,7 @@ function renderPreventionGoals() {
         <div class="muted">Acompanhamento mensal atualizado conforme os checklists e indicadores são preenchidos</div>
       </div>
       <div class="toolbar">
+        <button class="btn" id="exportPreventionGoalsPdf">Exportar PDF</button>
         <button class="btn" id="refreshPreventionGoals">Atualizar</button>
       </div>
     </div>
@@ -1297,6 +1298,7 @@ function renderPreventionGoals() {
     await loadPreventionGoals();
     renderPreventionGoals();
   });
+  document.getElementById("exportPreventionGoalsPdf").addEventListener("click", exportPreventionGoalsReport);
   document.getElementById("preventionGoalsFilter").addEventListener("submit", async (event) => {
     event.preventDefault();
     state.preventionGoals.month = new FormData(event.currentTarget).get("month") || localMonthValue();
@@ -1335,6 +1337,81 @@ function renderPreventionGoals() {
       });
     });
   }
+}
+
+function exportPreventionGoalsReport() {
+  const data = state.preventionGoals.data || {};
+  const summary = data.summary || {};
+  const goals = data.goals || [];
+  const monthLabel = data.month?.label || state.preventionGoals.month || localMonthValue();
+  const generatedAt = fmtDateTime(new Date().toISOString());
+  const reportRows = goals.map((goal) => `
+    <tr>
+      <td><strong>${escapeHtml(goal.label)}</strong><br><span>${escapeHtml(goal.unit || "")}</span></td>
+      <td>${fmtGoalNumber(goal.target)}</td>
+      <td>${fmtGoalNumber(goal.realized)}${goal.manualAdjustment ? `<br><span>${signedGoalNumber(goal.manualAdjustment)} ajuste</span>` : ""}</td>
+      <td>${fmtGoalNumber(goal.percent)}%</td>
+      <td>${fmtGoalNumber(goal.pointsObtained)} / ${fmtGoalNumber(goal.points)}</td>
+      <td>${escapeHtml(goal.status || "-")}</td>
+    </tr>
+  `).join("");
+  const printWindow = window.open("", "_blank");
+  if (!printWindow) {
+    toast("Permita pop-ups para exportar o relatório.");
+    return;
+  }
+  printWindow.document.write(`
+    <!doctype html>
+    <html lang="pt-BR">
+      <head>
+        <meta charset="utf-8">
+        <title>Metas Prevencao - ${escapeHtml(monthLabel)}</title>
+        <style>
+          @page { size: A4 landscape; margin: 9mm; }
+          * { box-sizing: border-box; }
+          body { margin: 0; color: #17241d; font-family: Arial, sans-serif; font-size: 10.5px; }
+          header { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; border-bottom: 2px solid #1f7a4d; padding-bottom: 8px; margin-bottom: 8px; }
+          h1 { margin: 0 0 4px; font-size: 21px; }
+          .muted, span { color: #5d6d64; }
+          .summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; margin-bottom: 8px; }
+          .box { border: 1px solid #cfd9d2; border-radius: 6px; padding: 7px 8px; min-height: 48px; }
+          .box span { display: block; font-size: 9px; font-weight: 700; text-transform: uppercase; }
+          .box strong { display: block; margin-top: 3px; font-size: 16px; }
+          table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+          th, td { border: 1px solid #d6dfd9; padding: 6px 7px; vertical-align: top; }
+          th { background: #edf4f0; color: #4c5d54; text-align: left; font-size: 9px; text-transform: uppercase; }
+          td:nth-child(1) { width: 32%; }
+          td:nth-child(2), td:nth-child(3), td:nth-child(4), td:nth-child(5), td:nth-child(6) { width: 13.6%; }
+          footer { margin-top: 6px; color: #5d6d64; font-size: 9px; }
+        </style>
+      </head>
+      <body>
+        <header>
+          <div>
+            <h1>Metas da Prevencao</h1>
+            <div class="muted">${escapeHtml(monthLabel)} - pontuacao ate a ultima atividade</div>
+          </div>
+          <div class="muted">Gerado em ${escapeHtml(generatedAt)}</div>
+        </header>
+        <section class="summary">
+          <div class="box"><span>Pontuacao obtida</span><strong>${fmtGoalNumber(summary.totalPoints)} / ${fmtGoalNumber(summary.maxPoints)}</strong></div>
+          <div class="box"><span>Meta para receber</span><strong>${fmtGoalNumber(summary.targetPoints)}</strong></div>
+          <div class="box"><span>Base configurada</span><strong>${fmtGoalNumber(summary.configuredPoints)}</strong></div>
+          <div class="box"><span>Resultado</span><strong>${escapeHtml(summary.status || "-")}</strong></div>
+        </section>
+        <table>
+          <thead>
+            <tr><th>Atividade</th><th>Previsto</th><th>Realizado</th><th>Realizado %</th><th>Pontos</th><th>Status</th></tr>
+          </thead>
+          <tbody>${reportRows || `<tr><td colspan="6">Sem metas configuradas.</td></tr>`}</tbody>
+        </table>
+        <footer>Cotacoes e recebimentos contam por foto. Precificacao e validade contam pela quantidade informada em produtos identificados.</footer>
+      </body>
+    </html>
+  `);
+  printWindow.document.close();
+  printWindow.focus();
+  setTimeout(() => printWindow.print(), 300);
 }
 
 function exportDashboardCsv() {
@@ -2342,10 +2419,17 @@ async function renderPublicAgenda() {
 
 function agendaStatusClass(status) {
   const normalized = normalizeText(status);
-  if (normalized.includes("atendido") || normalized.includes("recebido")) return "done";
+  if (normalized.includes("recebido")) return "received";
+  if (normalized.includes("atendido")) return "done";
   if (normalized.includes("cancelado") || normalized.includes("atrasado")) return "alert";
   if (normalized.includes("agendado")) return "booked";
   return "open";
+}
+
+function filteredAgendaRows(rows) {
+  const status = normalizeText(state.agenda.filters.status || "");
+  if (!status) return rows || [];
+  return (rows || []).filter((row) => normalizeText(row.status) === status);
 }
 
 function agendaMonthlyCalendar(rows, monthValue, type = "comercial") {
@@ -2414,7 +2498,7 @@ function agendaReportTable(rows, statusOptions, type = "comercial") {
       </thead>
       <tbody>
         ${rows.map((row) => `
-          <tr>
+          <tr class="agenda-table-row ${agendaStatusClass(row.status)}">
             <td>${fmtDate(row.date)}</td>
             <td>${isReceiving ? escapeHtml(row.start_time) : `${escapeHtml(row.start_time)} as ${escapeHtml(row.end_time)}`}</td>
             <td>${escapeHtml(row.booked_company || "-")}</td>
@@ -2438,7 +2522,8 @@ function exportAgendaCsv(type) {
   const isReceiving = type === "recebimento";
   const label = agendaLabel(type);
   const month = state.agenda.filters.month || localMonthValue();
-  const summary = agendaStatusSummary(state.agenda.rows || []);
+  const rows = filteredAgendaRows(state.agenda.rows || []);
+  const summary = agendaStatusSummary(rows);
   return downloadCsv(`${isReceiving ? "agenda-recebimento" : "agenda-comercial"}.csv`, [
     [label, month],
     [],
@@ -2448,7 +2533,7 @@ function exportAgendaCsv(type) {
     [],
     ["Agendamentos"],
     ["Data", "Inicio", "Fim", isReceiving ? "Fornecedor" : "Empresa", isReceiving ? "Contato" : "Vendedor", "Telefone", "Detalhe", "Situacao", "Observacao", "Atualizado em"],
-    ...(state.agenda.rows || []).map((row) => [
+    ...rows.map((row) => [
       fmtDate(row.date),
       row.start_time || "",
       row.end_time || "",
@@ -2471,7 +2556,8 @@ function renderAgenda(type) {
   const statusOptions = type === "recebimento"
     ? ["Disponivel", "Agendado", "Recebido", "Atrasado", "Reagendado", "Cancelado"]
     : ["Disponivel", "Agendado", "Atendido", "Reagendado", "Cancelado"];
-  const statusSummary = agendaStatusSummary(state.agenda.rows || []);
+  const filteredRows = filteredAgendaRows(state.agenda.rows || []);
+  const statusSummary = agendaStatusSummary(filteredRows);
   view.innerHTML = `
     <div class="topbar">
       <div>
@@ -2486,6 +2572,12 @@ function renderAgenda(type) {
     <section class="panel agenda-compact-toolbar ${isReceiving ? "agenda-receiving-toolbar" : ""}">
       <form class="agenda-month-form" id="agendaFilterForm">
         <label>Mês <input name="month" type="month" value="${escapeHtml(state.agenda.filters.month || localMonthValue())}"></label>
+        <label>Situação
+          <select name="status">
+            <option value="">Todas</option>
+            ${statusOptions.map((status) => `<option value="${status}" ${status === state.agenda.filters.status ? "selected" : ""}>${status}</option>`).join("")}
+          </select>
+        </label>
         <button class="btn primary" type="submit">Aplicar</button>
       </form>
       ${isReceiving ? `<div class="muted agenda-toolbar-note">Visualização mensal interna dos recebimentos.</div>` : `
@@ -2503,7 +2595,7 @@ function renderAgenda(type) {
           <div class="muted">${isReceiving ? "Visualize as entregas agendadas no mês." : "Visualize os atendimentos confirmados e horários disponíveis do mês."}</div>
         </div>
       </div>
-      ${agendaMonthlyCalendar(state.agenda.rows, state.agenda.filters.month, type)}
+      ${agendaMonthlyCalendar(filteredRows, state.agenda.filters.month, type)}
     </section>
       <form class="panel grid agenda-compact-form ${isReceiving ? "agenda-receiving-form" : ""}" id="agendaForm">
         <input type="hidden" name="id">
@@ -2555,7 +2647,7 @@ function renderAgenda(type) {
       <div class="agenda-status-summary">
         ${statusSummary.map(([status, total]) => `<div class="agenda-status-card ${agendaStatusClass(status)}"><span>${escapeHtml(status)}</span><strong>${total}</strong></div>`).join("") || `<div class="muted">Nenhum agendamento no mês.</div>`}
       </div>
-      <div class="table-wrap agenda-report-table" style="margin-top:12px">${agendaReportTable(state.agenda.rows || [], statusOptions, type)}</div>
+      <div class="table-wrap agenda-report-table" style="margin-top:12px">${agendaReportTable(filteredRows, statusOptions, type)}</div>
     </section>
     ${isReceiving ? `<section style="margin-top:14px">
       <div class="section-title-row">
@@ -2564,7 +2656,7 @@ function renderAgenda(type) {
           <div class="muted">Acompanhe reservas, telefone e status de atendimento.</div>
         </div>
       </div>
-      <div class="agenda-cards">${agendaCards(state.agenda.rows, statusOptions, type)}</div>
+      <div class="agenda-cards">${agendaCards(filteredRows, statusOptions, type)}</div>
     </section>` : ""}
   `;
   document.getElementById("copyAgendaLink")?.addEventListener("click", async () => {
@@ -2652,7 +2744,7 @@ function agendaCards(rows, statusOptions, type = "comercial") {
   const isReceiving = type === "recebimento";
   return `
     ${rows.map((row) => `
-      <article class="agenda-card">
+      <article class="agenda-card ${agendaStatusClass(row.status)}">
         <div class="agenda-card-main">
           <div>
             <div class="agenda-date">${fmtDate(row.date)}</div>
