@@ -2418,7 +2418,7 @@ async function renderPublicAgenda() {
 }
 
 function agendaStatusClass(status) {
-  const normalized = normalizeText(status);
+  const normalized = withoutAccents(status).toLowerCase();
   if (normalized.includes("recebido")) return "received";
   if (normalized.includes("atendido")) return "done";
   if (normalized.includes("cancelado") || normalized.includes("atrasado")) return "alert";
@@ -2427,9 +2427,9 @@ function agendaStatusClass(status) {
 }
 
 function filteredAgendaRows(rows) {
-  const status = normalizeText(state.agenda.filters.status || "");
+  const status = withoutAccents(state.agenda.filters.status || "").toLowerCase();
   if (!status) return rows || [];
-  return (rows || []).filter((row) => normalizeText(row.status) === status);
+  return (rows || []).filter((row) => withoutAccents(row.status).toLowerCase() === status);
 }
 
 function agendaMonthlyCalendar(rows, monthValue, type = "comercial") {
@@ -2548,6 +2548,104 @@ function exportAgendaCsv(type) {
   ]);
 }
 
+function agendaReportSummary(rows, type = "comercial") {
+  const doneStatus = type === "recebimento" ? "recebido" : "atendido";
+  const countByStatus = (terms) => (rows || []).filter((row) => {
+    const status = withoutAccents(row.status || "").toLowerCase();
+    return terms.some((term) => status.includes(term));
+  }).length;
+  return {
+    total: (rows || []).length,
+    scheduled: countByStatus(["agendado"]),
+    done: countByStatus([doneStatus]),
+    pending: countByStatus(["disponivel", "reagendado"]),
+    alert: countByStatus(["atrasado", "cancelado"]),
+  };
+}
+
+function exportAgendaPdf(type) {
+  const isReceiving = type === "recebimento";
+  const label = agendaLabel(type);
+  const rows = filteredAgendaRows(state.agenda.rows || []);
+  const summary = agendaReportSummary(rows, type);
+  const statusSummary = agendaStatusSummary(rows);
+  const selectedMonth = state.agenda.filters.month || localMonthValue();
+  const selectedStatus = state.agenda.filters.status || "Todas";
+  const generatedAt = fmtDateTime(new Date().toISOString());
+  const reportRows = rows.map((row) => `
+    <tr>
+      <td>${fmtDate(row.date)}</td>
+      <td>${isReceiving ? escapeHtml(row.start_time || "") : `${escapeHtml(row.start_time || "")} as ${escapeHtml(row.end_time || "")}`}</td>
+      <td>${escapeHtml(row.booked_company || "-")}</td>
+      <td>${escapeHtml(row.booked_name || "-")}</td>
+      <td>${escapeHtml(row.booked_phone || "-")}</td>
+      <td>${escapeHtml(row.booked_document || "-")}</td>
+      <td>${escapeHtml(row.status || "-")}</td>
+      <td>${escapeHtml(row.booked_observation || "-")}</td>
+    </tr>
+  `).join("");
+  const printWindow = window.open("", "_blank");
+  if (!printWindow) {
+    toast("Permita pop-ups para exportar o relatório.");
+    return;
+  }
+  printWindow.document.write(`
+    <!doctype html>
+    <html lang="pt-BR">
+      <head>
+        <meta charset="utf-8">
+        <title>${escapeHtml(label)} - ${escapeHtml(selectedMonth)}</title>
+        <style>
+          @page { size: A4 landscape; margin: 9mm; }
+          * { box-sizing: border-box; }
+          body { margin: 0; color: #17241d; font-family: Arial, sans-serif; font-size: 10px; }
+          header { display: flex; justify-content: space-between; gap: 16px; border-bottom: 2px solid #1f7a4d; padding-bottom: 8px; margin-bottom: 8px; }
+          h1 { margin: 0 0 4px; font-size: 21px; }
+          .muted { color: #5d6d64; }
+          .summary { display: grid; grid-template-columns: repeat(5, 1fr); gap: 7px; margin-bottom: 8px; }
+          .box { border: 1px solid #cfd9d2; border-radius: 6px; padding: 7px 8px; min-height: 46px; }
+          .box span { display: block; color: #5d6d64; font-size: 8.5px; font-weight: 700; text-transform: uppercase; }
+          .box strong { display: block; margin-top: 3px; font-size: 16px; }
+          table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+          th, td { border: 1px solid #d6dfd9; padding: 5px 6px; vertical-align: top; overflow-wrap: anywhere; }
+          th { background: #edf4f0; color: #4c5d54; text-align: left; font-size: 8.5px; text-transform: uppercase; }
+          .status-list { margin: 0 0 8px; color: #5d6d64; }
+        </style>
+      </head>
+      <body>
+        <header>
+          <div>
+            <h1>${escapeHtml(label)}</h1>
+            <div class="muted">Mes: ${escapeHtml(selectedMonth)} | Situacao: ${escapeHtml(selectedStatus)}</div>
+          </div>
+          <div class="muted">Gerado em ${escapeHtml(generatedAt)}</div>
+        </header>
+        <section class="summary">
+          <div class="box"><span>Total</span><strong>${summary.total}</strong></div>
+          <div class="box"><span>Agendados</span><strong>${summary.scheduled}</strong></div>
+          <div class="box"><span>${isReceiving ? "Recebidos" : "Atendidos"}</span><strong>${summary.done}</strong></div>
+          <div class="box"><span>Pendentes/Reag.</span><strong>${summary.pending}</strong></div>
+          <div class="box"><span>Atras./Cancel.</span><strong>${summary.alert}</strong></div>
+        </section>
+        <div class="status-list">
+          ${statusSummary.map(([status, total]) => `${escapeHtml(status)}: ${total}`).join(" | ") || "Nenhum agendamento no periodo."}
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>Data</th><th>Horario</th><th>${isReceiving ? "Fornecedor" : "Empresa"}</th><th>${isReceiving ? "Contato" : "Vendedor"}</th><th>Telefone</th><th>Detalhe</th><th>Status</th><th>Observacao</th>
+            </tr>
+          </thead>
+          <tbody>${reportRows || `<tr><td colspan="8">Nenhum agendamento no periodo.</td></tr>`}</tbody>
+        </table>
+      </body>
+    </html>
+  `);
+  printWindow.document.close();
+  printWindow.focus();
+  setTimeout(() => printWindow.print(), 300);
+}
+
 function renderAgenda(type) {
   const label = agendaLabel(type);
   const isReceiving = type === "recebimento";
@@ -2565,6 +2663,7 @@ function renderAgenda(type) {
         <div class="muted">${isReceiving ? "Controle interno de entregas agendadas" : "Organize horarios e envie o link para vendedores"}</div>
       </div>
       <div class="toolbar">
+        <button class="btn" type="button" id="exportAgendaPdf">PDF</button>
         <button class="btn" type="button" id="exportAgendaReport">Excel</button>
         <button class="btn" type="button" id="refreshAgenda">Atualizar</button>
       </div>
@@ -2690,6 +2789,7 @@ function renderAgenda(type) {
     await loadAgenda(type);
     renderAgenda(type);
   });
+  document.getElementById("exportAgendaPdf").addEventListener("click", () => exportAgendaPdf(type));
   document.getElementById("exportAgendaReport").addEventListener("click", () => exportAgendaCsv(type));
   document.getElementById("agendaForm").addEventListener("submit", async (event) => {
     event.preventDefault();
