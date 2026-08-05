@@ -1164,7 +1164,7 @@ function percentBar(percent) {
 
 function preventionGoalStatusClass(status) {
   if (status === "CONCLUIDO" || status === "BONIFICACAO ATINGIDA") return "ok";
-  if (status === "EM ANDAMENTO") return "warn";
+  if (status === "EM ANDAMENTO" || status === "FINALIZADO") return "warn";
   return "danger";
 }
 

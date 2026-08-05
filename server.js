@@ -1606,6 +1606,14 @@ function monthInfoFromValue(value) {
   };
 }
 
+function isClosedMonth(monthValue) {
+  return String(monthValue || "") < today().slice(0, 7);
+}
+
+function validAgendaStatus(status) {
+  return ["Disponivel", "Agendado", "Recebido", "Atendido", "Cancelado", "Atrasado", "Reagendado"].includes(status);
+}
+
 function nowIso() {
   return new Date().toISOString();
 }
@@ -2006,6 +2014,7 @@ async function preventionGoalProgress(monthValue) {
   const configuredPoints = PREVENTION_MONTHLY_GOALS.reduce((sum, goal) => sum + goal.points, 0);
   const rawPoints = goals.reduce((sum, goal) => sum + goal.pointsObtained, 0);
   const totalPoints = Math.min(PREVENTION_BONUS_MAX_POINTS, Math.round(rawPoints * 10) / 10);
+  const bonusReached = totalPoints >= PREVENTION_BONUS_TARGET_POINTS;
   return {
     month,
     goals,
@@ -2016,7 +2025,7 @@ async function preventionGoalProgress(monthValue) {
       maxPoints: PREVENTION_BONUS_MAX_POINTS,
       totalPoints,
       percent: Math.round((totalPoints / PREVENTION_BONUS_TARGET_POINTS) * 1000) / 10,
-      status: totalPoints >= PREVENTION_BONUS_TARGET_POINTS ? "BONIFICACAO ATINGIDA" : "EM ANDAMENTO",
+      status: bonusReached ? "BONIFICACAO ATINGIDA" : (isClosedMonth(month.month) ? "FINALIZADO" : "EM ANDAMENTO"),
     },
   };
 }
@@ -3194,12 +3203,14 @@ async function api(req, res, url) {
     const body = await readBody(req);
     const type = normalizeAgendaType(body.type);
     if (!canAccessAgenda(user, type)) return send(res, 403, { error: "Acesso restrito à agenda." });
-    const date = body.date || today();
+    const date = validDateValue(body.date) ? body.date : "";
     const startTime = String(body.startTime || "").trim();
     const endTime = String(body.endTime || body.startTime || "").trim();
     if (!date || !startTime || !endTime) return send(res, 400, { error: type === "recebimento" ? "Informe data e horário." : "Informe data, início e fim." });
     const isManualCommercial = type === "comercial" && body.bookingMode === "manual";
-    const status = type === "recebimento" || isManualCommercial ? "Agendado" : "Disponivel";
+    const status = type === "recebimento"
+      ? (validAgendaStatus(body.status) ? body.status : "Agendado")
+      : (isManualCommercial ? "Agendado" : "Disponivel");
     if (isManualCommercial && (!String(body.name || "").trim() || !String(body.company || "").trim())) {
       return send(res, 400, { error: "Informe vendedor e empresa para o agendamento manual." });
     }
@@ -3221,7 +3232,7 @@ async function api(req, res, url) {
           body.phone || "",
           body.document || "",
           body.observation || "",
-          status === "Agendado" ? nowIso() : null,
+          status !== "Disponivel" ? nowIso() : null,
           user.id,
           nowIso(),
         ]
@@ -3244,15 +3255,16 @@ async function api(req, res, url) {
     if (type === "comercial" && user.role === "comercial" && Number(current.created_by) !== Number(user.id)) {
       return send(res, 403, { error: "Você só pode alterar sua própria agenda comercial." });
     }
-    const allowed = ["Disponivel", "Agendado", "Recebido", "Atendido", "Cancelado", "Atrasado", "Reagendado"];
-    const status = allowed.includes(body.status) ? body.status : current.status;
+    const status = validAgendaStatus(body.status) ? body.status : current.status;
     const hasFullUpdate = ["date", "startTime", "endTime", "name", "company", "phone", "document", "observation"].some((field) => Object.prototype.hasOwnProperty.call(body, field));
     if (!hasFullUpdate) {
       await execute("UPDATE agenda_slots SET status = ?, updated_at = ? WHERE id = ?", [status, nowIso(), id]);
       await logAudit(user, "update", "agenda_slots", id, { status });
       return send(res, 200, { ok: true });
     }
-    const date = body.date || current.date;
+    const date = Object.prototype.hasOwnProperty.call(body, "date")
+      ? (validDateValue(body.date) ? body.date : "")
+      : current.date;
     const startTime = String(body.startTime || current.start_time || "").trim();
     const endTime = String(body.endTime || body.startTime || current.end_time || startTime || "").trim();
     if (!date || !startTime || !endTime) return send(res, 400, { error: type === "recebimento" ? "Informe data e horário." : "Informe data, início e fim." });
@@ -3272,7 +3284,7 @@ async function api(req, res, url) {
           body.phone ?? current.booked_phone ?? "",
           body.document ?? current.booked_document ?? "",
           body.observation ?? current.booked_observation ?? "",
-          status === "Agendado" && !current.booked_at ? nowIso() : current.booked_at,
+          status !== "Disponivel" && !current.booked_at ? nowIso() : current.booked_at,
           nowIso(),
           id,
         ]
