@@ -395,6 +395,10 @@ async function initPostgres(pool) {
       losses_value REAL NOT NULL DEFAULT 0,
       consumption_value REAL NOT NULL DEFAULT 0,
       bottles_count INTEGER NOT NULL DEFAULT 0,
+      bottles_borrowed INTEGER NOT NULL DEFAULT 0,
+      bottles_defective INTEGER NOT NULL DEFAULT 0,
+      bottles_in_store INTEGER NOT NULL DEFAULT 0,
+      bottles_sold INTEGER NOT NULL DEFAULT 0,
       bottles_details TEXT,
       receipts_count INTEGER NOT NULL DEFAULT 0,
       price_divergence_products TEXT,
@@ -614,6 +618,10 @@ async function initPostgres(pool) {
   await pool.query("ALTER TABLE checklists ADD COLUMN IF NOT EXISTS inventory_type TEXT");
   await pool.query("ALTER TABLE checklists ADD COLUMN IF NOT EXISTS price_divergence_quantity INTEGER NOT NULL DEFAULT 0");
   await pool.query("ALTER TABLE checklists ADD COLUMN IF NOT EXISTS expired_products_quantity INTEGER NOT NULL DEFAULT 0");
+  await pool.query("ALTER TABLE operational_summaries ADD COLUMN IF NOT EXISTS bottles_borrowed INTEGER NOT NULL DEFAULT 0");
+  await pool.query("ALTER TABLE operational_summaries ADD COLUMN IF NOT EXISTS bottles_defective INTEGER NOT NULL DEFAULT 0");
+  await pool.query("ALTER TABLE operational_summaries ADD COLUMN IF NOT EXISTS bottles_in_store INTEGER NOT NULL DEFAULT 0");
+  await pool.query("ALTER TABLE operational_summaries ADD COLUMN IF NOT EXISTS bottles_sold INTEGER NOT NULL DEFAULT 0");
   await pool.query(`
     CREATE TABLE IF NOT EXISTS prevention_goal_adjustments (
       id SERIAL PRIMARY KEY,
@@ -1612,6 +1620,48 @@ function isClosedMonth(monthValue) {
 
 function validAgendaStatus(status) {
   return ["Disponivel", "Agendado", "Recebido", "Atendido", "Cancelado", "Atrasado", "Reagendado"].includes(status);
+}
+
+function bottleBreakdownTotal(row = {}) {
+  const borrowed = intValue(row.bottles_borrowed ?? row.bottlesBorrowed);
+  const defective = intValue(row.bottles_defective ?? row.bottlesDefective);
+  const inStore = intValue(row.bottles_in_store ?? row.bottlesInStore);
+  const sold = intValue(row.bottles_sold ?? row.bottlesSold);
+  const total = borrowed + defective + inStore + sold;
+  return total || intValue(row.bottles_count ?? row.bottlesCount);
+}
+
+function bottleComparisonStatus(difference) {
+  if (difference == null) return "Sem comparação";
+  if (Number(difference) < 0) return "Perda";
+  if (Number(difference) > 0) return "Sobra";
+  return "Sem diferença";
+}
+
+function enrichBottleSummary(row, previousRow = null) {
+  if (!row) return null;
+  const finalCount = bottleBreakdownTotal(row);
+  const previousFinal = previousRow ? bottleBreakdownTotal(previousRow) : null;
+  const difference = previousFinal == null ? null : finalCount - previousFinal;
+  return {
+    ...row,
+    bottles_final_count: finalCount,
+    bottles_previous_final_count: previousFinal,
+    bottles_difference: difference,
+    bottles_comparison_status: bottleComparisonStatus(difference),
+  };
+}
+
+function enrichBottleSummaries(rows = []) {
+  const ascending = [...rows].sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  const byDate = new Map();
+  let previous = null;
+  ascending.forEach((row) => {
+    const enriched = enrichBottleSummary(row, previous);
+    byDate.set(row.date, enriched);
+    previous = row;
+  });
+  return rows.map((row) => byDate.get(row.date) || enrichBottleSummary(row));
 }
 
 function nowIso() {
@@ -3905,14 +3955,15 @@ async function api(req, res, url) {
     const rows = await query(
       "SELECT * FROM operational_summaries ORDER BY date DESC LIMIT 60"
     );
-    return send(res, 200, { rows });
+    return send(res, 200, { rows: enrichBottleSummaries(rows) });
   }
 
   if (method === "GET" && url.pathname === "/api/summary") {
     if (!canAccessPrevention(user)) return send(res, 403, { error: "Acesso restrito ao módulo de prevenção." });
     const date = url.searchParams.get("date") || today();
     const rows = await query("SELECT * FROM operational_summaries WHERE date = ?", [date]);
-    return send(res, 200, { row: rows[0] || null });
+    const previousRows = await query("SELECT * FROM operational_summaries WHERE date < ? ORDER BY date DESC LIMIT 1", [date]);
+    return send(res, 200, { row: rows[0] ? enrichBottleSummary(rows[0], previousRows[0] || null) : null });
   }
 
   if (method === "DELETE" && url.pathname === "/api/summary") {
@@ -3927,25 +3978,36 @@ async function api(req, res, url) {
 
   if (method === "POST" && url.pathname === "/api/summary") {
     if (!canAccessPrevention(user)) return send(res, 403, { error: "Acesso restrito ao módulo de prevenção." });
-    if (!canFillEncarregadaOnly(user)) {
-      return send(res, 403, { error: "Apenas a encarregada pode salvar o resumo." });
+    if (!canFillEncarregadaOnly(user) && !isAdmin(user)) {
+      return send(res, 403, { error: "Apenas a encarregada ou administrador podem salvar o resumo." });
     }
     const body = await readBody(req);
-    const existing = (await query("SELECT id FROM operational_summaries WHERE date = ?", [body.date || today()]))[0];
+    const date = body.date || today();
+    const existing = (await query("SELECT * FROM operational_summaries WHERE date = ?", [date]))[0];
     if (existing && !canCorrect(user)) {
       return send(res, 403, { error: "Apenas administrador ou encarregada podem corrigir resumo jÃ¡ enviado." });
     }
+    const adminUser = isAdmin(user);
+    const borrowed = adminUser ? intValue(existing?.bottles_borrowed) : intValue(body.bottlesBorrowed);
+    const defective = adminUser ? intValue(existing?.bottles_defective) : intValue(body.bottlesDefective);
+    const inStore = adminUser ? intValue(existing?.bottles_in_store) : intValue(body.bottlesInStore);
+    const sold = adminUser ? intValue(body.bottlesSold) : intValue(existing?.bottles_sold);
+    const bottlesTotal = borrowed + defective + inStore + sold;
     const params = [
-      body.date || today(),
-      Number(body.lossesValue || 0),
-      Number(body.consumptionValue || 0),
-      Number(body.bottlesCount || 0),
-      body.bottlesDetails || "",
-      Number(body.receiptsCount || 0),
+      date,
+      adminUser ? Number(existing?.losses_value || 0) : Number(body.lossesValue || 0),
+      adminUser ? Number(existing?.consumption_value || 0) : Number(body.consumptionValue || 0),
+      bottlesTotal,
+      borrowed,
+      defective,
+      inStore,
+      sold,
+      adminUser ? (existing?.bottles_details || "") : (body.bottlesDetails || ""),
+      adminUser ? Number(existing?.receipts_count || 0) : Number(body.receiptsCount || 0),
       "",
       "",
-      body.occurrences || "",
-      body.correctiveActions || "",
+      adminUser ? (existing?.occurrences || "") : (body.occurrences || ""),
+      adminUser ? (existing?.corrective_actions || "") : (body.correctiveActions || ""),
       "",
       user.id,
       existing ? user.id : null,
@@ -3954,14 +4016,19 @@ async function api(req, res, url) {
     await execute(
       `
       INSERT INTO operational_summaries (
-        date, losses_value, consumption_value, bottles_count, bottles_details, receipts_count,
+        date, losses_value, consumption_value, bottles_count, bottles_borrowed, bottles_defective,
+        bottles_in_store, bottles_sold, bottles_details, receipts_count,
         price_divergence_products, expired_products, occurrences, corrective_actions,
         pending_items, created_by, corrected_by, corrected_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(date) DO UPDATE SET
         losses_value=excluded.losses_value,
         consumption_value=excluded.consumption_value,
         bottles_count=excluded.bottles_count,
+        bottles_borrowed=excluded.bottles_borrowed,
+        bottles_defective=excluded.bottles_defective,
+        bottles_in_store=excluded.bottles_in_store,
+        bottles_sold=excluded.bottles_sold,
         bottles_details=excluded.bottles_details,
         receipts_count=excluded.receipts_count,
         price_divergence_products=excluded.price_divergence_products,

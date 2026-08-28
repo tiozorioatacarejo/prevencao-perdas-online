@@ -305,6 +305,10 @@ function canFillEncarregadaOnly() {
   return state.user?.role === "encarregada";
 }
 
+function canFillBottleSales() {
+  return state.user?.role === "administrador";
+}
+
 function canFillLaraOnlyActivities() {
   const linkedCollaborator = state.user?.collaborator_id
     ? state.collaborators.find((item) => Number(item.id) === Number(state.user.collaborator_id))
@@ -1179,6 +1183,15 @@ function signedGoalNumber(value) {
   return `${sign}${fmtGoalNumber(numeric)}`;
 }
 
+function bottleDifferenceLabel(row) {
+  if (row.bottles_difference == null) return `<span class="muted">Sem comparação</span>`;
+  const value = Number(row.bottles_difference || 0);
+  const status = row.bottles_comparison_status || (value < 0 ? "Perda" : value > 0 ? "Sobra" : "Sem diferença");
+  const statusClass = value < 0 ? "danger" : value > 0 ? "ok" : "warn";
+  const sign = value > 0 ? "+" : "";
+  return `<span class="status ${statusClass}">${sign}${value} - ${escapeHtml(status)}</span><div class="muted">Anterior: ${row.bottles_previous_final_count ?? "-"}</div>`;
+}
+
 function renderPreventionGoals() {
   const data = state.preventionGoals.data || {
     month: { label: "mês atual" },
@@ -1842,7 +1855,9 @@ function renderChecklist() {
 }
 
 function renderSummary() {
-  const summaryLocked = !canFillEncarregadaOnly();
+  const canFillSummaryDetails = canFillEncarregadaOnly();
+  const canFillSales = canFillBottleSales();
+  const summaryLocked = !canFillSummaryDetails && !canFillSales;
   view.innerHTML = `
     <div class="topbar">
       <div>
@@ -1850,11 +1865,17 @@ function renderSummary() {
         <div class="muted">ConsolidaÃ§Ã£o do dia para acompanhamento gerencial</div>
       </div>
     </div>
-    ${summaryLocked ? `<div class="panel muted" style="margin-bottom:14px">Somente a encarregada pode preencher, alterar ou excluir o resumo operacional.</div>` : ""}
+    ${summaryLocked ? `<div class="panel muted" style="margin-bottom:14px">Somente a encarregada pode preencher a contagem e somente o administrador pode preencher vendidos.</div>` : ""}
     <form class="panel grid" id="summaryForm">
-      <div class="grid two">
+      <div class="grid three">
         <label>Data do resumo <input name="date" type="date" required value="${todayInputValue()}"></label>
-        <label>Contagem de vasilhames do dia <input name="bottlesCount" type="number" min="0"></label>
+        <label>Quantidade emprestada <input name="bottlesBorrowed" type="number" min="0" step="1"></label>
+        <label>Quantidade com defeitos <input name="bottlesDefective" type="number" min="0" step="1"></label>
+      </div>
+      <div class="grid three">
+        <label>Quantidade em loja <input name="bottlesInStore" type="number" min="0" step="1"></label>
+        <label>Quantidade vendida <input name="bottlesSold" type="number" min="0" step="1"></label>
+        <label>Total final <input name="bottlesFinalCount" type="number" readonly></label>
       </div>
       <label>Qual vasilhame
         <textarea name="bottlesDetails" placeholder="Ex.: garrafa 1L, garrafa 2L, caixas, engradados"></textarea>
@@ -1873,12 +1894,29 @@ function renderSummary() {
   `;
   const form = document.getElementById("summaryForm");
   if (summaryLocked) {
-    ["bottlesCount", "bottlesDetails", "occurrences", "correctiveActions"].forEach((name) => {
+    ["bottlesBorrowed", "bottlesDefective", "bottlesInStore", "bottlesSold", "bottlesDetails", "occurrences", "correctiveActions"].forEach((name) => {
       form.elements[name].disabled = true;
     });
+  } else {
+    ["bottlesBorrowed", "bottlesDefective", "bottlesInStore", "bottlesDetails", "occurrences", "correctiveActions"].forEach((name) => {
+      form.elements[name].disabled = !canFillSummaryDetails;
+    });
+    form.elements.bottlesSold.disabled = !canFillSales;
   }
+  const updateBottleFinal = () => {
+    const total = ["bottlesBorrowed", "bottlesDefective", "bottlesInStore", "bottlesSold"]
+      .reduce((sum, name) => sum + Number(form.elements[name]?.value || 0), 0);
+    form.elements.bottlesFinalCount.value = total;
+  };
+  ["bottlesBorrowed", "bottlesDefective", "bottlesInStore", "bottlesSold"].forEach((name) => {
+    form.elements[name].addEventListener("input", updateBottleFinal);
+  });
   const clearSummaryFields = () => {
-    form.bottlesCount.value = "";
+    form.bottlesBorrowed.value = "";
+    form.bottlesDefective.value = "";
+    form.bottlesInStore.value = "";
+    form.bottlesSold.value = "";
+    form.bottlesFinalCount.value = "";
     form.bottlesDetails.value = "";
     form.occurrences.value = "";
     form.correctiveActions.value = "";
@@ -1887,10 +1925,15 @@ function renderSummary() {
     clearSummaryFields();
     if (!row) return;
     form.date.value = row.date || form.date.value;
-    form.bottlesCount.value = row.bottles_count ?? "";
+    form.bottlesBorrowed.value = row.bottles_borrowed ?? "";
+    form.bottlesDefective.value = row.bottles_defective ?? "";
+    form.bottlesInStore.value = row.bottles_in_store ?? "";
+    form.bottlesSold.value = row.bottles_sold ?? "";
+    form.bottlesFinalCount.value = row.bottles_final_count ?? row.bottles_count ?? "";
     form.bottlesDetails.value = row.bottles_details || "";
     form.occurrences.value = row.occurrences || "";
     form.correctiveActions.value = row.corrective_actions || "";
+    updateBottleFinal();
   };
   const loadSummaryForDate = async () => {
     const data = await api(`/api/summary?date=${encodeURIComponent(form.date.value)}`);
@@ -1904,7 +1947,12 @@ function renderSummary() {
         <thead>
           <tr>
             <th>Data</th>
-            <th>Vasilhames</th>
+            <th>Emprestados</th>
+            <th>Defeitos</th>
+            <th>Em loja</th>
+            <th>Vendidos</th>
+            <th>Total final</th>
+            <th>Diferença</th>
             <th>Qual vasilhame</th>
             <th>AÃ§Ãµes</th>
           </tr>
@@ -1913,7 +1961,12 @@ function renderSummary() {
           ${data.rows.map((row) => `
             <tr>
               <td data-label="Data">${fmtDate(row.date)}</td>
-              <td data-label="Vasilhames">${row.bottles_count || 0}</td>
+              <td data-label="Emprestados">${row.bottles_borrowed || 0}</td>
+              <td data-label="Defeitos">${row.bottles_defective || 0}</td>
+              <td data-label="Em loja">${row.bottles_in_store || 0}</td>
+              <td data-label="Vendidos">${row.bottles_sold || 0}</td>
+              <td data-label="Total final"><strong>${row.bottles_final_count ?? row.bottles_count ?? 0}</strong></td>
+              <td data-label="Diferença">${bottleDifferenceLabel(row)}</td>
               <td data-label="Qual vasilhame">${escapeHtml(row.bottles_details || "")}</td>
               <td data-label="AÃ§Ãµes">
                 <div class="toolbar">
@@ -1922,7 +1975,7 @@ function renderSummary() {
                 </div>
               </td>
             </tr>
-          `).join("") || `<tr><td colspan="4">Nenhum resumo lanÃ§ado.</td></tr>`}
+          `).join("") || `<tr><td colspan="9">Nenhum resumo lanÃ§ado.</td></tr>`}
         </tbody>
       </table>
     `;

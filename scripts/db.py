@@ -166,6 +166,10 @@ def init_db():
             losses_value REAL NOT NULL DEFAULT 0,
             consumption_value REAL NOT NULL DEFAULT 0,
             bottles_count INTEGER NOT NULL DEFAULT 0,
+            bottles_borrowed INTEGER NOT NULL DEFAULT 0,
+            bottles_defective INTEGER NOT NULL DEFAULT 0,
+            bottles_in_store INTEGER NOT NULL DEFAULT 0,
+            bottles_sold INTEGER NOT NULL DEFAULT 0,
             bottles_details TEXT,
             receipts_count INTEGER NOT NULL DEFAULT 0,
             price_divergence_products TEXT,
@@ -406,6 +410,14 @@ def init_db():
     summary_columns = [row["name"] for row in conn.execute("PRAGMA table_info(operational_summaries)").fetchall()]
     if "bottles_details" not in summary_columns:
         conn.execute("ALTER TABLE operational_summaries ADD COLUMN bottles_details TEXT")
+    if "bottles_borrowed" not in summary_columns:
+        conn.execute("ALTER TABLE operational_summaries ADD COLUMN bottles_borrowed INTEGER NOT NULL DEFAULT 0")
+    if "bottles_defective" not in summary_columns:
+        conn.execute("ALTER TABLE operational_summaries ADD COLUMN bottles_defective INTEGER NOT NULL DEFAULT 0")
+    if "bottles_in_store" not in summary_columns:
+        conn.execute("ALTER TABLE operational_summaries ADD COLUMN bottles_in_store INTEGER NOT NULL DEFAULT 0")
+    if "bottles_sold" not in summary_columns:
+        conn.execute("ALTER TABLE operational_summaries ADD COLUMN bottles_sold INTEGER NOT NULL DEFAULT 0")
 
     checklist_columns = [row["name"] for row in conn.execute("PRAGMA table_info(checklists)").fetchall()]
     if "price_divergence_products" not in checklist_columns:

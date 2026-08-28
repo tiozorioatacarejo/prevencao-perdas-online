@@ -123,6 +123,10 @@ async function initPostgres() {
       losses_value REAL NOT NULL DEFAULT 0,
       consumption_value REAL NOT NULL DEFAULT 0,
       bottles_count INTEGER NOT NULL DEFAULT 0,
+      bottles_borrowed INTEGER NOT NULL DEFAULT 0,
+      bottles_defective INTEGER NOT NULL DEFAULT 0,
+      bottles_in_store INTEGER NOT NULL DEFAULT 0,
+      bottles_sold INTEGER NOT NULL DEFAULT 0,
       bottles_details TEXT,
       receipts_count INTEGER NOT NULL DEFAULT 0,
       price_divergence_products TEXT,
@@ -283,6 +287,10 @@ async function initPostgres() {
   await pool.query("ALTER TABLE uploaded_files ADD COLUMN IF NOT EXISTS public_url TEXT");
   await pool.query("ALTER TABLE uploaded_files ADD COLUMN IF NOT EXISTS thumbnail_object_key TEXT");
   await pool.query("ALTER TABLE uploaded_files ADD COLUMN IF NOT EXISTS thumbnail_url TEXT");
+  await pool.query("ALTER TABLE operational_summaries ADD COLUMN IF NOT EXISTS bottles_borrowed INTEGER NOT NULL DEFAULT 0");
+  await pool.query("ALTER TABLE operational_summaries ADD COLUMN IF NOT EXISTS bottles_defective INTEGER NOT NULL DEFAULT 0");
+  await pool.query("ALTER TABLE operational_summaries ADD COLUMN IF NOT EXISTS bottles_in_store INTEGER NOT NULL DEFAULT 0");
+  await pool.query("ALTER TABLE operational_summaries ADD COLUMN IF NOT EXISTS bottles_sold INTEGER NOT NULL DEFAULT 0");
   await pool.query(`
     CREATE TABLE IF NOT EXISTS prevention_goal_adjustments (
       id SERIAL PRIMARY KEY,
