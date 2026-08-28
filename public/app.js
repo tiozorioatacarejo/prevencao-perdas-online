@@ -168,6 +168,7 @@ const INVENTORY_TYPES = [
   ["inventory_perishables", "Perecíveis"],
   ["inventory_rotating", "Rotativo de seção"],
 ];
+const BOTTLE_TYPES = ["Água", "Cerveja Ambev", "Refrigerante retornáveis"];
 const AUDIT_FOCUS_OPTIONS = [
   ["limpeza", "Limpeza"],
   ["organizacao", "Organização"],
@@ -1189,7 +1190,7 @@ function bottleDifferenceLabel(row) {
   const status = row.bottles_comparison_status || (value < 0 ? "Perda" : value > 0 ? "Sobra" : "Sem diferença");
   const statusClass = value < 0 ? "danger" : value > 0 ? "ok" : "warn";
   const sign = value > 0 ? "+" : "";
-  return `<span class="status ${statusClass}">${sign}${value} - ${escapeHtml(status)}</span><div class="muted">Anterior: ${row.bottles_previous_final_count ?? "-"}</div>`;
+  return `<span class="status ${statusClass}">${sign}${value} - ${escapeHtml(status)}</span><div class="muted">Anterior: ${row.bottles_previous_final_count ?? "-"} | Esperado: ${row.bottles_expected_final_count ?? "-"}</div>`;
 }
 
 function renderPreventionGoals() {
@@ -1730,7 +1731,9 @@ function renderChecklist() {
         </select>
       </label>
       <div class="grid four" data-bottles-field>
-        <label>Qual vasilhame <input name="bottlesDetails" placeholder="Ex.: garrafa 1L, 2L, caixa, engradado"></label>
+        <label>Qual vasilhame
+          <select name="bottlesDetails">${BOTTLE_TYPES.map((type) => `<option value="${escapeHtml(type)}">${escapeHtml(type)}</option>`).join("")}</select>
+        </label>
         <label>Emprestados <input name="bottlesBorrowed" type="number" min="0" step="1"></label>
         <label>Com defeitos <input name="bottlesDefective" type="number" min="0" step="1"></label>
         <label>Em loja <input name="bottlesInStore" type="number" min="0" step="1"></label>
@@ -1792,7 +1795,7 @@ function renderChecklist() {
   const bottlesField = checklistForm.querySelector("[data-bottles-field]");
   const photoField = checklistForm.querySelector("[data-checklist-photo-field]");
   const updateChecklistBottlesTotal = () => {
-    const total = ["bottlesBorrowed", "bottlesDefective", "bottlesInStore", "bottlesSold"]
+    const total = ["bottlesBorrowed", "bottlesDefective", "bottlesInStore"]
       .reduce((sum, name) => sum + Number(checklistForm.elements[name]?.value || 0), 0);
     checklistForm.elements.bottlesFinalCount.value = total;
   };
@@ -1930,7 +1933,7 @@ function renderSummary() {
     form.elements.bottlesSold.disabled = !canFillSales;
   }
   const updateBottleFinal = () => {
-    const total = ["bottlesBorrowed", "bottlesDefective", "bottlesInStore", "bottlesSold"]
+    const total = ["bottlesBorrowed", "bottlesDefective", "bottlesInStore"]
       .reduce((sum, name) => sum + Number(form.elements[name]?.value || 0), 0);
     form.elements.bottlesFinalCount.value = total;
   };
@@ -2111,7 +2114,9 @@ function checklistProductDetails(row) {
       `Defeitos: ${Number(row.bottles_defective || 0)}`,
       `Em loja: ${Number(row.bottles_in_store || 0)}`,
       `Vendidos: ${Number(row.bottles_sold || 0)}`,
-      row.bottles_difference == null ? "Comparação: sem histórico anterior" : `Diferença: ${Number(row.bottles_difference || 0)} (${row.bottles_comparison_status || ""})`,
+      row.bottles_difference == null
+        ? "Comparação: sem histórico anterior para este vasilhame"
+        : `Anterior: ${row.bottles_previous_final_count ?? "-"} | Esperado após vendas: ${row.bottles_expected_final_count ?? "-"} | Diferença: ${Number(row.bottles_difference || 0)} (${row.bottles_comparison_status || ""})`,
     ].filter(Boolean).join(" | ");
   }
   return "";
@@ -2361,7 +2366,12 @@ function editChecklist(id) {
       </label>` : `<input type="hidden" name="inventoryType" value="">`}
       ${isBottles ? `
         <div class="grid four" data-edit-bottles-field>
-          <label>Qual vasilhame <input name="bottlesDetails" value="${escapeHtml(row.bottles_details || "")}" placeholder="Ex.: garrafa 1L, 2L, caixa, engradado"></label>
+          <label>Qual vasilhame
+            <select name="bottlesDetails" required>
+              <option value="">Selecione</option>
+              ${BOTTLE_TYPES.map((type) => `<option value="${escapeHtml(type)}" ${withoutAccents(type).toLowerCase() === withoutAccents(row.bottles_details || "").toLowerCase() ? "selected" : ""}>${escapeHtml(type)}</option>`).join("")}
+            </select>
+          </label>
           <label>Emprestados <input name="bottlesBorrowed" type="number" min="0" step="1" value="${escapeHtml(row.bottles_borrowed || "")}"></label>
           <label>Com defeitos <input name="bottlesDefective" type="number" min="0" step="1" value="${escapeHtml(row.bottles_defective || "")}"></label>
           <label>Em loja <input name="bottlesInStore" type="number" min="0" step="1" value="${escapeHtml(row.bottles_in_store || "")}"></label>
@@ -2399,7 +2409,7 @@ function editChecklist(id) {
   const form = document.getElementById("checklistEditForm");
   if (isBottles) {
     const updateEditBottlesTotal = () => {
-      const total = ["bottlesBorrowed", "bottlesDefective", "bottlesInStore", "bottlesSold"]
+      const total = ["bottlesBorrowed", "bottlesDefective", "bottlesInStore"]
         .reduce((sum, name) => sum + Number(form.elements[name]?.value || 0), 0);
       form.elements.bottlesFinalCount.value = total;
     };

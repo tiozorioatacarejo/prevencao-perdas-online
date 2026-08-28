@@ -41,6 +41,7 @@ const INVENTORY_TYPES = [
   { key: "inventory_perishables", label: "Perec\u00edveis" },
   { key: "inventory_rotating", label: "Rotativo de se\u00e7\u00e3o" },
 ];
+const BOTTLE_TYPES = ["\u00c1gua", "Cerveja Ambev", "Refrigerante retorn\u00e1veis"];
 const ENGAGEMENT_EXCLUDED_ACTIVITIES = [
   "Lan\u00e7amento de perdas no sistema",
   "Lan\u00e7amento de consumo interno",
@@ -1638,8 +1639,7 @@ function bottleBreakdownTotal(row = {}) {
   const borrowed = intValue(row.bottles_borrowed ?? row.bottlesBorrowed);
   const defective = intValue(row.bottles_defective ?? row.bottlesDefective);
   const inStore = intValue(row.bottles_in_store ?? row.bottlesInStore);
-  const sold = intValue(row.bottles_sold ?? row.bottlesSold);
-  const total = borrowed + defective + inStore + sold;
+  const total = borrowed + defective + inStore;
   return total || intValue(row.bottles_count ?? row.bottlesCount);
 }
 
@@ -1654,15 +1654,22 @@ function isBottleChecklistActivity(activity) {
   return normalizeText(activity).includes("vasilh");
 }
 
+function bottleTypeKey(row = {}) {
+  return normalizeText(row.bottles_details || "sem tipo");
+}
+
 function enrichBottleSummary(row, previousRow = null) {
   if (!row) return null;
   const finalCount = bottleBreakdownTotal(row);
+  const sold = intValue(row.bottles_sold ?? row.bottlesSold);
   const previousFinal = previousRow ? bottleBreakdownTotal(previousRow) : null;
-  const difference = previousFinal == null ? null : finalCount - previousFinal;
+  const expectedFinal = previousFinal == null ? null : previousFinal - sold;
+  const difference = expectedFinal == null ? null : finalCount - expectedFinal;
   return {
     ...row,
     bottles_final_count: finalCount,
     bottles_previous_final_count: previousFinal,
+    bottles_expected_final_count: expectedFinal,
     bottles_difference: difference,
     bottles_comparison_status: bottleComparisonStatus(difference),
   };
@@ -1670,26 +1677,32 @@ function enrichBottleSummary(row, previousRow = null) {
 
 async function enrichChecklistBottleRows(rows = []) {
   const bottleRows = await query(
-    `SELECT id, date, sent_at, bottles_final_count
+    `SELECT id, date, sent_at, bottles_borrowed, bottles_defective, bottles_in_store, bottles_sold, bottles_final_count, bottles_details
      FROM checklists
      WHERE LOWER(activity) LIKE '%vasilh%'
      ORDER BY date, sent_at, id`
   );
   const previousById = new Map();
-  let previous = null;
+  const previousByType = new Map();
   bottleRows.forEach((row) => {
+    const typeKey = bottleTypeKey(row);
+    const previous = previousByType.get(typeKey);
     if (previous) previousById.set(Number(row.id), previous);
-    previous = row;
+    previousByType.set(typeKey, row);
   });
   return rows.map((row) => {
     if (!isBottleChecklistActivity(row.activity)) return row;
     const previousRow = previousById.get(Number(row.id));
-    const finalCount = intValue(row.bottles_final_count);
-    const previousFinal = previousRow ? intValue(previousRow.bottles_final_count) : null;
-    const difference = previousFinal == null ? null : finalCount - previousFinal;
+    const finalCount = bottleBreakdownTotal(row);
+    const sold = intValue(row.bottles_sold);
+    const previousFinal = previousRow ? bottleBreakdownTotal(previousRow) : null;
+    const expectedFinal = previousFinal == null ? null : previousFinal - sold;
+    const difference = expectedFinal == null ? null : finalCount - expectedFinal;
     return {
       ...row,
+      bottles_final_count: finalCount,
       bottles_previous_final_count: previousFinal,
+      bottles_expected_final_count: expectedFinal,
       bottles_difference: difference,
       bottles_comparison_status: bottleComparisonStatus(difference),
     };
@@ -1699,11 +1712,13 @@ async function enrichChecklistBottleRows(rows = []) {
 function enrichBottleSummaries(rows = []) {
   const ascending = [...rows].sort((a, b) => String(a.date).localeCompare(String(b.date)));
   const byDate = new Map();
-  let previous = null;
+  const previousByType = new Map();
   ascending.forEach((row) => {
+    const typeKey = bottleTypeKey(row);
+    const previous = previousByType.get(typeKey) || null;
     const enriched = enrichBottleSummary(row, previous);
     byDate.set(row.date, enriched);
-    previous = row;
+    previousByType.set(typeKey, row);
   });
   return rows.map((row) => byDate.get(row.date) || enrichBottleSummary(row));
 }
@@ -2182,7 +2197,9 @@ function checklistProductDetails(row) {
       `Defeitos: ${intValue(row.bottles_defective)}`,
       `Em loja: ${intValue(row.bottles_in_store)}`,
       `Vendidos: ${intValue(row.bottles_sold)}`,
-      row.bottles_difference == null ? "Comparacao: sem historico anterior" : `Diferenca: ${row.bottles_difference} (${row.bottles_comparison_status})`,
+      row.bottles_difference == null
+        ? "Comparacao: sem historico anterior para este vasilhame"
+        : `Anterior: ${row.bottles_previous_final_count} | Esperado apos vendas: ${row.bottles_expected_final_count} | Diferenca: ${row.bottles_difference} (${row.bottles_comparison_status})`,
     ].filter(Boolean).join(" | ");
   }
   return "";
@@ -2435,6 +2452,7 @@ function makePdf(rows) {
 function checklistSpecificFields(activity, body) {
   const inventoryType = INVENTORY_TYPES.some((type) => type.key === body.inventoryType) ? body.inventoryType : "";
   const isBottleActivity = normalizeText(activity).includes("vasilh");
+  const bottleType = BOTTLE_TYPES.find((type) => normalizeText(type) === normalizeText(body.bottlesDetails));
   const bottlesBorrowed = isBottleActivity ? intValue(body.bottlesBorrowed) : 0;
   const bottlesDefective = isBottleActivity ? intValue(body.bottlesDefective) : 0;
   const bottlesInStore = isBottleActivity ? intValue(body.bottlesInStore) : 0;
@@ -2449,8 +2467,8 @@ function checklistSpecificFields(activity, body) {
     bottlesDefective,
     bottlesInStore,
     bottlesSold,
-    bottlesFinalCount: bottlesBorrowed + bottlesDefective + bottlesInStore + bottlesSold,
-    bottlesDetails: isBottleActivity ? body.bottlesDetails || "" : "",
+    bottlesFinalCount: bottlesBorrowed + bottlesDefective + bottlesInStore,
+    bottlesDetails: isBottleActivity ? bottleType || BOTTLE_TYPES[0] : "",
     sector: activityNeedsProductSector(activity) || activity === GENERAL_STORE_OBSERVATION_ACTIVITY ? body.sector || "" : "",
   };
 }
@@ -4076,7 +4094,7 @@ async function api(req, res, url) {
     const defective = adminUser ? intValue(existing?.bottles_defective) : intValue(body.bottlesDefective);
     const inStore = adminUser ? intValue(existing?.bottles_in_store) : intValue(body.bottlesInStore);
     const sold = adminUser ? intValue(body.bottlesSold) : intValue(existing?.bottles_sold);
-    const bottlesTotal = borrowed + defective + inStore + sold;
+    const bottlesTotal = borrowed + defective + inStore;
     const params = [
       date,
       adminUser ? Number(existing?.losses_value || 0) : Number(body.lossesValue || 0),
