@@ -312,6 +312,12 @@ async function initPostgres(pool) {
       expired_products TEXT,
       expired_products_quantity INTEGER NOT NULL DEFAULT 0,
       inventory_type TEXT,
+      bottles_borrowed INTEGER NOT NULL DEFAULT 0,
+      bottles_defective INTEGER NOT NULL DEFAULT 0,
+      bottles_in_store INTEGER NOT NULL DEFAULT 0,
+      bottles_sold INTEGER NOT NULL DEFAULT 0,
+      bottles_final_count INTEGER NOT NULL DEFAULT 0,
+      bottles_details TEXT,
       photo_path TEXT,
       sent_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       created_by INTEGER NOT NULL REFERENCES users(id),
@@ -618,6 +624,12 @@ async function initPostgres(pool) {
   await pool.query("ALTER TABLE checklists ADD COLUMN IF NOT EXISTS inventory_type TEXT");
   await pool.query("ALTER TABLE checklists ADD COLUMN IF NOT EXISTS price_divergence_quantity INTEGER NOT NULL DEFAULT 0");
   await pool.query("ALTER TABLE checklists ADD COLUMN IF NOT EXISTS expired_products_quantity INTEGER NOT NULL DEFAULT 0");
+  await pool.query("ALTER TABLE checklists ADD COLUMN IF NOT EXISTS bottles_borrowed INTEGER NOT NULL DEFAULT 0");
+  await pool.query("ALTER TABLE checklists ADD COLUMN IF NOT EXISTS bottles_defective INTEGER NOT NULL DEFAULT 0");
+  await pool.query("ALTER TABLE checklists ADD COLUMN IF NOT EXISTS bottles_in_store INTEGER NOT NULL DEFAULT 0");
+  await pool.query("ALTER TABLE checklists ADD COLUMN IF NOT EXISTS bottles_sold INTEGER NOT NULL DEFAULT 0");
+  await pool.query("ALTER TABLE checklists ADD COLUMN IF NOT EXISTS bottles_final_count INTEGER NOT NULL DEFAULT 0");
+  await pool.query("ALTER TABLE checklists ADD COLUMN IF NOT EXISTS bottles_details TEXT");
   await pool.query("ALTER TABLE operational_summaries ADD COLUMN IF NOT EXISTS bottles_borrowed INTEGER NOT NULL DEFAULT 0");
   await pool.query("ALTER TABLE operational_summaries ADD COLUMN IF NOT EXISTS bottles_defective INTEGER NOT NULL DEFAULT 0");
   await pool.query("ALTER TABLE operational_summaries ADD COLUMN IF NOT EXISTS bottles_in_store INTEGER NOT NULL DEFAULT 0");
@@ -1638,6 +1650,10 @@ function bottleComparisonStatus(difference) {
   return "Sem diferença";
 }
 
+function isBottleChecklistActivity(activity) {
+  return normalizeText(activity).includes("vasilh");
+}
+
 function enrichBottleSummary(row, previousRow = null) {
   if (!row) return null;
   const finalCount = bottleBreakdownTotal(row);
@@ -1650,6 +1666,34 @@ function enrichBottleSummary(row, previousRow = null) {
     bottles_difference: difference,
     bottles_comparison_status: bottleComparisonStatus(difference),
   };
+}
+
+async function enrichChecklistBottleRows(rows = []) {
+  const bottleRows = await query(
+    `SELECT id, date, sent_at, bottles_final_count
+     FROM checklists
+     WHERE LOWER(activity) LIKE '%vasilh%'
+     ORDER BY date, sent_at, id`
+  );
+  const previousById = new Map();
+  let previous = null;
+  bottleRows.forEach((row) => {
+    if (previous) previousById.set(Number(row.id), previous);
+    previous = row;
+  });
+  return rows.map((row) => {
+    if (!isBottleChecklistActivity(row.activity)) return row;
+    const previousRow = previousById.get(Number(row.id));
+    const finalCount = intValue(row.bottles_final_count);
+    const previousFinal = previousRow ? intValue(previousRow.bottles_final_count) : null;
+    const difference = previousFinal == null ? null : finalCount - previousFinal;
+    return {
+      ...row,
+      bottles_previous_final_count: previousFinal,
+      bottles_difference: difference,
+      bottles_comparison_status: bottleComparisonStatus(difference),
+    };
+  });
 }
 
 function enrichBottleSummaries(rows = []) {
@@ -2107,11 +2151,13 @@ async function rowsForReports(filters) {
     where.push("c.sector = ?");
     params.push(filters.sector);
   }
-  return query(
+  const rows = await query(
     `
     SELECT c.id, c.date, c.sent_at, c.collaborator_id, c.created_by, c.photo_path,
            c.sector, c.price_divergence_products, c.price_divergence_quantity,
            c.expired_products, c.expired_products_quantity, c.inventory_type,
+           c.bottles_borrowed, c.bottles_defective, c.bottles_in_store,
+           c.bottles_sold, c.bottles_final_count, c.bottles_details,
            col.name AS collaborator, c.activity, c.answer, c.observation,
            u.display_name AS sent_by
     FROM checklists c
@@ -2122,12 +2168,23 @@ async function rowsForReports(filters) {
     `,
     params
   );
+  return enrichChecklistBottleRows(rows);
 }
 
 function checklistProductDetails(row) {
   if (row.activity === PRICE_DIVERGENCE_ACTIVITY) return row.price_divergence_products || "";
   if (row.activity === EXPIRED_PRODUCTS_ACTIVITY) return row.expired_products || "";
   if (row.activity === INVENTORY_ACTIVITY) return (INVENTORY_TYPES.find((type) => type.key === row.inventory_type)?.label || row.inventory_type || "");
+  if (normalizeText(row.activity).includes("vasilh")) {
+    return [
+      row.bottles_details ? `Tipo: ${row.bottles_details}` : "",
+      `Emprestados: ${intValue(row.bottles_borrowed)}`,
+      `Defeitos: ${intValue(row.bottles_defective)}`,
+      `Em loja: ${intValue(row.bottles_in_store)}`,
+      `Vendidos: ${intValue(row.bottles_sold)}`,
+      row.bottles_difference == null ? "Comparacao: sem historico anterior" : `Diferenca: ${row.bottles_difference} (${row.bottles_comparison_status})`,
+    ].filter(Boolean).join(" | ");
+  }
   return "";
 }
 
@@ -2136,6 +2193,7 @@ function checklistProductQuantity(row) {
   if (normalizeText(row.activity).includes("recebimento")) return row.photo_path ? "1 foto" : "";
   if (row.activity === PRICE_DIVERGENCE_ACTIVITY) return checklistIdentifiedProductQuantity(row, PRICE_DIVERGENCE_ACTIVITY) || "";
   if (row.activity === EXPIRED_PRODUCTS_ACTIVITY) return checklistIdentifiedProductQuantity(row, EXPIRED_PRODUCTS_ACTIVITY) || "";
+  if (normalizeText(row.activity).includes("vasilh")) return intValue(row.bottles_final_count);
   return "";
 }
 
@@ -2376,12 +2434,23 @@ function makePdf(rows) {
 
 function checklistSpecificFields(activity, body) {
   const inventoryType = INVENTORY_TYPES.some((type) => type.key === body.inventoryType) ? body.inventoryType : "";
+  const isBottleActivity = normalizeText(activity).includes("vasilh");
+  const bottlesBorrowed = isBottleActivity ? intValue(body.bottlesBorrowed) : 0;
+  const bottlesDefective = isBottleActivity ? intValue(body.bottlesDefective) : 0;
+  const bottlesInStore = isBottleActivity ? intValue(body.bottlesInStore) : 0;
+  const bottlesSold = isBottleActivity ? intValue(body.bottlesSold) : 0;
   return {
     priceDivergenceProducts: activity === PRICE_DIVERGENCE_ACTIVITY ? body.priceDivergenceProducts || "" : "",
     priceDivergenceQuantity: activity === PRICE_DIVERGENCE_ACTIVITY ? intValue(body.priceDivergenceQuantity) : 0,
     expiredProducts: activity === EXPIRED_PRODUCTS_ACTIVITY ? body.expiredProducts || "" : "",
     expiredProductsQuantity: activity === EXPIRED_PRODUCTS_ACTIVITY ? intValue(body.expiredProductsQuantity) : 0,
     inventoryType: activity === INVENTORY_ACTIVITY ? inventoryType : "",
+    bottlesBorrowed,
+    bottlesDefective,
+    bottlesInStore,
+    bottlesSold,
+    bottlesFinalCount: bottlesBorrowed + bottlesDefective + bottlesInStore + bottlesSold,
+    bottlesDetails: isBottleActivity ? body.bottlesDetails || "" : "",
     sector: activityNeedsProductSector(activity) || activity === GENERAL_STORE_OBSERVATION_ACTIVITY ? body.sector || "" : "",
   };
 }
@@ -3871,7 +3940,7 @@ async function api(req, res, url) {
     }
     const photoPath = await saveChecklistPhoto(body.activity, body);
     await execute(
-      "INSERT INTO checklists (date, collaborator_id, activity, answer, observation, sector, price_divergence_products, price_divergence_quantity, expired_products, expired_products_quantity, inventory_type, photo_path, sent_at, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      "INSERT INTO checklists (date, collaborator_id, activity, answer, observation, sector, price_divergence_products, price_divergence_quantity, expired_products, expired_products_quantity, inventory_type, bottles_borrowed, bottles_defective, bottles_in_store, bottles_sold, bottles_final_count, bottles_details, photo_path, sent_at, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       [
         date,
         collaboratorId,
@@ -3884,6 +3953,12 @@ async function api(req, res, url) {
         specificFields.expiredProducts,
         specificFields.expiredProductsQuantity,
         specificFields.inventoryType,
+        specificFields.bottlesBorrowed,
+        specificFields.bottlesDefective,
+        specificFields.bottlesInStore,
+        specificFields.bottlesSold,
+        specificFields.bottlesFinalCount,
+        specificFields.bottlesDetails,
         photoPath,
         nowIso(),
         user.id,
@@ -3895,14 +3970,17 @@ async function api(req, res, url) {
   if (method === "PUT" && url.pathname.startsWith("/api/checklists/")) {
     if (!canAccessPrevention(user)) return send(res, 403, { error: "Acesso restrito ao módulo de prevenção." });
     const id = Number(url.pathname.split("/").pop());
-    const record = (await query("SELECT created_by FROM checklists WHERE id = ?", [id]))[0];
+    const record = (await query("SELECT * FROM checklists WHERE id = ?", [id]))[0];
     if (!record) return send(res, 404, { error: "Preenchimento nÃ£o encontrado." });
     if (!canCorrect(user) && record.created_by !== user.id) {
       return send(res, 403, { error: "VocÃª sÃ³ pode corrigir preenchimentos enviados por vocÃª." });
     }
     const body = await readBody(req);
     const collaboratorId = canCorrect(user) ? body.collaboratorId : user.collaborator_id || body.collaboratorId;
-    const specificFields = checklistSpecificFields(body.activity, body);
+    const specificFields = checklistSpecificFields(body.activity, {
+      ...body,
+      bottlesSold: Object.prototype.hasOwnProperty.call(body, "bottlesSold") ? body.bottlesSold : record.bottles_sold,
+    });
     if (activityNeedsProductSector(body.activity) && !specificFields.sector) {
       return send(res, 400, { error: "Selecione o setor do produto." });
     }
@@ -3918,7 +3996,7 @@ async function api(req, res, url) {
         : "";
     const photoParams = photoPath ? [photoPath] : [];
     await execute(
-      `UPDATE checklists SET collaborator_id = ?, activity = ?, answer = ?, observation = ?, sector = ?, price_divergence_products = ?, price_divergence_quantity = ?, expired_products = ?, expired_products_quantity = ?, inventory_type = ?${photoSetClause}, corrected_by = ?, corrected_at = ? WHERE id = ?`,
+      `UPDATE checklists SET collaborator_id = ?, activity = ?, answer = ?, observation = ?, sector = ?, price_divergence_products = ?, price_divergence_quantity = ?, expired_products = ?, expired_products_quantity = ?, inventory_type = ?, bottles_borrowed = ?, bottles_defective = ?, bottles_in_store = ?, bottles_sold = ?, bottles_final_count = ?, bottles_details = ?${photoSetClause}, corrected_by = ?, corrected_at = ? WHERE id = ?`,
       [
         collaboratorId,
         body.activity,
@@ -3930,6 +4008,12 @@ async function api(req, res, url) {
         specificFields.expiredProducts,
         specificFields.expiredProductsQuantity,
         specificFields.inventoryType,
+        specificFields.bottlesBorrowed,
+        specificFields.bottlesDefective,
+        specificFields.bottlesInStore,
+        specificFields.bottlesSold,
+        specificFields.bottlesFinalCount,
+        specificFields.bottlesDetails,
         ...photoParams,
         user.id,
         nowIso(),

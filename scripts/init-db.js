@@ -40,6 +40,11 @@ async function initPostgres() {
       expired_products TEXT,
       expired_products_quantity INTEGER NOT NULL DEFAULT 0,
       inventory_type TEXT,
+      bottles_borrowed INTEGER NOT NULL DEFAULT 0,
+      bottles_defective INTEGER NOT NULL DEFAULT 0,
+      bottles_in_store INTEGER NOT NULL DEFAULT 0,
+      bottles_sold INTEGER NOT NULL DEFAULT 0,
+      bottles_final_count INTEGER NOT NULL DEFAULT 0,
       photo_path TEXT,
       sent_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       created_by INTEGER NOT NULL REFERENCES users(id),
@@ -280,6 +285,11 @@ async function initPostgres() {
   await pool.query("ALTER TABLE checklists ADD COLUMN IF NOT EXISTS inventory_type TEXT");
   await pool.query("ALTER TABLE checklists ADD COLUMN IF NOT EXISTS price_divergence_quantity INTEGER NOT NULL DEFAULT 0");
   await pool.query("ALTER TABLE checklists ADD COLUMN IF NOT EXISTS expired_products_quantity INTEGER NOT NULL DEFAULT 0");
+  await pool.query("ALTER TABLE checklists ADD COLUMN IF NOT EXISTS bottles_borrowed INTEGER NOT NULL DEFAULT 0");
+  await pool.query("ALTER TABLE checklists ADD COLUMN IF NOT EXISTS bottles_defective INTEGER NOT NULL DEFAULT 0");
+  await pool.query("ALTER TABLE checklists ADD COLUMN IF NOT EXISTS bottles_in_store INTEGER NOT NULL DEFAULT 0");
+  await pool.query("ALTER TABLE checklists ADD COLUMN IF NOT EXISTS bottles_sold INTEGER NOT NULL DEFAULT 0");
+  await pool.query("ALTER TABLE checklists ADD COLUMN IF NOT EXISTS bottles_final_count INTEGER NOT NULL DEFAULT 0");
   await pool.query("ALTER TABLE uploaded_files ADD COLUMN IF NOT EXISTS thumbnail_content_type TEXT");
   await pool.query("ALTER TABLE uploaded_files ADD COLUMN IF NOT EXISTS thumbnail_data_base64 TEXT");
   await pool.query("ALTER TABLE uploaded_files ADD COLUMN IF NOT EXISTS storage_provider TEXT");

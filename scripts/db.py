@@ -74,6 +74,11 @@ def init_db():
             expired_products TEXT,
             expired_products_quantity INTEGER NOT NULL DEFAULT 0,
             inventory_type TEXT,
+            bottles_borrowed INTEGER NOT NULL DEFAULT 0,
+            bottles_defective INTEGER NOT NULL DEFAULT 0,
+            bottles_in_store INTEGER NOT NULL DEFAULT 0,
+            bottles_sold INTEGER NOT NULL DEFAULT 0,
+            bottles_final_count INTEGER NOT NULL DEFAULT 0,
             photo_path TEXT,
             sent_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             created_by INTEGER NOT NULL,
@@ -432,6 +437,16 @@ def init_db():
         conn.execute("ALTER TABLE checklists ADD COLUMN sector TEXT")
     if "inventory_type" not in checklist_columns:
         conn.execute("ALTER TABLE checklists ADD COLUMN inventory_type TEXT")
+    if "bottles_borrowed" not in checklist_columns:
+        conn.execute("ALTER TABLE checklists ADD COLUMN bottles_borrowed INTEGER NOT NULL DEFAULT 0")
+    if "bottles_defective" not in checklist_columns:
+        conn.execute("ALTER TABLE checklists ADD COLUMN bottles_defective INTEGER NOT NULL DEFAULT 0")
+    if "bottles_in_store" not in checklist_columns:
+        conn.execute("ALTER TABLE checklists ADD COLUMN bottles_in_store INTEGER NOT NULL DEFAULT 0")
+    if "bottles_sold" not in checklist_columns:
+        conn.execute("ALTER TABLE checklists ADD COLUMN bottles_sold INTEGER NOT NULL DEFAULT 0")
+    if "bottles_final_count" not in checklist_columns:
+        conn.execute("ALTER TABLE checklists ADD COLUMN bottles_final_count INTEGER NOT NULL DEFAULT 0")
 
     upload_columns = [row["name"] for row in conn.execute("PRAGMA table_info(uploaded_files)").fetchall()]
     if "thumbnail_content_type" not in upload_columns:

@@ -1729,6 +1729,14 @@ function renderChecklist() {
           ${INVENTORY_TYPES.map(([value, label]) => `<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>`).join("")}
         </select>
       </label>
+      <div class="grid four" data-bottles-field>
+        <label>Qual vasilhame <input name="bottlesDetails" placeholder="Ex.: garrafa 1L, 2L, caixa, engradado"></label>
+        <label>Emprestados <input name="bottlesBorrowed" type="number" min="0" step="1"></label>
+        <label>Com defeitos <input name="bottlesDefective" type="number" min="0" step="1"></label>
+        <label>Em loja <input name="bottlesInStore" type="number" min="0" step="1"></label>
+        <label>Vendidos <input name="bottlesSold" type="number" min="0" step="1" ${canFillBottleSales() ? "" : "disabled"}></label>
+        <label>Total final <input name="bottlesFinalCount" type="number" readonly></label>
+      </div>
       <label data-checklist-photo-field>Foto do checklist
         <input name="photoFile" type="file" accept="image/*" capture="environment">
         <span class="field-help">Cotacoes e recebimentos contam por foto. Precificacao e validade contam pela quantidade informada em produtos identificados.</span>
@@ -1781,12 +1789,22 @@ function renderChecklist() {
   const expiredQuantityField = checklistForm.querySelector("[data-expired-quantity-field]");
   const sectorField = checklistForm.querySelector("[data-product-sector-field]");
   const inventoryField = checklistForm.querySelector("[data-inventory-type-field]");
+  const bottlesField = checklistForm.querySelector("[data-bottles-field]");
   const photoField = checklistForm.querySelector("[data-checklist-photo-field]");
+  const updateChecklistBottlesTotal = () => {
+    const total = ["bottlesBorrowed", "bottlesDefective", "bottlesInStore", "bottlesSold"]
+      .reduce((sum, name) => sum + Number(checklistForm.elements[name]?.value || 0), 0);
+    checklistForm.elements.bottlesFinalCount.value = total;
+  };
+  ["bottlesBorrowed", "bottlesDefective", "bottlesInStore", "bottlesSold"].forEach((name) => {
+    checklistForm.elements[name].addEventListener("input", updateChecklistBottlesTotal);
+  });
   const syncChecklistSpecificFields = () => {
     const activity = activitySelect.value;
     const showPrice = activity === PRICE_DIVERGENCE_ACTIVITY;
     const showExpired = activity === EXPIRED_PRODUCTS_ACTIVITY;
     const showInventory = activity === INVENTORY_ACTIVITY;
+    const showBottles = withoutAccents(activity).toLowerCase().includes("vasilh");
     const showSector = activityNeedsProductSector(activity);
     const showPhoto = checklistNeedsPhoto(activity);
     priceField.hidden = !showPrice;
@@ -1795,6 +1813,7 @@ function renderChecklist() {
     expiredQuantityField.hidden = !showExpired;
     sectorField.hidden = !showSector;
     inventoryField.hidden = !showInventory;
+    bottlesField.hidden = !showBottles;
     photoField.hidden = !showPhoto;
     priceField.classList.toggle("hidden", !showPrice);
     priceQuantityField.classList.toggle("hidden", !showPrice);
@@ -1802,6 +1821,7 @@ function renderChecklist() {
     expiredQuantityField.classList.toggle("hidden", !showExpired);
     sectorField.classList.toggle("hidden", !showSector);
     inventoryField.classList.toggle("hidden", !showInventory);
+    bottlesField.classList.toggle("hidden", !showBottles);
     photoField.classList.toggle("hidden", !showPhoto);
     checklistForm.elements.sector.required = showSector;
     checklistForm.elements.priceDivergenceQuantity.required = false;
@@ -1811,9 +1831,15 @@ function renderChecklist() {
     if (!showPrice) checklistForm.elements.priceDivergenceQuantity.value = "";
     if (!showExpired) checklistForm.elements.expiredProducts.value = "";
     if (!showExpired) checklistForm.elements.expiredProductsQuantity.value = "";
+    if (!showBottles) {
+      ["bottlesDetails", "bottlesBorrowed", "bottlesDefective", "bottlesInStore", "bottlesSold", "bottlesFinalCount"].forEach((name) => {
+        checklistForm.elements[name].value = "";
+      });
+    }
     if (!showSector) checklistForm.elements.sector.value = "";
     if (!showInventory) checklistForm.elements.inventoryType.value = "";
     if (!showPhoto) checklistForm.elements.photoFile.value = "";
+    updateChecklistBottlesTotal();
   };
   activitySelect.addEventListener("change", syncChecklistSpecificFields);
   syncChecklistSpecificFields();
@@ -2078,6 +2104,16 @@ function checklistProductDetails(row) {
   if (row.activity === INVENTORY_ACTIVITY) {
     return INVENTORY_TYPES.find(([value]) => value === row.inventory_type)?.[1] || row.inventory_type || "";
   }
+  if (withoutAccents(row.activity).toLowerCase().includes("vasilh")) {
+    return [
+      row.bottles_details ? `Tipo: ${row.bottles_details}` : "",
+      `Emprestados: ${Number(row.bottles_borrowed || 0)}`,
+      `Defeitos: ${Number(row.bottles_defective || 0)}`,
+      `Em loja: ${Number(row.bottles_in_store || 0)}`,
+      `Vendidos: ${Number(row.bottles_sold || 0)}`,
+      row.bottles_difference == null ? "Comparação: sem histórico anterior" : `Diferença: ${Number(row.bottles_difference || 0)} (${row.bottles_comparison_status || ""})`,
+    ].filter(Boolean).join(" | ");
+  }
   return "";
 }
 
@@ -2086,6 +2122,7 @@ function checklistProductQuantity(row) {
   if (normalizeText(row.activity).includes("recebimento")) return row.photo_path ? "1 foto" : "";
   if (row.activity === PRICE_DIVERGENCE_ACTIVITY) return checklistIdentifiedProductQuantity(row, PRICE_DIVERGENCE_ACTIVITY) || "";
   if (row.activity === EXPIRED_PRODUCTS_ACTIVITY) return checklistIdentifiedProductQuantity(row, EXPIRED_PRODUCTS_ACTIVITY) || "";
+  if (withoutAccents(row.activity).toLowerCase().includes("vasilh")) return row.bottles_final_count || 0;
   return "";
 }
 
@@ -2280,6 +2317,7 @@ function editChecklist(id) {
   const isPrice = row.activity === PRICE_DIVERGENCE_ACTIVITY;
   const isExpired = row.activity === EXPIRED_PRODUCTS_ACTIVITY;
   const isInventory = row.activity === INVENTORY_ACTIVITY;
+  const isBottles = withoutAccents(row.activity).toLowerCase().includes("vasilh");
   const panel = document.getElementById("checklistEditPanel");
   panel.innerHTML = `
     <form class="panel grid checklist-edit-panel" id="checklistEditForm">
@@ -2321,6 +2359,22 @@ function editChecklist(id) {
           ${INVENTORY_TYPES.map(([value, label]) => `<option value="${escapeHtml(value)}" ${value === row.inventory_type ? "selected" : ""}>${escapeHtml(label)}</option>`).join("")}
         </select>
       </label>` : `<input type="hidden" name="inventoryType" value="">`}
+      ${isBottles ? `
+        <div class="grid four" data-edit-bottles-field>
+          <label>Qual vasilhame <input name="bottlesDetails" value="${escapeHtml(row.bottles_details || "")}" placeholder="Ex.: garrafa 1L, 2L, caixa, engradado"></label>
+          <label>Emprestados <input name="bottlesBorrowed" type="number" min="0" step="1" value="${escapeHtml(row.bottles_borrowed || "")}"></label>
+          <label>Com defeitos <input name="bottlesDefective" type="number" min="0" step="1" value="${escapeHtml(row.bottles_defective || "")}"></label>
+          <label>Em loja <input name="bottlesInStore" type="number" min="0" step="1" value="${escapeHtml(row.bottles_in_store || "")}"></label>
+          <label>Vendidos <input name="bottlesSold" type="number" min="0" step="1" value="${escapeHtml(row.bottles_sold || "")}" ${canFillBottleSales() ? "" : "disabled"}></label>
+          <label>Total final <input name="bottlesFinalCount" type="number" value="${escapeHtml(row.bottles_final_count || "")}" readonly></label>
+        </div>
+      ` : `
+        <input type="hidden" name="bottlesDetails" value="">
+        <input type="hidden" name="bottlesBorrowed" value="">
+        <input type="hidden" name="bottlesDefective" value="">
+        <input type="hidden" name="bottlesInStore" value="">
+        <input type="hidden" name="bottlesSold" value="">
+      `}
       ${needsPhoto ? `
         <div class="checklist-photo-editor">
           <div>
@@ -2343,6 +2397,17 @@ function editChecklist(id) {
   `;
   panel.scrollIntoView({ behavior: "smooth", block: "start" });
   const form = document.getElementById("checklistEditForm");
+  if (isBottles) {
+    const updateEditBottlesTotal = () => {
+      const total = ["bottlesBorrowed", "bottlesDefective", "bottlesInStore", "bottlesSold"]
+        .reduce((sum, name) => sum + Number(form.elements[name]?.value || 0), 0);
+      form.elements.bottlesFinalCount.value = total;
+    };
+    ["bottlesBorrowed", "bottlesDefective", "bottlesInStore", "bottlesSold"].forEach((name) => {
+      form.elements[name].addEventListener("input", updateEditBottlesTotal);
+    });
+    updateEditBottlesTotal();
+  }
   const cancel = () => { panel.innerHTML = ""; };
   document.getElementById("cancelChecklistEdit").addEventListener("click", cancel);
   document.getElementById("cancelChecklistEditBottom").addEventListener("click", cancel);
