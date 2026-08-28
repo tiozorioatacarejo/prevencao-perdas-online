@@ -13,6 +13,7 @@
   activities: [],
   checklists: [],
   bottleMonthlyReport: null,
+  bottleSales: [],
   pendencies: [],
   sectorAudits: [],
   sectorAuditSummary: { evaluatedByUser: 0, evaluatedTotal: 0 },
@@ -953,6 +954,12 @@ async function loadBottleMonthlyReport(month = localMonthValue()) {
   state.bottleMonthlyReport = await api(`/api/reports/bottles-month?${qs.toString()}`);
 }
 
+async function loadBottleSales(month = localMonthValue()) {
+  const qs = new URLSearchParams({ month });
+  const data = await api(`/api/bottle-sales?${qs.toString()}`);
+  state.bottleSales = data.rows || [];
+}
+
 async function loadPendencies() {
   const data = await api("/api/pendencies");
   state.pendencies = data.rows;
@@ -1744,7 +1751,6 @@ function renderChecklist() {
         <label>Emprestados <input name="bottlesBorrowed" type="number" min="0" step="1"></label>
         <label>Com defeitos <input name="bottlesDefective" type="number" min="0" step="1"></label>
         <label>Em loja <input name="bottlesInStore" type="number" min="0" step="1"></label>
-        <label>Vendidos <input name="bottlesSold" type="number" min="0" step="1" ${canFillBottleSales() ? "" : "disabled"}></label>
         <label>Total final <input name="bottlesFinalCount" type="number" readonly></label>
       </div>
       <label data-checklist-photo-field>Foto do checklist
@@ -1806,7 +1812,7 @@ function renderChecklist() {
       .reduce((sum, name) => sum + Number(checklistForm.elements[name]?.value || 0), 0);
     checklistForm.elements.bottlesFinalCount.value = total;
   };
-  ["bottlesBorrowed", "bottlesDefective", "bottlesInStore", "bottlesSold"].forEach((name) => {
+  ["bottlesBorrowed", "bottlesDefective", "bottlesInStore"].forEach((name) => {
     checklistForm.elements[name].addEventListener("input", updateChecklistBottlesTotal);
   });
   const syncChecklistSpecificFields = () => {
@@ -1842,7 +1848,7 @@ function renderChecklist() {
     if (!showExpired) checklistForm.elements.expiredProducts.value = "";
     if (!showExpired) checklistForm.elements.expiredProductsQuantity.value = "";
     if (!showBottles) {
-      ["bottlesDetails", "bottlesBorrowed", "bottlesDefective", "bottlesInStore", "bottlesSold", "bottlesFinalCount"].forEach((name) => {
+      ["bottlesDetails", "bottlesBorrowed", "bottlesDefective", "bottlesInStore", "bottlesFinalCount"].forEach((name) => {
         checklistForm.elements[name].value = "";
       });
     }
@@ -2101,6 +2107,7 @@ function renderReports() {
     state.reportParams = `?${qs.toString()}`;
     await loadChecklists(state.reportParams);
     await loadBottleMonthlyReport(state.reportFilters.bottleMonth || localMonthValue());
+    await loadBottleSales(state.reportFilters.bottleMonth || localMonthValue());
     drawBottleMonthlyReport();
     drawReportTable();
     return qs;
@@ -2126,6 +2133,27 @@ function drawBottleMonthlyReport() {
   const data = state.bottleMonthlyReport;
   const target = document.getElementById("bottleMonthlyReport");
   if (!target || !data) return;
+  const selectedMonth = data.month?.month || state.reportFilters.bottleMonth || localMonthValue();
+  const range = monthRange(selectedMonth);
+  const salesForm = canFillBottleSales() ? `
+    <form class="grid" id="bottleSaleForm" style="margin-top:14px">
+      <input type="hidden" name="id" value="">
+      <div class="grid four">
+        <label>Vasilhame
+          <select name="bottleType" required>${BOTTLE_TYPES.map((type) => `<option value="${escapeHtml(type)}">${escapeHtml(type)}</option>`).join("")}</select>
+        </label>
+        <label>Início <input name="startDate" type="date" value="${escapeHtml(range.startDate)}" required></label>
+        <label>Fim <input name="endDate" type="date" value="${escapeHtml(range.endDate)}" required></label>
+        <label>Quantidade vendida <input name="quantity" type="number" min="1" step="1" required></label>
+      </div>
+      <label>Observação <input name="observation" placeholder="Ex.: venda consolidada do período"></label>
+      <div class="toolbar">
+        <button class="btn primary" type="submit">Salvar venda</button>
+        <button class="btn" type="button" id="cancelBottleSaleEdit" hidden>Cancelar edição</button>
+      </div>
+    </form>
+  ` : "";
+  const salesActions = canFillBottleSales();
   target.innerHTML = `
     <div class="panel" style="margin-top:14px">
       <div class="section-title-row">
@@ -2152,8 +2180,87 @@ function drawBottleMonthlyReport() {
           </tbody>
         </table>
       </div>
+      ${salesForm}
+      <h3 style="margin-top:18px">Vendas de vasilhames no período</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Vasilhame</th><th>Início</th><th>Fim</th><th>Qtd.</th><th>Observação</th><th>Atualizado por</th>${salesActions ? "<th>Ações</th>" : ""}</tr></thead>
+          <tbody>
+            ${(state.bottleSales || []).map((row) => `
+              <tr>
+                <td data-label="Vasilhame">${escapeHtml(row.bottle_type)}</td>
+                <td data-label="Início">${fmtDate(row.start_date)}</td>
+                <td data-label="Fim">${fmtDate(row.end_date)}</td>
+                <td data-label="Qtd.">${escapeHtml(row.quantity || 0)}</td>
+                <td data-label="Observação">${escapeHtml(row.observation || "-")}</td>
+                <td data-label="Atualizado por">${escapeHtml(row.updated_by_name || "-")}</td>
+                ${salesActions ? `<td data-label="Ações"><div class="toolbar"><button class="btn" type="button" data-edit-bottle-sale="${row.id}">Editar</button><button class="btn danger" type="button" data-delete-bottle-sale="${row.id}">Excluir</button></div></td>` : ""}
+              </tr>
+            `).join("") || `<tr><td colspan="${salesActions ? 7 : 6}">Nenhuma venda cadastrada para este mês.</td></tr>`}
+          </tbody>
+        </table>
+      </div>
     </div>
   `;
+  bindBottleSaleActions();
+}
+
+async function refreshBottleMonthlyArea() {
+  const month = state.reportFilters.bottleMonth || localMonthValue();
+  await loadBottleMonthlyReport(month);
+  await loadBottleSales(month);
+  drawBottleMonthlyReport();
+}
+
+function bindBottleSaleActions() {
+  if (!canFillBottleSales()) return;
+  const form = document.getElementById("bottleSaleForm");
+  if (!form) return;
+  const cancelButton = document.getElementById("cancelBottleSaleEdit");
+  const resetSaleForm = () => {
+    const range = monthRange(state.reportFilters.bottleMonth || localMonthValue());
+    form.reset();
+    form.elements.id.value = "";
+    form.elements.startDate.value = range.startDate;
+    form.elements.endDate.value = range.endDate;
+    cancelButton.hidden = true;
+  };
+  cancelButton.addEventListener("click", resetSaleForm);
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const body = Object.fromEntries(new FormData(form).entries());
+    const id = body.id;
+    delete body.id;
+    await api(id ? `/api/bottle-sales/${id}` : "/api/bottle-sales", {
+      method: id ? "PUT" : "POST",
+      body: JSON.stringify(body),
+    });
+    await refreshBottleMonthlyArea();
+    toast(id ? "Venda de vasilhames atualizada." : "Venda de vasilhames cadastrada.");
+  });
+  document.querySelectorAll("[data-edit-bottle-sale]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const row = state.bottleSales.find((item) => Number(item.id) === Number(button.dataset.editBottleSale));
+      if (!row) return;
+      form.elements.id.value = row.id;
+      form.elements.bottleType.value = row.bottle_type;
+      form.elements.startDate.value = row.start_date;
+      form.elements.endDate.value = row.end_date;
+      form.elements.quantity.value = row.quantity || "";
+      form.elements.observation.value = row.observation || "";
+      cancelButton.hidden = false;
+      form.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+  });
+  document.querySelectorAll("[data-delete-bottle-sale]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const row = state.bottleSales.find((item) => Number(item.id) === Number(button.dataset.deleteBottleSale));
+      if (!row || !confirm(`Excluir venda de ${row.bottle_type} de ${fmtDate(row.start_date)} a ${fmtDate(row.end_date)}?`)) return;
+      await api(`/api/bottle-sales/${row.id}`, { method: "DELETE" });
+      await refreshBottleMonthlyArea();
+      toast("Venda de vasilhames excluída.");
+    });
+  });
 }
 
 function checklistProductDetails(row) {
@@ -2168,10 +2275,9 @@ function checklistProductDetails(row) {
       `Emprestados: ${Number(row.bottles_borrowed || 0)}`,
       `Defeitos: ${Number(row.bottles_defective || 0)}`,
       `Em loja: ${Number(row.bottles_in_store || 0)}`,
-      `Vendidos: ${Number(row.bottles_sold || 0)}`,
       row.bottles_difference == null
         ? "Comparação: sem histórico anterior para este vasilhame"
-        : `Anterior: ${row.bottles_previous_final_count ?? "-"} | Esperado após vendas: ${row.bottles_expected_final_count ?? "-"} | Diferença: ${Number(row.bottles_difference || 0)} (${row.bottles_comparison_status || ""})`,
+        : `Anterior: ${row.bottles_previous_final_count ?? "-"} | Diferença da contagem: ${Number(row.bottles_difference || 0)} (${row.bottles_comparison_status || ""})`,
     ].filter(Boolean).join(" | ");
   }
   return "";
@@ -2430,7 +2536,6 @@ function editChecklist(id) {
           <label>Emprestados <input name="bottlesBorrowed" type="number" min="0" step="1" value="${escapeHtml(row.bottles_borrowed || "")}"></label>
           <label>Com defeitos <input name="bottlesDefective" type="number" min="0" step="1" value="${escapeHtml(row.bottles_defective || "")}"></label>
           <label>Em loja <input name="bottlesInStore" type="number" min="0" step="1" value="${escapeHtml(row.bottles_in_store || "")}"></label>
-          <label>Vendidos <input name="bottlesSold" type="number" min="0" step="1" value="${escapeHtml(row.bottles_sold || "")}" ${canFillBottleSales() ? "" : "disabled"}></label>
           <label>Total final <input name="bottlesFinalCount" type="number" value="${escapeHtml(row.bottles_final_count || "")}" readonly></label>
         </div>
       ` : `
@@ -2438,7 +2543,6 @@ function editChecklist(id) {
         <input type="hidden" name="bottlesBorrowed" value="">
         <input type="hidden" name="bottlesDefective" value="">
         <input type="hidden" name="bottlesInStore" value="">
-        <input type="hidden" name="bottlesSold" value="">
       `}
       ${needsPhoto ? `
         <div class="checklist-photo-editor">
@@ -2468,7 +2572,7 @@ function editChecklist(id) {
         .reduce((sum, name) => sum + Number(form.elements[name]?.value || 0), 0);
       form.elements.bottlesFinalCount.value = total;
     };
-    ["bottlesBorrowed", "bottlesDefective", "bottlesInStore", "bottlesSold"].forEach((name) => {
+    ["bottlesBorrowed", "bottlesDefective", "bottlesInStore"].forEach((name) => {
       form.elements[name].addEventListener("input", updateEditBottlesTotal);
     });
     updateEditBottlesTotal();

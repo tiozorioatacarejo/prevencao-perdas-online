@@ -79,6 +79,7 @@ def init_db():
             bottles_in_store INTEGER NOT NULL DEFAULT 0,
             bottles_sold INTEGER NOT NULL DEFAULT 0,
             bottles_final_count INTEGER NOT NULL DEFAULT 0,
+            bottles_details TEXT,
             photo_path TEXT,
             sent_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             created_by INTEGER NOT NULL,
@@ -120,6 +121,21 @@ def init_db():
             created_by INTEGER NOT NULL,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (created_by) REFERENCES users(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS bottle_sales (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            bottle_type TEXT NOT NULL,
+            start_date TEXT NOT NULL,
+            end_date TEXT NOT NULL,
+            quantity INTEGER NOT NULL DEFAULT 0,
+            observation TEXT,
+            created_by INTEGER NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_by INTEGER,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (created_by) REFERENCES users(id),
+            FOREIGN KEY (updated_by) REFERENCES users(id)
         );
 
         CREATE TABLE IF NOT EXISTS daily_tasks (

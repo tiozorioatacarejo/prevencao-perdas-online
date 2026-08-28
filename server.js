@@ -357,6 +357,19 @@ async function initPostgres(pool) {
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS bottle_sales (
+      id SERIAL PRIMARY KEY,
+      bottle_type TEXT NOT NULL,
+      start_date TEXT NOT NULL,
+      end_date TEXT NOT NULL,
+      quantity INTEGER NOT NULL DEFAULT 0,
+      observation TEXT,
+      created_by INTEGER NOT NULL REFERENCES users(id),
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_by INTEGER REFERENCES users(id),
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
     CREATE TABLE IF NOT EXISTS daily_tasks (
       id SERIAL PRIMARY KEY,
       title TEXT NOT NULL,
@@ -1658,6 +1671,28 @@ function bottleTypeKey(row = {}) {
   return normalizeText(row.bottles_details || "sem tipo");
 }
 
+function validBottleType(value) {
+  return BOTTLE_TYPES.find((type) => normalizeText(type) === normalizeText(value));
+}
+
+async function bottleSalesRows(monthValue = null) {
+  const params = [];
+  let where = "";
+  if (monthValue) {
+    const month = monthInfoFromValue(monthValue);
+    where = "WHERE start_date <= ? AND end_date >= ?";
+    params.push(month.end, month.start);
+  }
+  return query(
+    `SELECT bs.*, u.display_name AS updated_by_name
+     FROM bottle_sales bs
+     LEFT JOIN users u ON u.id = COALESCE(bs.updated_by, bs.created_by)
+     ${where}
+     ORDER BY bs.start_date DESC, bs.end_date DESC, bs.id DESC`,
+    params
+  );
+}
+
 function enrichBottleSummary(row, previousRow = null) {
   if (!row) return null;
   const finalCount = bottleBreakdownTotal(row);
@@ -1733,6 +1768,7 @@ async function monthlyBottleSummary(monthValue) {
      ORDER BY date, sent_at, id`,
     [month.end]
   );
+  const salesRows = await bottleSalesRows(month.month);
   const summaries = BOTTLE_TYPES.map((type) => {
     const typeKey = normalizeText(type);
     const typeRows = rows.filter((row) => bottleTypeKey(row) === typeKey);
@@ -1742,7 +1778,9 @@ async function monthlyBottleSummary(monthValue) {
     const finalRow = monthRows[monthRows.length - 1] || null;
     const previousFinal = previousRow ? bottleBreakdownTotal(previousRow) : null;
     const finalCount = finalRow ? bottleBreakdownTotal(finalRow) : null;
-    const sold = monthRows.reduce((sum, row) => sum + intValue(row.bottles_sold), 0);
+    const sold = salesRows
+      .filter((row) => normalizeText(row.bottle_type) === typeKey)
+      .reduce((sum, row) => sum + intValue(row.quantity), 0);
     const expectedFinal = previousFinal == null ? null : previousFinal - sold;
     const difference = finalCount == null || expectedFinal == null ? null : finalCount - expectedFinal;
     return {
@@ -2237,10 +2275,9 @@ function checklistProductDetails(row) {
       `Emprestados: ${intValue(row.bottles_borrowed)}`,
       `Defeitos: ${intValue(row.bottles_defective)}`,
       `Em loja: ${intValue(row.bottles_in_store)}`,
-      `Vendidos: ${intValue(row.bottles_sold)}`,
       row.bottles_difference == null
         ? "Comparacao: sem historico anterior para este vasilhame"
-        : `Anterior: ${row.bottles_previous_final_count} | Esperado apos vendas: ${row.bottles_expected_final_count} | Diferenca: ${row.bottles_difference} (${row.bottles_comparison_status})`,
+        : `Anterior: ${row.bottles_previous_final_count} | Diferenca da contagem: ${row.bottles_difference} (${row.bottles_comparison_status})`,
     ].filter(Boolean).join(" | ");
   }
   return "";
@@ -2534,7 +2571,7 @@ function checklistSpecificFields(activity, body) {
   const bottlesBorrowed = isBottleActivity ? intValue(body.bottlesBorrowed) : 0;
   const bottlesDefective = isBottleActivity ? intValue(body.bottlesDefective) : 0;
   const bottlesInStore = isBottleActivity ? intValue(body.bottlesInStore) : 0;
-  const bottlesSold = isBottleActivity ? intValue(body.bottlesSold) : 0;
+  const bottlesSold = 0;
   return {
     priceDivergenceProducts: activity === PRICE_DIVERGENCE_ACTIVITY ? body.priceDivergenceProducts || "" : "",
     priceDivergenceQuantity: activity === PRICE_DIVERGENCE_ACTIVITY ? intValue(body.priceDivergenceQuantity) : 0,
@@ -4024,6 +4061,58 @@ async function api(req, res, url) {
   if (method === "GET" && url.pathname === "/api/reports/bottles-month") {
     if (!canAccessPrevention(user)) return send(res, 403, { error: "Acesso restrito ao módulo de prevenção." });
     return send(res, 200, await monthlyBottleSummary(url.searchParams.get("month") || today().slice(0, 7)));
+  }
+
+  if (method === "GET" && url.pathname === "/api/bottle-sales") {
+    if (!canAccessPrevention(user)) return send(res, 403, { error: "Acesso restrito ao módulo de prevenção." });
+    return send(res, 200, { rows: await bottleSalesRows(url.searchParams.get("month") || null) });
+  }
+
+  if (method === "POST" && url.pathname === "/api/bottle-sales") {
+    if (!isAdmin(user)) return send(res, 403, { error: "Apenas administrador pode lançar vendas de vasilhames." });
+    const body = await readBody(req);
+    const bottleType = validBottleType(body.bottleType);
+    const startDate = validDateValue(body.startDate) ? body.startDate : "";
+    const endDate = validDateValue(body.endDate) ? body.endDate : "";
+    const quantity = intValue(body.quantity);
+    if (!bottleType) return send(res, 400, { error: "Selecione um vasilhame válido." });
+    if (!startDate || !endDate || endDate < startDate) return send(res, 400, { error: "Informe um período válido." });
+    if (quantity <= 0) return send(res, 400, { error: "Informe a quantidade vendida." });
+    await execute(
+      `INSERT INTO bottle_sales (bottle_type, start_date, end_date, quantity, observation, created_by, updated_by, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [bottleType, startDate, endDate, quantity, body.observation || "", user.id, user.id, nowIso()]
+    );
+    return send(res, 201, { ok: true });
+  }
+
+  if (method === "PUT" && url.pathname.startsWith("/api/bottle-sales/")) {
+    if (!isAdmin(user)) return send(res, 403, { error: "Apenas administrador pode editar vendas de vasilhames." });
+    const id = Number(url.pathname.split("/").pop());
+    const existing = (await query("SELECT id FROM bottle_sales WHERE id = ?", [id]))[0];
+    if (!existing) return send(res, 404, { error: "Venda de vasilhames não encontrada." });
+    const body = await readBody(req);
+    const bottleType = validBottleType(body.bottleType);
+    const startDate = validDateValue(body.startDate) ? body.startDate : "";
+    const endDate = validDateValue(body.endDate) ? body.endDate : "";
+    const quantity = intValue(body.quantity);
+    if (!bottleType) return send(res, 400, { error: "Selecione um vasilhame válido." });
+    if (!startDate || !endDate || endDate < startDate) return send(res, 400, { error: "Informe um período válido." });
+    if (quantity <= 0) return send(res, 400, { error: "Informe a quantidade vendida." });
+    await execute(
+      `UPDATE bottle_sales
+       SET bottle_type = ?, start_date = ?, end_date = ?, quantity = ?, observation = ?, updated_by = ?, updated_at = ?
+       WHERE id = ?`,
+      [bottleType, startDate, endDate, quantity, body.observation || "", user.id, nowIso(), id]
+    );
+    return send(res, 200, { ok: true });
+  }
+
+  if (method === "DELETE" && url.pathname.startsWith("/api/bottle-sales/")) {
+    if (!isAdmin(user)) return send(res, 403, { error: "Apenas administrador pode excluir vendas de vasilhames." });
+    const id = Number(url.pathname.split("/").pop());
+    await execute("DELETE FROM bottle_sales WHERE id = ?", [id]);
+    return send(res, 200, { ok: true });
   }
 
   if (method === "POST" && url.pathname === "/api/checklists") {
