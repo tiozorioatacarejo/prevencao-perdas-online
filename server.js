@@ -1723,6 +1723,47 @@ function enrichBottleSummaries(rows = []) {
   return rows.map((row) => byDate.get(row.date) || enrichBottleSummary(row));
 }
 
+async function monthlyBottleSummary(monthValue) {
+  const month = monthInfoFromValue(monthValue);
+  const rows = await query(
+    `SELECT id, date, sent_at, bottles_borrowed, bottles_defective, bottles_in_store,
+            bottles_sold, bottles_final_count, bottles_details
+     FROM checklists
+     WHERE LOWER(activity) LIKE '%vasilh%' AND date <= ?
+     ORDER BY date, sent_at, id`,
+    [month.end]
+  );
+  const summaries = BOTTLE_TYPES.map((type) => {
+    const typeKey = normalizeText(type);
+    const typeRows = rows.filter((row) => bottleTypeKey(row) === typeKey);
+    const previousRows = typeRows.filter((row) => row.date < month.start);
+    const monthRows = typeRows.filter((row) => row.date >= month.start && row.date <= month.end);
+    const previousRow = previousRows[previousRows.length - 1] || null;
+    const finalRow = monthRows[monthRows.length - 1] || null;
+    const previousFinal = previousRow ? bottleBreakdownTotal(previousRow) : null;
+    const finalCount = finalRow ? bottleBreakdownTotal(finalRow) : null;
+    const sold = monthRows.reduce((sum, row) => sum + intValue(row.bottles_sold), 0);
+    const expectedFinal = previousFinal == null ? null : previousFinal - sold;
+    const difference = finalCount == null || expectedFinal == null ? null : finalCount - expectedFinal;
+    return {
+      type,
+      month: month.month,
+      previousDate: previousRow?.date || null,
+      previousFinal,
+      sold,
+      expectedFinal,
+      finalDate: finalRow?.date || null,
+      finalBorrowed: finalRow ? intValue(finalRow.bottles_borrowed) : null,
+      finalDefective: finalRow ? intValue(finalRow.bottles_defective) : null,
+      finalInStore: finalRow ? intValue(finalRow.bottles_in_store) : null,
+      finalCount,
+      difference,
+      status: bottleComparisonStatus(difference),
+    };
+  });
+  return { month, rows: summaries };
+}
+
 function nowIso() {
   return new Date().toISOString();
 }
@@ -2214,7 +2255,7 @@ function checklistProductQuantity(row) {
   return "";
 }
 
-function makeExcel(rows) {
+function makeExcel(rows, bottleMonthly = null) {
   const header = ["Data", "Hora de envio", "Colaborador", "Atividade", "Setor", "Produtos identificados", "Quantidade de itens", "Foto", "Sim/NÃ£o", "ObservaÃ§Ã£o", "Enviado por"];
   const xmlRows = [header, ...rows.map((row) => [
     row.date,
@@ -2231,7 +2272,26 @@ function makeExcel(rows) {
   ])]
     .map((cols) => `<tr>${cols.map((col) => `<td>${escapeHtml(col)}</td>`).join("")}</tr>`)
     .join("");
-  return `<!doctype html><html><head><meta charset="utf-8"></head><body><table>${xmlRows}</table></body></html>`;
+  const bottleRows = bottleMonthly?.rows?.length
+    ? [
+      ["Vasilhame", "Ultima contagem anterior", "Qtd. anterior", "Vendidos no mes", "Esperado", "Contagem final", "Data final", "Emprestados", "Defeitos", "Em loja", "Resultado", "Situacao"],
+      ...bottleMonthly.rows.map((row) => [
+        row.type,
+        row.previousDate || "",
+        row.previousFinal ?? "",
+        row.sold,
+        row.expectedFinal ?? "",
+        row.finalCount ?? "",
+        row.finalDate || "",
+        row.finalBorrowed ?? "",
+        row.finalDefective ?? "",
+        row.finalInStore ?? "",
+        row.difference ?? "",
+        row.status,
+      ]),
+    ].map((cols) => `<tr>${cols.map((col) => `<td>${escapeHtml(col)}</td>`).join("")}</tr>`).join("")
+    : "";
+  return `<!doctype html><html><head><meta charset="utf-8"></head><body>${bottleRows ? `<h3>Resumo mensal de vasilhames - ${escapeHtml(bottleMonthly.month.label)}</h3><table>${bottleRows}</table><br>` : ""}<table>${xmlRows}</table></body></html>`;
 }
 
 function pdfColor(hex) {
@@ -2411,8 +2471,25 @@ function structuredPdf({ title, subtitle, meta = [], sections = [], landscape = 
   return Buffer.from(pdf, "latin1");
 }
 
-function makePdf(rows) {
+function makePdf(rows, bottleMonthly = null) {
   const yes = rows.filter((row) => row.answer === "Sim").length;
+  const bottleSection = bottleMonthly?.rows?.length
+    ? [{
+      title: `Resumo mensal de vasilhames - ${bottleMonthly.month.label}`,
+      table: {
+        headers: ["Vasilhame", "Anterior", "Vendidos", "Esperado", "Final", "Resultado"],
+        widths: [90, 64, 62, 62, 62, 95],
+        rows: bottleMonthly.rows.map((row) => [
+          row.type,
+          row.previousFinal == null ? "-" : `${row.previousFinal} (${row.previousDate || "-"})`,
+          row.sold,
+          row.expectedFinal ?? "-",
+          row.finalCount == null ? "-" : `${row.finalCount} (${row.finalDate || "-"})`,
+          row.difference == null ? row.status : `${row.difference} (${row.status})`,
+        ]),
+      },
+    }]
+    : [];
   return structuredPdf({
     title: "Relatorio Prevencao",
     subtitle: "Checklists e ocorrencias registradas",
@@ -2426,6 +2503,7 @@ function makePdf(rows) {
           { label: "Pendentes / Nao", value: rows.length - yes, note: "Respostas diferentes de Sim" },
         ],
       },
+      ...bottleSection,
       {
         title: "Lancamentos",
         table: {
@@ -3943,6 +4021,11 @@ async function api(req, res, url) {
     return send(res, 200, { rows: await rowsForReports(Object.fromEntries(url.searchParams.entries())) });
   }
 
+  if (method === "GET" && url.pathname === "/api/reports/bottles-month") {
+    if (!canAccessPrevention(user)) return send(res, 403, { error: "Acesso restrito ao módulo de prevenção." });
+    return send(res, 200, await monthlyBottleSummary(url.searchParams.get("month") || today().slice(0, 7)));
+  }
+
   if (method === "POST" && url.pathname === "/api/checklists") {
     if (!canAccessPrevention(user)) return send(res, 403, { error: "Acesso restrito ao módulo de prevenção." });
     const body = await readBody(req);
@@ -4430,14 +4513,16 @@ async function api(req, res, url) {
   if (method === "GET" && url.pathname === "/api/reports/export") {
     if (!canAccessPrevention(user)) return send(res, 403, { error: "Acesso restrito ao módulo de prevenção." });
     const format = url.searchParams.get("format") || "excel";
-    const rows = await rowsForReports(Object.fromEntries(url.searchParams.entries()));
+    const filters = Object.fromEntries(url.searchParams.entries());
+    const rows = await rowsForReports(filters);
+    const bottleMonthly = await monthlyBottleSummary(filters.bottleMonth || filters.date?.slice(0, 7) || filters.startDate?.slice(0, 7) || today().slice(0, 7));
     if (format === "pdf") {
-      return send(res, 200, makePdf(rows), {
+      return send(res, 200, makePdf(rows, bottleMonthly), {
         "Content-Type": "application/pdf",
         "Content-Disposition": "attachment; filename=relatorio-prevencao-perdas.pdf",
       });
     }
-    return send(res, 200, makeExcel(rows), {
+    return send(res, 200, makeExcel(rows, bottleMonthly), {
       "Content-Type": "application/vnd.ms-excel; charset=utf-8",
       "Content-Disposition": "attachment; filename=relatorio-prevencao-perdas.xls",
     });

@@ -12,6 +12,7 @@
   collaborators: [],
   activities: [],
   checklists: [],
+  bottleMonthlyReport: null,
   pendencies: [],
   sectorAudits: [],
   sectorAuditSummary: { evaluatedByUser: 0, evaluatedTotal: 0 },
@@ -127,6 +128,7 @@
     collaboratorId: "",
     activity: "",
     sector: "",
+    bottleMonth: localMonthValue(),
   },
   openNavGroup: "",
 };
@@ -944,6 +946,11 @@ async function loadChecklists(params = "") {
   const query = params || `?${new URLSearchParams(state.reportFilters).toString()}`;
   const data = await api(`/api/checklists${query}`);
   state.checklists = data.rows;
+}
+
+async function loadBottleMonthlyReport(month = localMonthValue()) {
+  const qs = new URLSearchParams({ month });
+  state.bottleMonthlyReport = await api(`/api/reports/bottles-month?${qs.toString()}`);
 }
 
 async function loadPendencies() {
@@ -2064,6 +2071,9 @@ function reportFiltersHtml() {
       <label>Atividade <select name="activity"><option value="">Todas</option>${state.activities.map((item) => `<option ${filters.activity === item ? "selected" : ""}>${escapeHtml(item)}</option>`).join("")}</select></label>
       <label>Setor <select name="sector"><option value="">Todos</option>${repoOptions(state.repo.sectors || [], filters.sector)}</select></label>
     </div>
+    <div class="grid two">
+      <label>Mês do resumo de vasilhames <input name="bottleMonth" type="month" value="${escapeHtml(filters.bottleMonth || localMonthValue())}"></label>
+    </div>
   `;
 }
 
@@ -2080,6 +2090,7 @@ function renderReports() {
       </div>
     </div>
     <form class="panel grid" id="filterForm">${reportFiltersHtml()}<button class="btn primary" type="submit">Filtrar</button></form>
+    <div id="bottleMonthlyReport"></div>
     <div id="checklistEditPanel"></div>
     <div class="table-wrap" style="margin-top:14px" id="reportTable"></div>
   `;
@@ -2089,6 +2100,8 @@ function renderReports() {
     const qs = new URLSearchParams(state.reportFilters);
     state.reportParams = `?${qs.toString()}`;
     await loadChecklists(state.reportParams);
+    await loadBottleMonthlyReport(state.reportFilters.bottleMonth || localMonthValue());
+    drawBottleMonthlyReport();
     drawReportTable();
     return qs;
   };
@@ -2099,6 +2112,48 @@ function renderReports() {
   document.getElementById("exportPdf").addEventListener("click", async () => exportReport("pdf", form));
   document.getElementById("exportExcel").addEventListener("click", async () => exportReport("excel", form));
   refresh();
+}
+
+function bottleMonthlyStatusHtml(row) {
+  if (row.difference == null) return `<span class="muted">${escapeHtml(row.status || "Sem comparação")}</span>`;
+  const value = Number(row.difference || 0);
+  const statusClass = value < 0 ? "danger" : value > 0 ? "ok" : "warn";
+  const sign = value > 0 ? "+" : "";
+  return `<span class="status ${statusClass}">${sign}${value} - ${escapeHtml(row.status || "")}</span>`;
+}
+
+function drawBottleMonthlyReport() {
+  const data = state.bottleMonthlyReport;
+  const target = document.getElementById("bottleMonthlyReport");
+  if (!target || !data) return;
+  target.innerHTML = `
+    <div class="panel" style="margin-top:14px">
+      <div class="section-title-row">
+        <div>
+          <h3>Resumo mensal de vasilhames</h3>
+          <div class="muted">${escapeHtml(data.month?.label || "")}: anterior - vendidos no mês = esperado; final - esperado = perda/sobra.</div>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Vasilhame</th><th>Última contagem anterior</th><th>Vendidos no mês</th><th>Esperado</th><th>Contagem final do mês</th><th>Composição final</th><th>Resultado</th></tr></thead>
+          <tbody>
+            ${(data.rows || []).map((row) => `
+              <tr>
+                <td data-label="Vasilhame">${escapeHtml(row.type)}</td>
+                <td data-label="Última contagem anterior">${row.previousFinal == null ? "-" : `${escapeHtml(row.previousFinal)} em ${fmtDate(row.previousDate)}`}</td>
+                <td data-label="Vendidos no mês">${escapeHtml(row.sold || 0)}</td>
+                <td data-label="Esperado">${row.expectedFinal == null ? "-" : escapeHtml(row.expectedFinal)}</td>
+                <td data-label="Contagem final">${row.finalCount == null ? "-" : `${escapeHtml(row.finalCount)} em ${fmtDate(row.finalDate)}`}</td>
+                <td data-label="Composição final">${row.finalCount == null ? "-" : `Emp.: ${escapeHtml(row.finalBorrowed || 0)} | Def.: ${escapeHtml(row.finalDefective || 0)} | Loja: ${escapeHtml(row.finalInStore || 0)}`}</td>
+                <td data-label="Resultado">${bottleMonthlyStatusHtml(row)}</td>
+              </tr>
+            `).join("") || `<tr><td colspan="7">Nenhum vasilhame encontrado.</td></tr>`}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
 }
 
 function checklistProductDetails(row) {
