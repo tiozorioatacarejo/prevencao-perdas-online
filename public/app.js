@@ -1692,7 +1692,8 @@ async function sendChecklistRequest(path, method, body, photoFile) {
     if (photoFile.size > 18 * 1024 * 1024) {
       throw new Error("Foto muito pesada. Tire uma nova foto ou reduza a qualidade da imagem.");
     }
-    return apiMultipart(path, checklistFormData(body, photoFile), method);
+    const optimizedPhoto = await imageFileToUploadBlob(photoFile);
+    return apiMultipart(path, checklistFormData(body, optimizedPhoto), method);
   }
   return api(path, { method, body: JSON.stringify(body) });
 }
@@ -5685,6 +5686,59 @@ function fileToDataUrl(file) {
 
 function canvasToDataUrl(canvas, quality) {
   return canvas.toDataURL("image/jpeg", quality);
+}
+
+function canvasToBlob(canvas, quality) {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (blob) resolve(blob);
+      else reject(new Error("Nao foi possivel reduzir a foto."));
+    }, "image/jpeg", quality);
+  });
+}
+
+async function imageFileToUploadBlob(file) {
+  if (!file?.type?.startsWith("image/")) {
+    throw new Error("Selecione uma imagem válida.");
+  }
+  if (file.size <= 900 * 1024 && file.type !== "image/heic" && file.type !== "image/heif") return file;
+  const objectUrl = URL.createObjectURL(file);
+  const img = new Image();
+  try {
+    await new Promise((resolve, reject) => {
+      img.onload = resolve;
+      img.onerror = () => reject(new Error("Nao foi possivel ler a foto selecionada."));
+      img.src = objectUrl;
+    });
+    const maxSide = 1280;
+    const sourceWidth = img.naturalWidth || img.width;
+    const sourceHeight = img.naturalHeight || img.height;
+    const ratio = Math.min(1, maxSide / Math.max(sourceWidth, sourceHeight));
+    const width = Math.max(1, Math.round(sourceWidth * ratio));
+    const height = Math.max(1, Math.round(sourceHeight * ratio));
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext("2d", { alpha: false });
+    context.drawImage(img, 0, 0, width, height);
+    for (const quality of [0.74, 0.64, 0.54, 0.44]) {
+      const blob = await canvasToBlob(canvas, quality);
+      if (blob.size <= 1200 * 1024) {
+        canvas.width = 1;
+        canvas.height = 1;
+        return new File([blob], (file.name || "checklist-foto.jpg").replace(/\.[^.]+$/, ".jpg"), { type: "image/jpeg" });
+      }
+    }
+    const blob = await canvasToBlob(canvas, 0.36);
+    canvas.width = 1;
+    canvas.height = 1;
+    return new File([blob], (file.name || "checklist-foto.jpg").replace(/\.[^.]+$/, ".jpg"), { type: "image/jpeg" });
+  } catch (error) {
+    if (file.size <= 4 * 1024 * 1024) return file;
+    throw new Error(error.message || "Nao foi possivel preparar a foto neste celular.");
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
 }
 
 async function imageFileToUploadDataUrl(file) {

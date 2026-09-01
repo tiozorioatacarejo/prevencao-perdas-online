@@ -784,7 +784,11 @@ function parseMultipartBody(buffer, contentType) {
       const contentTypeMatch = /content-type:\s*([^\r\n]+)/i.exec(headerText);
       if (filename) {
         result.photoName = filename;
-        result.photoDataUrl = `data:${(contentTypeMatch?.[1] || "image/jpeg").trim()};base64,${content.toString("base64")}`;
+        result.photoFile = {
+          buffer: content,
+          contentType: (contentTypeMatch?.[1] || "image/jpeg").trim(),
+          filename,
+        };
       } else {
         result[name] = content.toString("utf8");
       }
@@ -1870,13 +1874,8 @@ async function uploadBufferToR2(key, contentType, buffer) {
   return r2PublicUrlForKey(key);
 }
 
-async function saveDataUrl(dataUrl, originalName = "anexo") {
-  if (!dataUrl) return null;
-  const match = /^data:(.+);base64,(.+)$/.exec(dataUrl);
-  if (!match) return null;
-  const contentType = match[1];
-  const dataBase64 = match[2];
-  const buffer = Buffer.from(dataBase64, "base64");
+async function saveUploadBuffer(buffer, contentType, originalName = "anexo", dataBase64 = null) {
+  if (!buffer?.length) return null;
   const thumbnail = createImageThumbnail(contentType, buffer);
   const extMap = {
     "image/png": ".png",
@@ -1889,7 +1888,6 @@ async function saveDataUrl(dataUrl, originalName = "anexo") {
   };
   const ext = extMap[contentType] || path.extname(originalName).slice(0, 8) || ".bin";
   const filename = `${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`;
-  fs.writeFileSync(path.join(UPLOAD_DIR, filename), buffer);
   let storageProvider = null;
   let objectKey = null;
   let publicUrl = null;
@@ -1928,9 +1926,10 @@ async function saveDataUrl(dataUrl, originalName = "anexo") {
     publicUrl = null;
     thumbnailObjectKey = null;
     thumbnailUrl = null;
-    storedDataBase64 = dataBase64;
+    storedDataBase64 = storedDataBase64 || buffer.toString("base64");
     storedThumbnailBase64 = thumbnail?.dataBase64 || null;
   }
+  fs.writeFileSync(path.join(UPLOAD_DIR, filename), buffer);
   await execute(
     `INSERT INTO uploaded_files (
       filename, content_type, data_base64, thumbnail_content_type, thumbnail_data_base64,
@@ -1939,7 +1938,7 @@ async function saveDataUrl(dataUrl, originalName = "anexo") {
     [
       filename,
       contentType,
-      storedDataBase64,
+      storedDataBase64 || buffer.toString("base64"),
       thumbnail?.contentType || null,
       storedThumbnailBase64,
       storageProvider,
@@ -1951,6 +1950,16 @@ async function saveDataUrl(dataUrl, originalName = "anexo") {
     ]
   );
   return `/uploads/${filename}`;
+}
+
+async function saveDataUrl(dataUrl, originalName = "anexo") {
+  if (!dataUrl) return null;
+  const match = /^data:(.+);base64,(.+)$/.exec(dataUrl);
+  if (!match) return null;
+  const contentType = match[1];
+  const dataBase64 = match[2];
+  const buffer = Buffer.from(dataBase64, "base64");
+  return saveUploadBuffer(buffer, contentType, originalName, dataBase64);
 }
 
 async function uploadedFilesStorageStatus() {
@@ -2594,7 +2603,13 @@ function checklistNeedsPhoto(activity) {
 }
 
 async function saveChecklistPhoto(activity, body) {
-  if (!checklistNeedsPhoto(activity) || !body.photoDataUrl) return null;
+  if (!checklistNeedsPhoto(activity)) return null;
+  if (body.photoFile?.buffer?.length) {
+    const contentType = body.photoFile.contentType || "image/jpeg";
+    if (!/^image\/(png|jpe?g|webp|heic|heif)$/i.test(contentType)) return null;
+    return await saveUploadBuffer(body.photoFile.buffer, contentType, body.photoFile.filename || "checklist-foto");
+  }
+  if (!body.photoDataUrl) return null;
   if (!/^data:image\/(png|jpe?g|webp|heic|heif);base64,/.test(body.photoDataUrl)) return null;
   return await saveDataUrl(body.photoDataUrl, body.photoName || "checklist-foto");
 }
