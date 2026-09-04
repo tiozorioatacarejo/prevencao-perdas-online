@@ -1205,18 +1205,11 @@ function diffStatusClass(value) {
   return "warn";
 }
 
-function signedPercentPoints(value) {
-  const numeric = Number(value || 0);
-  const sign = numeric > 0 ? "+" : "";
-  return `${sign}${fmtGoalNumber(numeric)} p.p.`;
-}
-
 function preventionGoalsComparisonHtml(comparison) {
   if (!comparison?.rows?.length) return "";
   const previousLabel = comparison.previousMonth?.label || "Mês anterior";
   const currentLabel = comparison.currentMonth?.label || "Último mês fechado";
   const pointsDiff = Number(comparison.summary?.pointsDiff || 0);
-  const percentDiff = Number(comparison.summary?.percentDiff || 0);
   return `
     <section class="panel" style="margin-bottom:14px">
       <div class="section-title-row">
@@ -1229,11 +1222,10 @@ function preventionGoalsComparisonHtml(comparison) {
         <div class="metric"><span class="muted">${escapeHtml(previousLabel)}</span><strong>${fmtGoalNumber(comparison.previousSummary?.totalPoints)}/${fmtGoalNumber(comparison.previousSummary?.maxPoints)}</strong><small>${fmtGoalNumber(comparison.previousSummary?.percent)}% da meta</small></div>
         <div class="metric"><span class="muted">${escapeHtml(currentLabel)}</span><strong>${fmtGoalNumber(comparison.currentSummary?.totalPoints)}/${fmtGoalNumber(comparison.currentSummary?.maxPoints)}</strong><small>${fmtGoalNumber(comparison.currentSummary?.percent)}% da meta</small></div>
         <div class="metric"><span class="muted">Diferença de pontos</span><strong><span class="status ${diffStatusClass(pointsDiff)}">${signedGoalNumber(pointsDiff)}</span></strong><small>pontos obtidos</small></div>
-        <div class="metric"><span class="muted">Diferença percentual</span><strong><span class="status ${diffStatusClass(percentDiff)}">${signedPercentPoints(percentDiff)}</span></strong><small>sobre a meta mínima</small></div>
       </div>
       <div class="table-wrap" style="margin-top:12px">
         <table class="goals-table">
-          <thead><tr><th>Indicador</th><th>${escapeHtml(previousLabel)}</th><th>${escapeHtml(currentLabel)}</th><th>Diferença qtd.</th><th>Diferença %</th><th>Pontos</th><th>Status</th></tr></thead>
+          <thead><tr><th>Indicador</th><th>${escapeHtml(previousLabel)}</th><th>${escapeHtml(currentLabel)}</th><th>Diferença qtd.</th><th>Pontos</th><th>Status</th></tr></thead>
           <tbody>
             ${comparison.rows.map((row) => `
               <tr>
@@ -1241,7 +1233,6 @@ function preventionGoalsComparisonHtml(comparison) {
                 <td data-label="${escapeHtml(previousLabel)}">${fmtGoalNumber(row.previousRealized)}<div class="muted">${fmtGoalNumber(row.previousPercent)}%</div></td>
                 <td data-label="${escapeHtml(currentLabel)}">${fmtGoalNumber(row.currentRealized)}<div class="muted">${fmtGoalNumber(row.currentPercent)}%</div></td>
                 <td data-label="Diferença qtd."><span class="status ${diffStatusClass(row.realizedDiff)}">${signedGoalNumber(row.realizedDiff)}</span></td>
-                <td data-label="Diferença %">${signedPercentPoints(row.percentDiff)}</td>
                 <td data-label="Pontos">${fmtGoalNumber(row.previousPoints)} → ${fmtGoalNumber(row.currentPoints)} <div class="muted">${signedGoalNumber(row.pointsDiff)}</div></td>
                 <td data-label="Status">${escapeHtml(row.previousStatus)} → <span class="status ${preventionGoalStatusClass(row.currentStatus)}">${escapeHtml(row.currentStatus)}</span></td>
               </tr>
@@ -1443,8 +1434,8 @@ function exportPreventionGoalsReport(type = "month") {
       <td>${fmtGoalNumber(row.previousRealized)}<br><span>${fmtGoalNumber(row.previousPercent)}%</span></td>
       <td>${fmtGoalNumber(row.currentRealized)}<br><span>${fmtGoalNumber(row.currentPercent)}%</span></td>
       <td>${signedGoalNumber(row.realizedDiff)}</td>
-      <td>${signedPercentPoints(row.percentDiff)}</td>
       <td>${fmtGoalNumber(row.previousPoints)} → ${fmtGoalNumber(row.currentPoints)}<br><span>${signedGoalNumber(row.pointsDiff)}</span></td>
+      <td>${escapeHtml(row.previousStatus)} → ${escapeHtml(row.currentStatus)}</td>
     </tr>
   `).join("") || "";
   const reportRows = goals.map((goal) => `
@@ -1478,7 +1469,7 @@ function exportPreventionGoalsReport(type = "month") {
           .brand { display: flex; gap: 9px; align-items: center; }
           .mark { width: 28px; height: 28px; border-radius: 6px; background: #1f7a4d; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; }
           .muted, span { color: #5d6d64; }
-          .summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; margin-bottom: 10px; }
+          .summary { display: grid; grid-template-columns: repeat(${isComparison ? 3 : 4}, 1fr); gap: 7px; margin-bottom: 10px; }
           .box { border: 1px solid #cfd9d2; border-radius: 6px; padding: 7px 8px; min-height: 50px; background: #fbfdfc; }
           .box span { display: block; font-size: 8px; font-weight: 700; text-transform: uppercase; color: #53635b; }
           .box strong { display: block; margin-top: 4px; font-size: 15px; }
@@ -1511,12 +1502,11 @@ function exportPreventionGoalsReport(type = "month") {
             <div class="box"><span>${escapeHtml(comparison.previousMonth?.label || "Mês anterior")}</span><strong>${fmtGoalNumber(comparison.previousSummary?.totalPoints)} / ${fmtGoalNumber(comparison.previousSummary?.maxPoints)}</strong><span>${fmtGoalNumber(comparison.previousSummary?.percent)}% da meta</span></div>
             <div class="box"><span>${escapeHtml(comparison.currentMonth?.label || "Último mês fechado")}</span><strong>${fmtGoalNumber(comparison.currentSummary?.totalPoints)} / ${fmtGoalNumber(comparison.currentSummary?.maxPoints)}</strong><span>${fmtGoalNumber(comparison.currentSummary?.percent)}% da meta</span></div>
             <div class="box"><span>Diferença de pontos</span><strong>${signedGoalNumber(comparison.summary?.pointsDiff)}</strong><span>pontos obtidos</span></div>
-            <div class="box"><span>Diferença percentual</span><strong>${signedPercentPoints(comparison.summary?.percentDiff)}</strong><span>sobre a meta minima</span></div>
           </section>
           <h2>Indicadores comparados</h2>
           <table class="comparison-table">
             <thead>
-              <tr><th>Indicador</th><th>${escapeHtml(comparison.previousMonth?.label || "Anterior")}</th><th>${escapeHtml(comparison.currentMonth?.label || "Atual")}</th><th>Dif. qtd.</th><th>Dif. %</th><th>Pontos</th></tr>
+              <tr><th>Indicador</th><th>${escapeHtml(comparison.previousMonth?.label || "Anterior")}</th><th>${escapeHtml(comparison.currentMonth?.label || "Atual")}</th><th>Dif. qtd.</th><th>Pontos</th><th>Status</th></tr>
             </thead>
             <tbody>${comparisonRows}</tbody>
           </table>
