@@ -1331,7 +1331,8 @@ function renderPreventionGoals() {
         <div class="muted">Acompanhamento mensal atualizado conforme os checklists e indicadores são preenchidos</div>
       </div>
       <div class="toolbar">
-        <button class="btn" id="exportPreventionGoalsPdf">Exportar PDF</button>
+        <button class="btn" id="exportPreventionGoalsMonthPdf">PDF mês</button>
+        <button class="btn" id="exportPreventionGoalsComparisonPdf">PDF comparativo</button>
         <button class="btn" id="refreshPreventionGoals">Atualizar</button>
       </div>
     </div>
@@ -1382,7 +1383,8 @@ function renderPreventionGoals() {
     await loadPreventionGoals();
     renderPreventionGoals();
   });
-  document.getElementById("exportPreventionGoalsPdf").addEventListener("click", exportPreventionGoalsReport);
+  document.getElementById("exportPreventionGoalsMonthPdf").addEventListener("click", () => exportPreventionGoalsReport("month"));
+  document.getElementById("exportPreventionGoalsComparisonPdf").addEventListener("click", () => exportPreventionGoalsReport("comparison"));
   document.getElementById("preventionGoalsFilter").addEventListener("submit", async (event) => {
     event.preventDefault();
     state.preventionGoals.month = new FormData(event.currentTarget).get("month") || localMonthValue();
@@ -1423,13 +1425,18 @@ function renderPreventionGoals() {
   }
 }
 
-function exportPreventionGoalsReport() {
+function exportPreventionGoalsReport(type = "month") {
   const data = state.preventionGoals.data || {};
   const summary = data.summary || {};
   const goals = data.goals || [];
   const comparison = data.comparison || null;
   const monthLabel = data.month?.label || state.preventionGoals.month || localMonthValue();
   const generatedAt = fmtDateTime(new Date().toISOString());
+  const isComparison = type === "comparison";
+  if (isComparison && !comparison?.rows?.length) {
+    toast("Comparativo ainda não disponível.");
+    return;
+  }
   const comparisonRows = comparison?.rows?.map((row) => `
     <tr>
       <td><strong>${escapeHtml(row.label)}</strong><br><span>${escapeHtml(row.unit || "")}</span></td>
@@ -1460,56 +1467,73 @@ function exportPreventionGoalsReport() {
     <html lang="pt-BR">
       <head>
         <meta charset="utf-8">
-        <title>Metas Prevencao - ${escapeHtml(monthLabel)}</title>
+        <title>${isComparison ? "Comparativo Metas Prevencao" : `Metas Prevencao - ${escapeHtml(monthLabel)}`}</title>
         <style>
           @page { size: A4 landscape; margin: 9mm; }
           * { box-sizing: border-box; }
-          body { margin: 0; color: #17241d; font-family: Arial, sans-serif; font-size: 10.5px; }
-          header { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; border-bottom: 2px solid #1f7a4d; padding-bottom: 8px; margin-bottom: 8px; }
-          h1 { margin: 0 0 4px; font-size: 21px; }
+          body { margin: 0; color: #17241d; font-family: Arial, sans-serif; font-size: 10px; background: #fff; }
+          header { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; border-bottom: 2px solid #1f7a4d; padding-bottom: 9px; margin-bottom: 10px; }
+          h1 { margin: 0 0 4px; font-size: 20px; letter-spacing: 0; }
+          h2 { margin: 10px 0 6px; font-size: 13px; }
+          .brand { display: flex; gap: 9px; align-items: center; }
+          .mark { width: 28px; height: 28px; border-radius: 6px; background: #1f7a4d; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; }
           .muted, span { color: #5d6d64; }
-          .summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; margin-bottom: 8px; }
-          .box { border: 1px solid #cfd9d2; border-radius: 6px; padding: 7px 8px; min-height: 48px; }
-          .box span { display: block; font-size: 9px; font-weight: 700; text-transform: uppercase; }
-          .box strong { display: block; margin-top: 3px; font-size: 16px; }
+          .summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; margin-bottom: 10px; }
+          .box { border: 1px solid #cfd9d2; border-radius: 6px; padding: 7px 8px; min-height: 50px; background: #fbfdfc; }
+          .box span { display: block; font-size: 8px; font-weight: 700; text-transform: uppercase; color: #53635b; }
+          .box strong { display: block; margin-top: 4px; font-size: 15px; }
           table { width: 100%; border-collapse: collapse; table-layout: fixed; }
-          th, td { border: 1px solid #d6dfd9; padding: 6px 7px; vertical-align: top; }
+          th, td { border: 1px solid #d6dfd9; padding: 5px 6px; vertical-align: top; }
           th { background: #edf4f0; color: #4c5d54; text-align: left; font-size: 9px; text-transform: uppercase; }
-          td:nth-child(1) { width: 32%; }
-          td:nth-child(2), td:nth-child(3), td:nth-child(4), td:nth-child(5), td:nth-child(6) { width: 13.6%; }
-          footer { margin-top: 6px; color: #5d6d64; font-size: 9px; }
+          tbody tr:nth-child(even) { background: #fbfdfc; }
+          .month-table td:nth-child(1) { width: 32%; }
+          .month-table td:nth-child(2), .month-table td:nth-child(3), .month-table td:nth-child(4), .month-table td:nth-child(5), .month-table td:nth-child(6) { width: 13.6%; }
+          .comparison-table td:nth-child(1) { width: 28%; }
+          .comparison-table td:nth-child(2), .comparison-table td:nth-child(3) { width: 15%; }
+          .comparison-table td:nth-child(4), .comparison-table td:nth-child(5), .comparison-table td:nth-child(6) { width: 14%; }
+          .pill { display: inline-block; border-radius: 999px; padding: 2px 7px; background: #dff4e8; color: #0f7043; font-weight: 700; }
+          footer { margin-top: 8px; color: #5d6d64; font-size: 9px; border-top: 1px solid #d6dfd9; padding-top: 6px; }
         </style>
       </head>
       <body>
         <header>
-          <div>
-            <h1>Metas da Prevencao</h1>
-            <div class="muted">${escapeHtml(monthLabel)} - pontuacao ate a ultima atividade</div>
+          <div class="brand">
+            <div class="mark">CA</div>
+            <div>
+              <h1>${isComparison ? "Comparativo de Metas da Prevencao" : "Metas da Prevencao"}</h1>
+              <div class="muted">${isComparison ? `${escapeHtml(comparison.previousMonth?.label || "Mês anterior")} x ${escapeHtml(comparison.currentMonth?.label || "Último mês fechado")}` : `${escapeHtml(monthLabel)} - pontuacao ate a ultima atividade`}</div>
+            </div>
           </div>
           <div class="muted">Gerado em ${escapeHtml(generatedAt)}</div>
         </header>
-        <section class="summary">
-          <div class="box"><span>Pontuacao obtida</span><strong>${fmtGoalNumber(summary.totalPoints)} / ${fmtGoalNumber(summary.maxPoints)}</strong></div>
-          <div class="box"><span>Meta para receber</span><strong>${fmtGoalNumber(summary.targetPoints)}</strong></div>
-          <div class="box"><span>Base configurada</span><strong>${fmtGoalNumber(summary.configuredPoints)}</strong></div>
-          <div class="box"><span>Resultado</span><strong>${escapeHtml(summary.status || "-")}</strong></div>
-        </section>
-        ${comparisonRows ? `
-          <h2 style="font-size:14px;margin:8px 0 5px">Comparativo dos dois ultimos meses fechados</h2>
-          <div class="muted" style="margin-bottom:5px">${escapeHtml(comparison.previousMonth?.label || "Mês anterior")} x ${escapeHtml(comparison.currentMonth?.label || "Último mês fechado")}</div>
-          <table style="margin-bottom:8px">
+        ${isComparison ? `
+          <section class="summary">
+            <div class="box"><span>${escapeHtml(comparison.previousMonth?.label || "Mês anterior")}</span><strong>${fmtGoalNumber(comparison.previousSummary?.totalPoints)} / ${fmtGoalNumber(comparison.previousSummary?.maxPoints)}</strong><span>${fmtGoalNumber(comparison.previousSummary?.percent)}% da meta</span></div>
+            <div class="box"><span>${escapeHtml(comparison.currentMonth?.label || "Último mês fechado")}</span><strong>${fmtGoalNumber(comparison.currentSummary?.totalPoints)} / ${fmtGoalNumber(comparison.currentSummary?.maxPoints)}</strong><span>${fmtGoalNumber(comparison.currentSummary?.percent)}% da meta</span></div>
+            <div class="box"><span>Diferença de pontos</span><strong>${signedGoalNumber(comparison.summary?.pointsDiff)}</strong><span>pontos obtidos</span></div>
+            <div class="box"><span>Diferença percentual</span><strong>${signedPercentPoints(comparison.summary?.percentDiff)}</strong><span>sobre a meta minima</span></div>
+          </section>
+          <h2>Indicadores comparados</h2>
+          <table class="comparison-table">
             <thead>
               <tr><th>Indicador</th><th>${escapeHtml(comparison.previousMonth?.label || "Anterior")}</th><th>${escapeHtml(comparison.currentMonth?.label || "Atual")}</th><th>Dif. qtd.</th><th>Dif. %</th><th>Pontos</th></tr>
             </thead>
             <tbody>${comparisonRows}</tbody>
           </table>
-        ` : ""}
-        <table>
+        ` : `
+          <section class="summary">
+            <div class="box"><span>Pontuacao obtida</span><strong>${fmtGoalNumber(summary.totalPoints)} / ${fmtGoalNumber(summary.maxPoints)}</strong><span>${fmtGoalNumber(summary.percent)}% da meta minima</span></div>
+            <div class="box"><span>Meta para receber</span><strong>${fmtGoalNumber(summary.targetPoints)}</strong><span>pontos necessarios</span></div>
+            <div class="box"><span>Base configurada</span><strong>${fmtGoalNumber(summary.configuredPoints)}</strong><span>pontos possiveis</span></div>
+            <div class="box"><span>Resultado</span><strong><span class="pill">${escapeHtml(summary.status || "-")}</span></strong></div>
+          </section>
+          <h2>Apuracao mensal</h2>
+          <table class="month-table">
           <thead>
             <tr><th>Atividade</th><th>Previsto</th><th>Realizado</th><th>Realizado %</th><th>Pontos</th><th>Status</th></tr>
           </thead>
           <tbody>${reportRows || `<tr><td colspan="6">Sem metas configuradas.</td></tr>`}</tbody>
-        </table>
+        </table>`}
         <footer>Cotacoes e recebimentos contam por foto. Precificacao e validade contam pela quantidade informada em produtos identificados.</footer>
       </body>
     </html>
