@@ -1198,6 +1198,61 @@ function signedGoalNumber(value) {
   return `${sign}${fmtGoalNumber(numeric)}`;
 }
 
+function diffStatusClass(value) {
+  const numeric = Number(value || 0);
+  if (numeric > 0) return "ok";
+  if (numeric < 0) return "danger";
+  return "warn";
+}
+
+function signedPercentPoints(value) {
+  const numeric = Number(value || 0);
+  const sign = numeric > 0 ? "+" : "";
+  return `${sign}${fmtGoalNumber(numeric)} p.p.`;
+}
+
+function preventionGoalsComparisonHtml(comparison) {
+  if (!comparison?.rows?.length) return "";
+  const previousLabel = comparison.previousMonth?.label || "Mês anterior";
+  const currentLabel = comparison.currentMonth?.label || "Último mês fechado";
+  const pointsDiff = Number(comparison.summary?.pointsDiff || 0);
+  const percentDiff = Number(comparison.summary?.percentDiff || 0);
+  return `
+    <section class="panel" style="margin-bottom:14px">
+      <div class="section-title-row">
+        <div>
+          <h3>Comparativo dos dois últimos meses fechados</h3>
+          <div class="muted">${escapeHtml(previousLabel)} x ${escapeHtml(currentLabel)}</div>
+        </div>
+      </div>
+      <div class="metrics" style="margin:12px 0">
+        <div class="metric"><span class="muted">${escapeHtml(previousLabel)}</span><strong>${fmtGoalNumber(comparison.previousSummary?.totalPoints)}/${fmtGoalNumber(comparison.previousSummary?.maxPoints)}</strong><small>${fmtGoalNumber(comparison.previousSummary?.percent)}% da meta</small></div>
+        <div class="metric"><span class="muted">${escapeHtml(currentLabel)}</span><strong>${fmtGoalNumber(comparison.currentSummary?.totalPoints)}/${fmtGoalNumber(comparison.currentSummary?.maxPoints)}</strong><small>${fmtGoalNumber(comparison.currentSummary?.percent)}% da meta</small></div>
+        <div class="metric"><span class="muted">Diferença de pontos</span><strong><span class="status ${diffStatusClass(pointsDiff)}">${signedGoalNumber(pointsDiff)}</span></strong><small>pontos obtidos</small></div>
+        <div class="metric"><span class="muted">Diferença percentual</span><strong><span class="status ${diffStatusClass(percentDiff)}">${signedPercentPoints(percentDiff)}</span></strong><small>sobre a meta mínima</small></div>
+      </div>
+      <div class="table-wrap" style="margin-top:12px">
+        <table class="goals-table">
+          <thead><tr><th>Indicador</th><th>${escapeHtml(previousLabel)}</th><th>${escapeHtml(currentLabel)}</th><th>Diferença qtd.</th><th>Diferença %</th><th>Pontos</th><th>Status</th></tr></thead>
+          <tbody>
+            ${comparison.rows.map((row) => `
+              <tr>
+                <td data-label="Indicador"><strong>${escapeHtml(row.label)}</strong><div class="muted">${escapeHtml(row.unit || "")}</div></td>
+                <td data-label="${escapeHtml(previousLabel)}">${fmtGoalNumber(row.previousRealized)}<div class="muted">${fmtGoalNumber(row.previousPercent)}%</div></td>
+                <td data-label="${escapeHtml(currentLabel)}">${fmtGoalNumber(row.currentRealized)}<div class="muted">${fmtGoalNumber(row.currentPercent)}%</div></td>
+                <td data-label="Diferença qtd."><span class="status ${diffStatusClass(row.realizedDiff)}">${signedGoalNumber(row.realizedDiff)}</span></td>
+                <td data-label="Diferença %">${signedPercentPoints(row.percentDiff)}</td>
+                <td data-label="Pontos">${fmtGoalNumber(row.previousPoints)} → ${fmtGoalNumber(row.currentPoints)} <div class="muted">${signedGoalNumber(row.pointsDiff)}</div></td>
+                <td data-label="Status">${escapeHtml(row.previousStatus)} → <span class="status ${preventionGoalStatusClass(row.currentStatus)}">${escapeHtml(row.currentStatus)}</span></td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  `;
+}
+
 function bottleDifferenceLabel(row) {
   if (row.bottles_difference == null) return `<span class="muted">Sem comparação</span>`;
   const value = Number(row.bottles_difference || 0);
@@ -1296,6 +1351,7 @@ function renderPreventionGoals() {
       <div class="metric"><span class="muted">Base configurada</span><strong>${fmtGoalNumber(summary.configuredPoints)}</strong><small>pontos possíveis no quadro</small></div>
       <div class="metric"><span class="muted">Resultado</span><strong><span class="status ${preventionGoalStatusClass(summary.status)}">${escapeHtml(summary.status || "-")}</span></strong><small>${escapeHtml(data.month?.label || "")}</small></div>
     </div>
+    ${preventionGoalsComparisonHtml(data.comparison)}
     <section class="panel">
       <h3>Apuração mensal</h3>
       <div class="muted" style="margin-top:4px">Cotações e recebimentos contam por fotos. Precificações e validades novas contam pela quantidade em produtos identificados; o histórico anterior permanece preservado.</div>
@@ -1371,8 +1427,19 @@ function exportPreventionGoalsReport() {
   const data = state.preventionGoals.data || {};
   const summary = data.summary || {};
   const goals = data.goals || [];
+  const comparison = data.comparison || null;
   const monthLabel = data.month?.label || state.preventionGoals.month || localMonthValue();
   const generatedAt = fmtDateTime(new Date().toISOString());
+  const comparisonRows = comparison?.rows?.map((row) => `
+    <tr>
+      <td><strong>${escapeHtml(row.label)}</strong><br><span>${escapeHtml(row.unit || "")}</span></td>
+      <td>${fmtGoalNumber(row.previousRealized)}<br><span>${fmtGoalNumber(row.previousPercent)}%</span></td>
+      <td>${fmtGoalNumber(row.currentRealized)}<br><span>${fmtGoalNumber(row.currentPercent)}%</span></td>
+      <td>${signedGoalNumber(row.realizedDiff)}</td>
+      <td>${signedPercentPoints(row.percentDiff)}</td>
+      <td>${fmtGoalNumber(row.previousPoints)} → ${fmtGoalNumber(row.currentPoints)}<br><span>${signedGoalNumber(row.pointsDiff)}</span></td>
+    </tr>
+  `).join("") || "";
   const reportRows = goals.map((goal) => `
     <tr>
       <td><strong>${escapeHtml(goal.label)}</strong><br><span>${escapeHtml(goal.unit || "")}</span></td>
@@ -1427,6 +1494,16 @@ function exportPreventionGoalsReport() {
           <div class="box"><span>Base configurada</span><strong>${fmtGoalNumber(summary.configuredPoints)}</strong></div>
           <div class="box"><span>Resultado</span><strong>${escapeHtml(summary.status || "-")}</strong></div>
         </section>
+        ${comparisonRows ? `
+          <h2 style="font-size:14px;margin:8px 0 5px">Comparativo dos dois ultimos meses fechados</h2>
+          <div class="muted" style="margin-bottom:5px">${escapeHtml(comparison.previousMonth?.label || "Mês anterior")} x ${escapeHtml(comparison.currentMonth?.label || "Último mês fechado")}</div>
+          <table style="margin-bottom:8px">
+            <thead>
+              <tr><th>Indicador</th><th>${escapeHtml(comparison.previousMonth?.label || "Anterior")}</th><th>${escapeHtml(comparison.currentMonth?.label || "Atual")}</th><th>Dif. qtd.</th><th>Dif. %</th><th>Pontos</th></tr>
+            </thead>
+            <tbody>${comparisonRows}</tbody>
+          </table>
+        ` : ""}
         <table>
           <thead>
             <tr><th>Atividade</th><th>Previsto</th><th>Realizado</th><th>Realizado %</th><th>Pontos</th><th>Status</th></tr>
@@ -1689,11 +1766,10 @@ function checklistFormData(body, photoFile) {
 
 async function sendChecklistRequest(path, method, body, photoFile) {
   if (photoFile) {
-    if (photoFile.size > 18 * 1024 * 1024) {
-      throw new Error("Foto muito pesada. Tire uma nova foto ou reduza a qualidade da imagem.");
+    if (photoFile.size > 12 * 1024 * 1024) {
+      throw new Error("Foto muito pesada. Tire uma nova foto em qualidade menor ou envie uma imagem com ate 12 MB.");
     }
-    const optimizedPhoto = await imageFileToUploadBlob(photoFile);
-    return apiMultipart(path, checklistFormData(body, optimizedPhoto), method);
+    return apiMultipart(path, checklistFormData(body, photoFile), method);
   }
   return api(path, { method, body: JSON.stringify(body) });
 }
@@ -3929,13 +4005,21 @@ function renderManagerChecklists() {
       body.date = state.managerChecklists.date;
       const file = row.querySelector('[name="photo"]')?.files?.[0];
       if (file) {
-        body.photoDataUrl = await imageFileToUploadDataUrl(file);
-        body.photoName = file.name;
+        if (file.size > 12 * 1024 * 1024) {
+          toast("Foto muito pesada. Tire uma nova foto em qualidade menor ou envie uma imagem com ate 12 MB.");
+          return;
+        }
+        await apiMultipart(
+          `/api/manager-checklists/${row.dataset.templateId}/items/${row.dataset.itemId}`,
+          checklistFormData(body, file),
+          "PUT"
+        );
+      } else {
+        await api(`/api/manager-checklists/${row.dataset.templateId}/items/${row.dataset.itemId}`, {
+          method: "PUT",
+          body: JSON.stringify(body),
+        });
       }
-      await api(`/api/manager-checklists/${row.dataset.templateId}/items/${row.dataset.itemId}`, {
-        method: "PUT",
-        body: JSON.stringify(body),
-      });
       await Promise.all([loadManagerChecklists(), loadManagerChecklistHistory()]);
       renderManagerChecklists();
       toast("Checklist salvo.");

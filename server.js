@@ -1644,6 +1644,17 @@ function monthInfoFromValue(value) {
   };
 }
 
+function addMonthsToMonthValue(monthValue, offset) {
+  const month = monthInfoFromValue(monthValue);
+  const [year, monthIndex] = month.month.split("-").map(Number);
+  const date = new Date(year, monthIndex - 1 + offset, 1);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function latestClosedMonthValue() {
+  return addMonthsToMonthValue(today().slice(0, 7), -1);
+}
+
 function isClosedMonth(monthValue) {
   return String(monthValue || "") < today().slice(0, 7);
 }
@@ -2224,6 +2235,53 @@ async function preventionGoalProgress(monthValue) {
       percent: Math.round((totalPoints / PREVENTION_BONUS_TARGET_POINTS) * 1000) / 10,
       status: bonusReached ? "BONIFICACAO ATINGIDA" : (isClosedMonth(month.month) ? "FINALIZADO" : "EM ANDAMENTO"),
     },
+  };
+}
+
+async function preventionGoalsComparison() {
+  const currentMonth = latestClosedMonthValue();
+  const previousMonth = addMonthsToMonthValue(currentMonth, -1);
+  const [previous, current] = await Promise.all([
+    preventionGoalProgress(previousMonth),
+    preventionGoalProgress(currentMonth),
+  ]);
+  const previousByKey = new Map((previous.goals || []).map((goal) => [goal.key, goal]));
+  const rows = (current.goals || []).map((goal) => {
+    const oldGoal = previousByKey.get(goal.key) || {};
+    const previousRealized = Number(oldGoal.realized || 0);
+    const currentRealized = Number(goal.realized || 0);
+    const realizedDiff = Math.round((currentRealized - previousRealized) * 10) / 10;
+    const previousPoints = Number(oldGoal.pointsObtained || 0);
+    const currentPoints = Number(goal.pointsObtained || 0);
+    const pointsDiff = Math.round((currentPoints - previousPoints) * 10) / 10;
+    return {
+      key: goal.key,
+      label: goal.label,
+      unit: goal.unit,
+      target: goal.target,
+      previousRealized,
+      currentRealized,
+      realizedDiff,
+      previousPercent: Number(oldGoal.percent || 0),
+      currentPercent: Number(goal.percent || 0),
+      percentDiff: Math.round((Number(goal.percent || 0) - Number(oldGoal.percent || 0)) * 10) / 10,
+      previousPoints,
+      currentPoints,
+      pointsDiff,
+      previousStatus: oldGoal.status || "-",
+      currentStatus: goal.status || "-",
+    };
+  });
+  return {
+    previousMonth: previous.month,
+    currentMonth: current.month,
+    previousSummary: previous.summary,
+    currentSummary: current.summary,
+    summary: {
+      pointsDiff: Math.round((Number(current.summary.totalPoints || 0) - Number(previous.summary.totalPoints || 0)) * 10) / 10,
+      percentDiff: Math.round((Number(current.summary.percent || 0) - Number(previous.summary.percent || 0)) * 10) / 10,
+    },
+    rows,
   };
 }
 
@@ -3203,7 +3261,12 @@ async function api(req, res, url) {
     if (!run) return send(res, 500, { error: "Não foi possível salvar o checklist." });
     const current = (await query("SELECT photo_path FROM manager_checklist_answers WHERE run_id = ? AND item_id = ?", [run.id, item.id]))[0];
     let photoPath = current?.photo_path || "";
-    if (body.photoDataUrl) {
+    if (body.photoFile?.buffer?.length) {
+      const contentType = body.photoFile.contentType || "image/jpeg";
+      if (/^image\/(png|jpe?g|webp|heic|heif)$/i.test(contentType)) {
+        photoPath = await saveUploadBuffer(body.photoFile.buffer, contentType, body.photoFile.filename || "checklist-gerente-foto") || photoPath;
+      }
+    } else if (body.photoDataUrl) {
       photoPath = await saveDataUrl(body.photoDataUrl, body.photoName || "checklist-gerente-foto") || photoPath;
     } else if (shouldRemoveChecklistPhoto(body)) {
       photoPath = "";
@@ -4442,7 +4505,14 @@ async function api(req, res, url) {
 
   if (method === "GET" && url.pathname === "/api/prevention-goals") {
     if (!await canAccessPreventionGoals(user)) return send(res, 403, { error: "Metas da prevenção ainda não liberadas para este acesso." });
-    return send(res, 200, await preventionGoalProgress(url.searchParams.get("month")));
+    const progress = await preventionGoalProgress(url.searchParams.get("month"));
+    try {
+      progress.comparison = await preventionGoalsComparison();
+    } catch (error) {
+      console.error("Falha ao gerar comparativo de metas:", error);
+      progress.comparison = null;
+    }
+    return send(res, 200, progress);
   }
 
   if (method === "POST" && url.pathname === "/api/prevention-goals/adjustments") {
