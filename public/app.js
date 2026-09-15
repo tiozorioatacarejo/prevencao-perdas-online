@@ -1783,7 +1783,8 @@ async function sendChecklistRequest(path, method, body, photoFile) {
     if (photoFile.size > 12 * 1024 * 1024) {
       throw new Error("Foto muito pesada. Tire uma nova foto em qualidade menor ou envie uma imagem com ate 12 MB.");
     }
-    return apiMultipart(path, checklistFormData(body, photoFile), method);
+    const preparedPhoto = await imageFileToUploadBlob(photoFile);
+    return apiMultipart(path, checklistFormData(body, preparedPhoto), method);
   }
   return api(path, { method, body: JSON.stringify(body) });
 }
@@ -4023,9 +4024,10 @@ function renderManagerChecklists() {
           toast("Foto muito pesada. Tire uma nova foto em qualidade menor ou envie uma imagem com ate 12 MB.");
           return;
         }
+        const preparedPhoto = await imageFileToUploadBlob(file);
         await apiMultipart(
           `/api/manager-checklists/${row.dataset.templateId}/items/${row.dataset.itemId}`,
-          checklistFormData(body, file),
+          checklistFormData(body, preparedPhoto),
           "PUT"
         );
       } else {
