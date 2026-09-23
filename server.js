@@ -84,16 +84,6 @@ const repoActivities = [
   "Confer\u00eancia de estoque no dep\u00f3sito",
 ];
 
-const repoDailyPrompts = {
-  "Açougue": "Balcões, câmaras e equipamentos estão limpos e com produtos bem conservados?",
-  "Perecíveis": "Produtos estão conservados e organizados com os mais próximos do vencimento à frente?",
-  "FLV e Granjeiro": "Produtos impróprios foram retirados e a exposição está em boas condições?",
-  "Perfumaria": "Embalagens estão íntegras e produtos organizados por categoria?",
-  "Mercearia doce": "Gôndolas e pontos extras estão abastecidos e com produtos em rodízio?",
-  "Mercearia salgada": "Gôndolas e pontos extras estão abastecidos e com produtos em rodízio?",
-  "Mercearia seca": "Gôndolas e pontos extras estão abastecidos e com produtos em rodízio?",
-};
-
 const PREVENTION_MONTHLY_GOALS = [
   { key: "temperatures", label: "Temperaturas", target: 90, points: 10, unit: "registros" },
   { key: "quotations", label: "Cota\u00e7\u00f5es", target: 100, points: 10, unit: "fotos" },
@@ -1048,14 +1038,6 @@ function validPreventionGoalKey(goalKey) {
 
 function canAccessReposition(user) {
   return ["administrador", "encarregada", "gerente", "reposicao", "comercial"].includes(user.role);
-}
-
-function canManageRepoGoals(user) {
-  return ["administrador", "encarregada"].includes(user.role);
-}
-
-function canViewRepoGoals(user) {
-  return ["administrador", "encarregada", "reposicao"].includes(user.role);
 }
 
 function canAccessSectorAudit(user) {
@@ -3559,7 +3541,6 @@ async function api(req, res, url) {
     return send(res, 200, {
       sectors: ownRepoAccess ? await sectorsForUser(user) : repoSectors,
       activities: repoActivities,
-      dailyPrompts: repoDailyPrompts,
       repoCollaboratorIds: visibleRepoUsers.map((row) => row.collaborator_id).filter(Boolean),
       commercialCollaboratorIds: visibleCommercialUsers.map((row) => row.collaborator_id).filter(Boolean),
       repoUsers: visibleRepoUsers,
@@ -3727,25 +3708,6 @@ async function api(req, res, url) {
       `,
       [start, end, ...repoScopeParams, start, end, ...repoScopeParams, start, end, ...repoScopeParams]
     );
-    const goalRows = await query(
-      `SELECT sector, target_daily, status FROM repo_goals WHERE goal_type = 'checklist' AND status = 'ativo'${repoScopeClause} ORDER BY sector`,
-      repoScopeParams
-    );
-    const tasksBySector = new Map((bySector || []).map((row) => [row.sector, Number(row.tasks || 0)]));
-    const goalProgress = goalRows.map((row) => {
-      const targetDaily = Number(row.target_daily || 0);
-      const target = targetDaily * period.days;
-      const done = tasksBySector.get(row.sector) || 0;
-      return {
-        sector: row.sector,
-        targetDaily,
-        target,
-        done,
-        pending: Math.max(target - done, 0),
-        percent: target ? Math.min(100, Math.round((done / target) * 100)) : 0,
-        status: row.status,
-      };
-    });
     const submittedTaskTotal = taskRows.reduce((sum, row) => sum + Number(row.total || 0), 0);
     const expectedTaskTotal = Math.max(0, repoActivities.length * period.days);
     const completed = Math.min(Number(completedTaskRows[0]?.total || 0), expectedTaskTotal || Number(completedTaskRows[0]?.total || 0));
@@ -3784,20 +3746,11 @@ async function api(req, res, url) {
       `,
       [start, end, ...repoScopeParams, ...(user.role === "reposicao" ? [user.collaborator_id] : [])]
     );
-    const repoActivityCounts = await query(
-      `
-      SELECT activity, COUNT(DISTINCT date) AS total
-      FROM repo_tasks
-      WHERE date BETWEEN ? AND ? AND status = 'Realizado'${repoScopeClause}
-      GROUP BY activity
-      `,
-      [start, end, ...repoScopeParams]
-    );
-    const repoActivityMap = new Map(repoActivityCounts.map((row) => [row.activity, Number(row.total || 0)]));
     const repoTotalByUsers = repoUserCounts.reduce((sum, row) => sum + Number(row.total || 0), 0);
     return send(res, 200, {
       summary: {
         dailyChecklists: Number(dailyChecklistRows[0]?.total || 0),
+        completedRecords: Number(taskRows.find((row) => row.status === "Realizado")?.total || 0),
         taskTotal: expectedTaskTotal,
         submittedTasks: submittedTaskTotal,
         completed,
@@ -3809,7 +3762,6 @@ async function api(req, res, url) {
         damages: Number(damageRows[0]?.total || 0),
       },
       bySector,
-      repoGoalProgress: goalProgress,
       repoUserEngagement: repoUserCounts.map((row) => ({
         id: row.id,
         name: row.name,
@@ -3827,47 +3779,7 @@ async function api(req, res, url) {
             total: Number(row.total || 0),
           })),
       })),
-      repoActivityCompletion: repoActivities.map((activity) => {
-        const total = repoActivityMap.get(activity) || 0;
-        return {
-          activity,
-          total,
-          expected: period.days,
-          percent: period.days ? Math.min(100, Math.round((total / period.days) * 100)) : 0,
-        };
-      }),
     });
-  }
-
-  if (method === "GET" && url.pathname === "/api/reposition/goals") {
-    if (!canViewRepoGoals(user)) return send(res, 403, { error: "Acesso restrito às metas da reposição." });
-    const repoFilter = await repositionSectorFilter(user);
-    return send(res, 200, {
-      rows: await query(`SELECT * FROM repo_goals WHERE goal_type = 'checklist'${repoFilter.clause} ORDER BY sector`, repoFilter.params),
-    });
-  }
-
-  if (method === "POST" && url.pathname === "/api/reposition/goals") {
-    if (!canManageRepoGoals(user)) return send(res, 403, { error: "Apenas administrador ou encarregada pode salvar metas." });
-    const body = await readBody(req);
-    const sector = String(body.sector || "").trim();
-    const targetDaily = Math.max(0, Number.parseInt(body.targetDaily, 10) || 0);
-    const status = body.status === "inativo" ? "inativo" : "ativo";
-    if (!repoSectors.includes(sector)) return send(res, 400, { error: "Selecione um setor válido." });
-    await execute(
-      `
-      INSERT INTO repo_goals (sector, goal_type, target_daily, status, updated_by, updated_at)
-      VALUES (?, 'checklist', ?, ?, ?, ?)
-      ON CONFLICT(sector, goal_type) DO UPDATE SET
-        target_daily=excluded.target_daily,
-        status=excluded.status,
-        updated_by=excluded.updated_by,
-        updated_at=excluded.updated_at
-      `,
-      [sector, targetDaily, status, user.id, nowIso()]
-    );
-    await logAudit(user, "upsert", "repo_goals", sector, { targetDaily, status });
-    return send(res, 200, { ok: true });
   }
 
   if (method === "GET" && url.pathname === "/api/sector-audits") {
@@ -3987,9 +3899,8 @@ async function api(req, res, url) {
     if (sectorError) return send(res, 403, { error: sectorError });
     let answers;
     try { answers = JSON.parse(body.answers || "{}"); } catch { answers = {}; }
-    if (["stock", "rupture", "specific"].some((key) => !["Sim", "Não", "Não se aplica"].includes(answers[key]))
-      || !["Sim", "Não"].includes(answers.organized)) {
-      return send(res, 400, { error: "Responda todas as verificações do checklist." });
+    if (!["Sim", "Não"].includes(answers.organized)) {
+      return send(res, 400, { error: "Informe se houve organização de algum ponto." });
     }
     const priceSampleCount = Number(body.priceSampleCount ?? body.sampleCount);
     const validitySampleCount = Number(body.validitySampleCount ?? body.sampleCount);
@@ -4005,14 +3916,12 @@ async function api(req, res, url) {
     if ((priceIssues && !priceIssueDetails) || (validityIssues && !validityIssueDetails)) {
       return send(res, 400, { error: "Descreva separadamente as divergências de preço e validade." });
     }
-    if (["stock", "rupture", "specific"].some((key) => answers[key] === "Não")
-      && !String(body.observation || "").trim()) {
-      return send(res, 400, { error: "Descreva na observação o que ficou pendente." });
-    }
     const previous = (await query(
-      "SELECT before_photo_path, after_photo_path FROM repo_daily_checklists WHERE date = ? AND sector = ?",
+      "SELECT answers_json, before_photo_path, after_photo_path FROM repo_daily_checklists WHERE date = ? AND sector = ?",
       [date, sector]
     ))[0];
+    let previousAnswers = {};
+    try { previousAnswers = JSON.parse(previous?.answers_json || "{}"); } catch { /* registro antigo incompleto */ }
     const organized = answers.organized === "Sim";
     const area = String(body.organizationArea || "").trim();
     if (organized && (!area || (!body.beforePhoto?.buffer?.length && !previous?.before_photo_path)
@@ -4046,7 +3955,7 @@ async function api(req, res, url) {
          organization_area = excluded.organization_area, before_photo_path = excluded.before_photo_path,
          after_photo_path = excluded.after_photo_path, observation = excluded.observation,
          sent_at = excluded.sent_at, created_by = excluded.created_by`,
-      [date, sector, collaboratorId, JSON.stringify(answers), Math.max(priceSampleCount, validitySampleCount),
+       [date, sector, collaboratorId, JSON.stringify({ ...previousAnswers, ...answers }), Math.max(priceSampleCount, validitySampleCount),
         priceSampleCount, validitySampleCount, priceIssues, validityIssues,
         [priceIssueDetails && `Preço: ${priceIssueDetails}`, validityIssueDetails && `Validade: ${validityIssueDetails}`].filter(Boolean).join("; "),
         priceIssueDetails, validityIssueDetails, organized ? area : null, beforePath, afterPath,

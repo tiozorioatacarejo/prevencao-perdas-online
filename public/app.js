@@ -89,7 +89,6 @@
     commercialCollaboratorIds: [],
     repoUsers: [],
     commercialUsers: [],
-    dailyPrompts: {},
     dailyChecklists: [],
     dailyCurrent: [],
     dashboard: null,
@@ -97,7 +96,6 @@
     ruptures: [],
     expirations: [],
     damages: [],
-    goals: [],
     filters: {
       startDate: localDateValue(),
       endDate: localDateValue(),
@@ -302,10 +300,6 @@ function canAccessAgenda(type) {
   if (type === "comercial") return ["administrador", "comercial"].includes(state.user?.role);
   if (type === "recebimento") return ["administrador", "encarregada", "recebimento"].includes(state.user?.role);
   return false;
-}
-
-function canManageRepoGoals() {
-  return ["administrador", "encarregada"].includes(state.user?.role);
 }
 
 function canFillEncarregadaOnly() {
@@ -536,7 +530,6 @@ async function bootstrap() {
       const repoOptions = await api("/api/reposition/options");
       state.repo.sectors = repoOptions.sectors;
       state.repo.activities = repoOptions.activities;
-      state.repo.dailyPrompts = repoOptions.dailyPrompts || {};
       state.repo.repoCollaboratorIds = repoOptions.repoCollaboratorIds || [];
       state.repo.commercialCollaboratorIds = repoOptions.commercialCollaboratorIds || [];
       state.repo.repoUsers = repoOptions.repoUsers || [];
@@ -741,7 +734,7 @@ function navGroups(tabs) {
       id: "reposition",
       label: "Reposição",
       icon: "📦",
-      tabs: ["repoDashboard", "reposition", "repoGoals", "repoReports"],
+      tabs: ["repoDashboard", "reposition", "repoReports"],
     },
     {
       id: "commercial",
@@ -792,7 +785,7 @@ async function refreshForTab() {
   if (state.tab === "managerChecklists") await Promise.all([loadManagerChecklists(), loadManagerChecklistHistory()]);
   if (state.tab === "dashboard") await loadDashboard();
   if (state.tab === "preventionGoals") await loadPreventionGoals();
-  if (state.tab === "repoDashboard" || state.tab === "commercialDashboard" || state.tab === "repoGoals") await Promise.all([loadCollaborators(), loadReposition()]);
+  if (state.tab === "repoDashboard" || state.tab === "commercialDashboard") await Promise.all([loadCollaborators(), loadReposition()]);
   if (state.tab === "sectorAudit") await Promise.all([loadCollaborators(), loadSectorAudits()]);
   if (state.tab === "collaborators" || state.tab === "checklist" || state.tab === "pendencies") await loadCollaborators();
   if (state.tab === "reposition" || state.tab === "commercial") await Promise.all([loadCollaborators(), loadReposition()]);
@@ -823,7 +816,6 @@ function renderView() {
     repoReports: renderRepoReports,
     reposition: renderReposition,
     commercial: renderCommercial,
-    repoGoals: renderRepoGoals,
     managerChecklists: renderManagerChecklists,
     sectorAudit: renderSectorAudit,
     pendencies: renderPendencies,
@@ -852,7 +844,6 @@ function allowedTabs() {
     const tabs = [
       ["dailyTasks", "Agenda/Tarefas"],
       ["managerChecklists", "Checklist Gerente Loja"],
-      ["repoGoals", "Metas Reposição"],
       ["receivingAgenda", "Agenda Recebimento"],
       ["repoReports", "Relatórios Reposição"],
       ["reports", "Relatórios Prevenção"],
@@ -879,7 +870,6 @@ function allowedTabs() {
     ["dashboard", "Painel PrevenÃ§Ã£o"],
     ["preventionGoals", "Metas Prevenção"],
     ["repoDashboard", "Painel Reposi\u00e7\u00e3o"],
-    ["repoGoals", "Metas Reposição"],
     ["commercialDashboard", "Painel Comercial"],
     ["managerChecklists", "Checklist Gerente Loja"],
     ["checklist", "Checklist"],
@@ -1027,9 +1017,6 @@ async function loadReposition() {
     api(`/api/reposition/daily-checklists?${qs.toString()}`),
     api(`/api/reposition/daily-checklists?${todayQs.toString()}`),
   ]);
-  const goals = ["gerente", "comercial"].includes(state.user?.role)
-    ? { rows: [] }
-    : await api("/api/reposition/goals");
   state.repo.dashboard = dashboard;
   state.repo.tasks = tasks.rows;
   state.repo.dailyChecklists = daily.rows;
@@ -1037,7 +1024,6 @@ async function loadReposition() {
   state.repo.ruptures = ruptures.rows;
   state.repo.expirations = expirations.rows;
   state.repo.damages = [];
-  state.repo.goals = goals.rows || [];
 }
 
 async function loadAgenda(type) {
@@ -1607,7 +1593,7 @@ function exportRepoPanelCsv(kind) {
     ["Painel Reposição", period],
     [],
     ["Resumo", "Valor"],
-    ["Atividades realizadas", `${summary.completed || 0}/${summary.taskTotal || 0}`],
+    ["Atividades avulsas realizadas", summary.completedRecords || 0],
     [],
     ["Itens identificados por setor"],
     ["Setor", "Itens identificados", "Rupturas", "Validades"],
@@ -1629,10 +1615,6 @@ function exportRepoPanelCsv(kind) {
       row.total,
       (row.activities || []).map((item) => `${item.activity} (${item.total || 0})`).join(" | "),
     ]),
-    [],
-    ["Realização das atividades"],
-    ["Atividade", "Realizado", "Meta", "Percentual"],
-    ...(data.repoActivityCompletion || []).map((row) => [row.activity, row.total, row.expected, `${row.percent}%`]),
   ]);
 }
 
@@ -2519,7 +2501,14 @@ function repoReportRows(filters = {}) {
       collaborator: row.collaborator || "",
       activity: "Checklist diário",
       product: "",
-      detail: `Abastecimento: ${answers.stock || "-"}; rupturas: ${answers.rupture || "-"}; setor: ${answers.specific || "-"}; preços: ${Number(row.price_sample_count) || row.sample_count} conferidos, ${row.price_issues} divergentes; validades: ${Number(row.validity_sample_count) || row.sample_count} conferidos, ${row.validity_issues} divergentes${row.organization_area ? `; organização: ${row.organization_area}` : ""}`,
+      detail: [
+        answers.stock && `Abastecimento: ${answers.stock}`,
+        answers.rupture && `Rupturas comunicadas: ${answers.rupture}`,
+        answers.specific && `Setor: ${answers.specific}`,
+        `Preços: ${Number(row.price_sample_count) || row.sample_count} conferidos, ${row.price_issues} divergentes`,
+        `Validades: ${Number(row.validity_sample_count) || row.sample_count} conferidos, ${row.validity_issues} divergentes`,
+        row.organization_area && `Organização: ${row.organization_area}`,
+      ].filter(Boolean).join("; "),
       quantity: `${Number(row.price_sample_count) || row.sample_count} preços / ${Number(row.validity_sample_count) || row.sample_count} validades`,
       observation: [row.divergence_details, row.observation].filter(Boolean).join("; "),
       beforePhoto: row.before_photo_path,
@@ -3304,91 +3293,12 @@ function renderCommercial() {
   fixVisibleText(view);
 }
 
-function renderRepoGoals() {
-  if (!canManageRepoGoals()) {
-    view.innerHTML = `<section class="panel"><h3>Acesso restrito</h3><p class="muted">Apenas administrador ou gerente pode definir metas.</p></section>`;
-    fixVisibleText(view);
-    return;
-  }
-  const goalsBySector = new Map((state.repo.goals || []).map((row) => [row.sector, row]));
-  view.innerHTML = `
-    <div class="topbar">
-      <div>
-        <h2>Metas Reposição</h2>
-        <div class="muted">Definição de meta diária de atividades por setor</div>
-      </div>
-      <button class="btn" id="refreshRepoGoals">Atualizar</button>
-    </div>
-    <section class="panel">
-      <h3>Definir meta por setor</h3>
-      <div class="muted" style="margin-top:4px">Informe quantas atividades de checklist o setor deve realizar por dia.</div>
-      <form class="grid" id="repoGoalForm" style="margin-top:12px">
-        <div class="grid three">
-          <label>Setor <select name="sector">${repoOptions(state.repo.sectors || [])}</select></label>
-          <label>Meta diária <input name="targetDaily" type="number" min="0" step="1" required placeholder="Ex.: 11"></label>
-          <label>Status
-            <select name="status">
-              <option value="ativo">Ativo</option>
-              <option value="inativo">Inativo</option>
-            </select>
-          </label>
-        </div>
-        <button class="btn primary" type="submit">Salvar meta</button>
-      </form>
-    </section>
-    <section class="panel" style="margin-top:14px">
-      <h3>Metas cadastradas</h3>
-      <div class="table-wrap" style="margin-top:12px">${repoGoalsTable(state.repo.goals || [])}</div>
-    </section>
-    <section class="panel" style="margin-top:14px">
-      <h3>Sugestão rápida</h3>
-      <div class="table-wrap" style="margin-top:12px">
-        <table><thead><tr><th>Setor</th><th>Meta atual</th><th>Sugestão</th></tr></thead><tbody>
-          ${(state.repo.sectors || []).map((sector) => {
-            const current = goalsBySector.get(sector);
-            return `<tr>
-              <td data-label="Setor">${escapeHtml(sector)}</td>
-              <td data-label="Meta atual">${current ? `${current.target_daily || 0} por dia` : "Sem meta"}</td>
-              <td data-label="Sugestão">${state.repo.activities.length} atividades por dia</td>
-            </tr>`;
-          }).join("")}
-        </tbody></table>
-      </div>
-    </section>
-  `;
-  document.getElementById("refreshRepoGoals").addEventListener("click", async () => {
-    await loadReposition();
-    renderRepoGoals();
-  });
-  document.getElementById("repoGoalForm").addEventListener("submit", async (event) => {
-    event.preventDefault();
-    await api("/api/reposition/goals", { method: "POST", body: JSON.stringify(Object.fromEntries(new FormData(event.currentTarget).entries())) });
-    await loadReposition();
-    renderRepoGoals();
-    toast("Meta da reposição salva.");
-  });
-  document.querySelectorAll("[data-repo-goal-sector]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const row = (state.repo.goals || []).find((item) => item.sector === button.dataset.repoGoalSector);
-      const form = document.getElementById("repoGoalForm");
-      form.elements.sector.value = row.sector;
-      form.elements.targetDaily.value = row.target_daily || 0;
-      form.elements.status.value = row.status || "ativo";
-      form.elements.targetDaily.focus();
-    });
-  });
-  fixVisibleText(view);
-}
-
 function renderRepoDashboard() {
   const data = state.repo.dashboard || { summary: {}, bySector: [] };
   const summary = data.summary || {};
-  const completed = Number(summary.completed || 0);
-  const taskTotal = Number(summary.taskTotal || 0);
-  const percent = taskTotal ? Math.round((completed / taskTotal) * 100) : 0;
   const metrics = [
     ["Checklists diários", Number(summary.dailyChecklists || 0), "enviados no período"],
-    ["Atividades avulsas realizadas", `${completed}/${taskTotal}`, `${percent}% realizado no período`],
+    ["Atividades avulsas realizadas", Number(summary.completedRecords || 0), "registros no período"],
   ];
   view.innerHTML = `
     <div class="topbar">
@@ -3426,16 +3336,6 @@ function renderRepoDashboard() {
       <summary>Atividades realizadas por colaborador</summary>
       <div class="muted" style="margin-top:4px">Mostra individualmente quais atividades cada repositor realizou no período</div>
       <div class="table-wrap repo-compact-table">${repoIndividualActivitiesTable(data.repoIndividualActivities || [])}</div>
-    </details>
-    <details class="panel repo-dashboard-card repo-dashboard-details">
-      <summary>Metas por setor</summary>
-      <div class="muted" style="margin-top:4px">Compara a meta diária definida com as atividades registradas no período</div>
-      <div class="table-wrap repo-compact-table">${repoGoalProgressTable(data.repoGoalProgress || [])}</div>
-    </details>
-    <details class="panel repo-dashboard-card repo-dashboard-details">
-      <summary>Percentual de realização das atividades</summary>
-      <div class="muted" style="margin-top:4px">Conta o dia quando a atividade foi marcada como Sim ao menos uma vez</div>
-      <div class="table-wrap repo-compact-table">${repoActivityCompletionTable(data.repoActivityCompletion || [])}</div>
     </details>
   `;
   document.getElementById("refreshRepoDashboard").addEventListener("click", async () => {
@@ -3535,17 +3435,6 @@ function repoDailyChecklistForm() {
         <label>Setor <select name="sector" required>${repoOptions(sectors)}</select></label>
       </div>
       <div class="muted" data-repo-owner>${sector ? `Responsável: ${escapeHtml(REPO_DAILY_OWNERS[sector] || "encarregado do setor")}` : "Selecione um setor"}</div>
-      <div class="grid two">
-        <label>Setor abastecido e organizado?
-          <select name="stock" required><option value="">Selecione</option>${repoOptions(["Sim", "Não", "Não se aplica"])}</select>
-        </label>
-        <label>Rupturas identificadas foram comunicadas?
-          <select name="rupture" required><option value="">Selecione</option>${repoOptions(["Sim", "Não", "Não se aplica"])}</select>
-        </label>
-      </div>
-      <label data-repo-specific-label>${escapeHtml(state.repo.dailyPrompts[sector] || "Condições do setor foram verificadas?")}
-        <select name="specific" required><option value="">Selecione</option>${repoOptions(["Sim", "Não", "Não se aplica"])}</select>
-      </label>
       <div class="grid two repo-daily-checks">
         <div class="grid">
           <h4>Conferência de preços</h4>
@@ -3604,7 +3493,7 @@ function renderReposition() {
     <div class="topbar">
       <div>
         <h2>ReposiÃ§Ã£o da loja</h2>
-        <div class="muted">Atividades, rupturas, validades e retorno comercial</div>
+        <div class="muted">Conferências, organização e ocorrências do setor</div>
       </div>
       <button class="btn" id="refreshReposition">Atualizar</button>
     </div>
@@ -3618,6 +3507,13 @@ function renderReposition() {
     <div class="grid" style="margin-top:14px">
       <section class="panel">${repoDailyChecklistForm()}</section>
     </div>
+    <details class="panel" style="margin-top:14px">
+      <summary>Registrar ruptura (opcional)</summary>
+      <div style="margin-top:12px">${repoIssueForm("ruptures", "Produto", [
+        ["type", "Tipo", ["Ruptura total", "Próximo de ruptura"]],
+        ["quantity", "Quantidade", "number"],
+      ])}</div>
+    </details>
     <section class="panel" style="margin-top:14px">
       <h3>Checklists diários</h3>
       <div class="table-wrap" style="margin-top:12px">${repoDailyHistoryTable()}</div>
@@ -3626,16 +3522,10 @@ function renderReposition() {
       <summary>Registro avulso de atividade</summary>
       <div style="margin-top:12px">${repoTaskForm()}</div>
     </details>
-    <div class="grid" style="margin-top:14px">
-      <section class="panel">
-        <h3>Indicadores por setor</h3>
-        <div class="table-wrap" style="margin-top:12px">${repoSectorTable(data.bySector || [])}</div>
-      </section>
-      <section class="panel">
-        <h3>Retorno comercial</h3>
-        <div class="table-wrap" style="margin-top:12px">${repoCommercialTable()}</div>
-      </section>
-    </div>
+    <section class="panel" style="margin-top:14px">
+      <h3>Indicadores por setor</h3>
+      <div class="table-wrap" style="margin-top:12px">${repoSectorTable(data.bySector || [])}</div>
+    </section>
     <section class="panel" style="margin-top:14px">
       <h3>Atividades registradas</h3>
       <div class="table-wrap" style="margin-top:12px">${repoTasksTable()}</div>
@@ -3698,14 +3588,15 @@ function repoTaskForm() {
   `;
 }
 
-function repoIssueForm(kind, title, productLabel, fields) {
+function repoIssueForm(kind, productLabel, fields) {
+  const sectors = repoSectorsForCurrentUser();
+  const fixedSector = state.user?.role === "reposicao" && sectors.length === 1;
   return `
-    <h3>${title}</h3>
     <form class="grid" id="repo-${kind}-form" data-repo-kind="${kind}" style="margin-top:12px">
-      <div class="grid two">
-        <label>Data <input name="date" type="date" value="${todayInputValue()}"></label>
-        <label>Setor <select name="sector">${repoSectorOptionsForCurrentUser()}</select></label>
-      </div>
+      <input name="date" type="hidden" value="${todayInputValue()}">
+      ${fixedSector
+        ? `<input name="sector" type="hidden" value="${escapeHtml(sectors[0])}">`
+        : `<label>Setor <select name="sector" required>${repoSectorOptionsForCurrentUser()}</select></label>`}
       <label>${productLabel} <input name="product" required></label>
       <div class="grid two">
         ${fields.map(([name, label, typeOrOptions]) => Array.isArray(typeOrOptions)
@@ -3713,7 +3604,7 @@ function repoIssueForm(kind, title, productLabel, fields) {
           : `<label>${label} <input name="${name}" type="${typeOrOptions || "text"}"></label>`).join("")}
       </div>
       <label>ObservaÃ§Ã£o <textarea name="observation"></textarea></label>
-      <button class="btn primary" type="submit">Salvar</button>
+      <button class="btn primary" type="submit">Registrar ruptura</button>
     </form>
   `;
 }
@@ -3733,10 +3624,6 @@ function bindRepoDailyForm() {
       form.elements[detailField].required = hasIssues;
     }
   };
-  const syncAnswers = () => {
-    form.elements.observation.required = ["stock", "rupture", "specific"]
-      .some((key) => form.elements[key].value === "Não");
-  };
   const syncOrganization = () => {
     const organized = form.elements.organized.value === "Sim";
     form.querySelector("[data-repo-organization]").classList.toggle("hidden", !organized);
@@ -3748,10 +3635,9 @@ function bindRepoDailyForm() {
     const sector = form.elements.sector.value;
     current = (state.repo.dailyCurrent || []).find((row) => row.sector === sector) || null;
     form.querySelector("[data-repo-owner]").textContent = `Responsável: ${REPO_DAILY_OWNERS[sector] || "encarregado do setor"}`;
-    form.querySelector("[data-repo-specific-label]").firstChild.textContent = state.repo.dailyPrompts[sector] || "Condições do setor foram verificadas?";
     let answers = {};
     try { answers = JSON.parse(current?.answers_json || "{}"); } catch { /* registro incompleto */ }
-    for (const key of ["stock", "rupture", "specific", "organized"]) form.elements[key].value = answers[key] || "";
+    form.elements.organized.value = answers.organized || "";
     form.elements.priceSampleCount.value = Number(current?.price_sample_count) || current?.sample_count || 10;
     form.elements.validitySampleCount.value = Number(current?.validity_sample_count) || current?.sample_count || 10;
     form.elements.priceIssues.value = current?.price_issues ?? 0;
@@ -3766,7 +3652,6 @@ function bindRepoDailyForm() {
       ? `<a href="${escapeHtml(current.before_photo_path)}" target="_blank" rel="noopener noreferrer">Antes atual</a> · <a href="${escapeHtml(current.after_photo_path)}" target="_blank" rel="noopener noreferrer">Depois atual</a>`
       : "";
     syncIssues();
-    syncAnswers();
     syncOrganization();
   };
   const syncCollaborator = () => {
@@ -3780,7 +3665,6 @@ function bindRepoDailyForm() {
   form.elements.collaboratorId?.addEventListener("change", syncCollaborator);
   form.elements.sector.addEventListener("change", syncSector);
   form.elements.organized.addEventListener("change", syncOrganization);
-  for (const key of ["stock", "rupture", "specific"]) form.elements[key].addEventListener("change", syncAnswers);
   form.elements.priceIssues.addEventListener("input", syncIssues);
   form.elements.validityIssues.addEventListener("input", syncIssues);
   form.elements.priceSampleCount.addEventListener("input", syncIssues);
@@ -3804,24 +3688,19 @@ function bindRepoDailyForm() {
       return;
     }
     button.disabled = true;
-    button.textContent = "Preparando fotos...";
+    button.textContent = "Enviando checklist...";
     try {
       const payload = new FormData(form);
       payload.delete("beforePhoto");
       payload.delete("afterPhoto");
-      for (const key of ["stock", "rupture", "specific", "organized"]) payload.delete(key);
-      payload.append("answers", JSON.stringify(Object.fromEntries(
-        ["stock", "rupture", "specific", "organized"].map((key) => [key, form.elements[key].value])
-      )));
+      payload.delete("organized");
+      payload.append("answers", JSON.stringify({ organized: form.elements.organized.value }));
       if (before) {
-        const photo = await imageFileToUploadBlob(before);
-        payload.append("beforePhoto", photo, photo.name || "antes.jpg");
+        payload.append("beforePhoto", before, before.name || "antes.jpg");
       }
       if (after) {
-        const photo = await imageFileToUploadBlob(after);
-        payload.append("afterPhoto", photo, photo.name || "depois.jpg");
+        payload.append("afterPhoto", after, after.name || "depois.jpg");
       }
-      button.textContent = "Enviando checklist...";
       await apiMultipart("/api/reposition/daily-checklists", payload);
       await loadReposition();
       renderReposition();
@@ -3937,33 +3816,6 @@ function commercialSectorTable() {
   `;
 }
 
-function repoGoalsTable(rows) {
-  return `
-    <table><thead><tr><th>Setor</th><th>Meta diária</th><th>Status</th><th>Ação</th></tr></thead><tbody>
-      ${rows.map((row) => `<tr>
-        <td data-label="Setor">${escapeHtml(row.sector)}</td>
-        <td data-label="Meta diária">${row.target_daily || 0}</td>
-        <td data-label="Status"><span class="status ${row.status === "ativo" ? "ok" : "warn"}">${escapeHtml(row.status || "")}</span></td>
-        <td data-label="Ação"><button class="btn" type="button" data-repo-goal-sector="${escapeHtml(row.sector)}">Editar</button></td>
-      </tr>`).join("") || `<tr><td colspan="4">Nenhuma meta cadastrada.</td></tr>`}
-    </tbody></table>
-  `;
-}
-
-function repoGoalProgressTable(rows) {
-  return `
-    <table><thead><tr><th>Setor</th><th>Realizado</th><th>Meta</th><th>Pendente</th><th>Percentual</th></tr></thead><tbody>
-      ${rows.map((row) => `<tr>
-        <td data-label="Setor">${escapeHtml(row.sector)}</td>
-        <td data-label="Realizado">${row.done || 0}</td>
-        <td data-label="Meta">${row.target || 0}</td>
-        <td data-label="Pendente">${row.pending || 0}</td>
-        <td data-label="Percentual">${percentBar(row.percent || 0)}</td>
-      </tr>`).join("") || `<tr><td colspan="5">Nenhuma meta ativa cadastrada.</td></tr>`}
-    </tbody></table>
-  `;
-}
-
 function repoUserEngagementTable(rows) {
   return `
     <table><thead><tr><th>Colaborador</th><th>Atividades realizadas</th><th>Engajamento</th></tr></thead><tbody>
@@ -3986,18 +3838,6 @@ function repoIndividualActivitiesTable(rows) {
           (row.activities || []).map((item) => `${escapeHtml(item.activity)} (${item.total || 0})`).join("<br>") || "-"
         }</td>
       </tr>`).join("") || `<tr><td colspan="3">Sem atividades realizadas no período.</td></tr>`}
-    </tbody></table>
-  `;
-}
-
-function repoActivityCompletionTable(rows) {
-  return `
-    <table><thead><tr><th>Atividade</th><th>Realizado</th><th>Percentual</th></tr></thead><tbody>
-      ${rows.map((row) => `<tr>
-        <td data-label="Atividade">${escapeHtml(row.activity)}</td>
-        <td data-label="Realizado">${row.total || 0}/${row.expected || 0}</td>
-        <td data-label="Percentual">${percentBar(row.percent || 0)}</td>
-      </tr>`).join("") || `<tr><td colspan="3">Sem atividades cadastradas.</td></tr>`}
     </tbody></table>
   `;
 }
