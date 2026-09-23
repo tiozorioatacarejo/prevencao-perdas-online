@@ -64,6 +64,14 @@ const repoSectors = [
   "Perfumaria",
 ];
 
+const repoResponsibleSectors = {
+  rafael: ["Açougue"],
+  karla: ["Perecíveis"],
+  sabrina: ["FLV e Granjeiro"],
+  debora: ["Perfumaria"],
+  francisco: ["Mercearia doce", "Mercearia salgada", "Mercearia seca"],
+};
+
 const repoActivities = [
   "Limpeza do setor",
   "Organiza\u00e7\u00e3o de g\u00f4ndolas",
@@ -75,6 +83,16 @@ const repoActivities = [
   "Ponta de g\u00f4ndola e ilhas organizadas",
   "Confer\u00eancia de estoque no dep\u00f3sito",
 ];
+
+const repoDailyPrompts = {
+  "Açougue": "Balcões, câmaras e equipamentos estão limpos e com produtos bem conservados?",
+  "Perecíveis": "Produtos estão conservados e organizados com os mais próximos do vencimento à frente?",
+  "FLV e Granjeiro": "Produtos impróprios foram retirados e a exposição está em boas condições?",
+  "Perfumaria": "Embalagens estão íntegras e produtos organizados por categoria?",
+  "Mercearia doce": "Gôndolas e pontos extras estão abastecidos e com produtos em rodízio?",
+  "Mercearia salgada": "Gôndolas e pontos extras estão abastecidos e com produtos em rodízio?",
+  "Mercearia seca": "Gôndolas e pontos extras estão abastecidos e com produtos em rodízio?",
+};
 
 const PREVENTION_MONTHLY_GOALS = [
   { key: "temperatures", label: "Temperaturas", target: 90, points: 10, unit: "registros" },
@@ -456,6 +474,29 @@ async function initPostgres(pool) {
       created_by INTEGER NOT NULL REFERENCES users(id)
     );
 
+    CREATE TABLE IF NOT EXISTS repo_daily_checklists (
+      id SERIAL PRIMARY KEY,
+      date TEXT NOT NULL,
+      sector TEXT NOT NULL,
+      collaborator_id INTEGER NOT NULL REFERENCES collaborators(id),
+      answers_json TEXT NOT NULL,
+      sample_count INTEGER NOT NULL,
+      price_sample_count INTEGER NOT NULL DEFAULT 0,
+      validity_sample_count INTEGER NOT NULL DEFAULT 0,
+      price_issues INTEGER NOT NULL DEFAULT 0,
+      validity_issues INTEGER NOT NULL DEFAULT 0,
+      divergence_details TEXT,
+      price_issue_details TEXT,
+      validity_issue_details TEXT,
+      organization_area TEXT,
+      before_photo_path TEXT,
+      after_photo_path TEXT,
+      observation TEXT,
+      sent_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      created_by INTEGER NOT NULL REFERENCES users(id),
+      UNIQUE(date, sector)
+    );
+
     CREATE TABLE IF NOT EXISTS repo_ruptures (
       id SERIAL PRIMARY KEY,
       date TEXT NOT NULL,
@@ -703,6 +744,10 @@ async function initPostgres(pool) {
   `);
   await pool.query("ALTER TABLE repo_ruptures ADD COLUMN IF NOT EXISTS commercial_updated_by INTEGER REFERENCES users(id)");
   await pool.query("ALTER TABLE repo_expirations ADD COLUMN IF NOT EXISTS commercial_updated_by INTEGER REFERENCES users(id)");
+  await pool.query("ALTER TABLE repo_daily_checklists ADD COLUMN IF NOT EXISTS price_sample_count INTEGER NOT NULL DEFAULT 0");
+  await pool.query("ALTER TABLE repo_daily_checklists ADD COLUMN IF NOT EXISTS validity_sample_count INTEGER NOT NULL DEFAULT 0");
+  await pool.query("ALTER TABLE repo_daily_checklists ADD COLUMN IF NOT EXISTS price_issue_details TEXT");
+  await pool.query("ALTER TABLE repo_daily_checklists ADD COLUMN IF NOT EXISTS validity_issue_details TEXT");
   await pool.query("ALTER TABLE management_monthly ADD COLUMN IF NOT EXISTS sold_quantity REAL NOT NULL DEFAULT 0");
   await pool.query("ALTER TABLE agenda_slots DROP CONSTRAINT IF EXISTS agenda_slots_agenda_type_date_start_time_key");
   await pool.query("CREATE UNIQUE INDEX IF NOT EXISTS agenda_slots_owner_time_idx ON agenda_slots (agenda_type, date, start_time, created_by)");
@@ -783,12 +828,13 @@ function parseMultipartBody(buffer, contentType) {
       const filename = /filename="([^"]*)"/i.exec(headerText)?.[1];
       const contentTypeMatch = /content-type:\s*([^\r\n]+)/i.exec(headerText);
       if (filename) {
-        result.photoName = filename;
-        result.photoFile = {
+        const file = {
           buffer: content,
           contentType: (contentTypeMatch?.[1] || "image/jpeg").trim(),
           filename,
         };
+        result[name] = file;
+        if (name === "photoFile") result.photoName = filename;
       } else {
         result[name] = content.toString("utf8");
       }
@@ -1055,9 +1101,9 @@ function parseCollaboratorSectors(value) {
 }
 
 async function validateRepoSectorForUser(user, sector) {
-  if (user.role !== "reposicao" || !user.collaborator_id) return null;
-  const rows = await query("SELECT sector FROM collaborators WHERE id = ?", [user.collaborator_id]);
-  const assigned = parseCollaboratorSectors(rows[0]?.sector);
+  if (user.role !== "reposicao") return null;
+  if (!user.collaborator_id) return "Nenhum colaborador está vinculado ao seu acesso.";
+  const assigned = await sectorsForUser(user);
   if (!assigned.length) return "Nenhum setor est\u00e1 direcionado para o seu acesso.";
   if (assigned.includes(sector)) return null;
   return "Este setor n\u00e3o est\u00e1 direcionado para o seu acesso.";
@@ -1065,8 +1111,12 @@ async function validateRepoSectorForUser(user, sector) {
 
 async function sectorsForUser(user) {
   if (!user.collaborator_id) return [];
-  const rows = await query("SELECT sector FROM collaborators WHERE id = ?", [user.collaborator_id]);
-  return parseCollaboratorSectors(rows[0]?.sector);
+  const rows = await query("SELECT name, sector FROM collaborators WHERE id = ? AND status = 'ativo'", [user.collaborator_id]);
+  const assigned = parseCollaboratorSectors(rows[0]?.sector);
+  if (user.role !== "reposicao") return assigned;
+  const firstName = normalizeText(rows[0]?.name).split(/\s+/)[0];
+  const responsible = repoResponsibleSectors[firstName];
+  return responsible ? assigned.filter((sector) => responsible.includes(sector)) : assigned;
 }
 
 async function commercialSectorFilter(user, column = "sector") {
@@ -3503,13 +3553,17 @@ async function api(req, res, url) {
     const commercialUsers = await query(
       "SELECT id, display_name, collaborator_id FROM users WHERE role = 'comercial' AND status = 'ativo' ORDER BY display_name"
     );
+    const ownRepoAccess = user.role === "reposicao";
+    const visibleRepoUsers = ownRepoAccess ? repoUsers.filter((row) => Number(row.id) === Number(user.id)) : repoUsers;
+    const visibleCommercialUsers = ownRepoAccess ? [] : commercialUsers;
     return send(res, 200, {
-      sectors: repoSectors,
+      sectors: ownRepoAccess ? await sectorsForUser(user) : repoSectors,
       activities: repoActivities,
-      repoCollaboratorIds: repoUsers.map((row) => row.collaborator_id).filter(Boolean),
-      commercialCollaboratorIds: commercialUsers.map((row) => row.collaborator_id).filter(Boolean),
-      repoUsers,
-      commercialUsers,
+      dailyPrompts: repoDailyPrompts,
+      repoCollaboratorIds: visibleRepoUsers.map((row) => row.collaborator_id).filter(Boolean),
+      commercialCollaboratorIds: visibleCommercialUsers.map((row) => row.collaborator_id).filter(Boolean),
+      repoUsers: visibleRepoUsers,
+      commercialUsers: visibleCommercialUsers,
     });
   }
 
@@ -3637,16 +3691,23 @@ async function api(req, res, url) {
       ? (repoScopeSectors.length ? ` AND sector IN (${repoScopeSectors.map(() => "?").join(", ")})` : " AND 1 = 0")
       : "";
     const repoScopeParams = user.role === "reposicao" ? repoScopeSectors : [];
-    const taskRows = await query("SELECT status, COUNT(*) AS total FROM repo_tasks WHERE date BETWEEN ? AND ? GROUP BY status", [start, end]);
+    const taskRows = await query(
+      `SELECT status, COUNT(*) AS total FROM repo_tasks WHERE date BETWEEN ? AND ?${repoScopeClause} GROUP BY status`,
+      [start, end, ...repoScopeParams]
+    );
     const completedTaskRows = await query(
       `SELECT COUNT(DISTINCT date || '|' || activity) AS total
        FROM repo_tasks
        WHERE date BETWEEN ? AND ? AND status = 'Realizado'${repoScopeClause}`,
       [start, end, ...repoScopeParams]
     );
-    const ruptureRows = await query(`SELECT status, commercial_status, COUNT(*) AS total FROM repo_ruptures WHERE date BETWEEN ? AND ?${commercialFilter.clause} GROUP BY status, commercial_status`, [start, end, ...commercialFilter.params]);
-    const expirationRows = await query(`SELECT status, commercial_status, COUNT(*) AS total FROM repo_expirations WHERE date BETWEEN ? AND ?${commercialFilter.clause} GROUP BY status, commercial_status`, [start, end, ...commercialFilter.params]);
-    const damageRows = await query("SELECT COUNT(*) AS total FROM repo_damages WHERE date BETWEEN ? AND ?", [start, end]);
+    const dailyChecklistRows = await query(
+      `SELECT COUNT(*) AS total FROM repo_daily_checklists WHERE date BETWEEN ? AND ?${repoScopeClause}`,
+      [start, end, ...repoScopeParams]
+    );
+    const ruptureRows = await query(`SELECT status, commercial_status, COUNT(*) AS total FROM repo_ruptures WHERE date BETWEEN ? AND ?${commercialFilter.clause}${repoScopeClause} GROUP BY status, commercial_status`, [start, end, ...commercialFilter.params, ...repoScopeParams]);
+    const expirationRows = await query(`SELECT status, commercial_status, COUNT(*) AS total FROM repo_expirations WHERE date BETWEEN ? AND ?${commercialFilter.clause}${repoScopeClause} GROUP BY status, commercial_status`, [start, end, ...commercialFilter.params, ...repoScopeParams]);
+    const damageRows = await query(`SELECT COUNT(*) AS total FROM repo_damages WHERE date BETWEEN ? AND ?${repoScopeClause}`, [start, end, ...repoScopeParams]);
     const bySector = await query(
       `
       SELECT sector,
@@ -3655,19 +3716,20 @@ async function api(req, res, url) {
         SUM(expirations) AS expirations,
         SUM(damages) AS damages
       FROM (
-        SELECT sector, 0 AS tasks, COUNT(*) AS ruptures, 0 AS expirations, 0 AS damages FROM repo_ruptures WHERE date BETWEEN ? AND ? GROUP BY sector
+        SELECT sector, 0 AS tasks, COUNT(*) AS ruptures, 0 AS expirations, 0 AS damages FROM repo_ruptures WHERE date BETWEEN ? AND ?${repoScopeClause} GROUP BY sector
         UNION ALL
-        SELECT sector, 0 AS tasks, 0 AS ruptures, COUNT(*) AS expirations, 0 AS damages FROM repo_expirations WHERE date BETWEEN ? AND ? GROUP BY sector
+        SELECT sector, 0 AS tasks, 0 AS ruptures, COUNT(*) AS expirations, 0 AS damages FROM repo_expirations WHERE date BETWEEN ? AND ?${repoScopeClause} GROUP BY sector
         UNION ALL
-        SELECT sector, 0 AS tasks, 0 AS ruptures, 0 AS expirations, COUNT(*) AS damages FROM repo_damages WHERE date BETWEEN ? AND ? GROUP BY sector
+        SELECT sector, 0 AS tasks, 0 AS ruptures, 0 AS expirations, COUNT(*) AS damages FROM repo_damages WHERE date BETWEEN ? AND ?${repoScopeClause} GROUP BY sector
       ) x
       GROUP BY sector
       ORDER BY sector
       `,
-      [start, end, start, end, start, end]
+      [start, end, ...repoScopeParams, start, end, ...repoScopeParams, start, end, ...repoScopeParams]
     );
     const goalRows = await query(
-      "SELECT sector, target_daily, status FROM repo_goals WHERE goal_type = 'checklist' AND status = 'ativo' ORDER BY sector"
+      `SELECT sector, target_daily, status FROM repo_goals WHERE goal_type = 'checklist' AND status = 'ativo'${repoScopeClause} ORDER BY sector`,
+      repoScopeParams
     );
     const tasksBySector = new Map((bySector || []).map((row) => [row.sector, Number(row.tasks || 0)]));
     const goalProgress = goalRows.map((row) => {
@@ -3698,6 +3760,7 @@ async function api(req, res, url) {
         AND t.status = 'Realizado'
         ${repoScopeClause.replaceAll("sector", "t.sector")}
       WHERE col.status = 'ativo'
+        ${user.role === "reposicao" ? "AND col.id = ?" : ""}
         AND (
           LOWER(col.role) LIKE '%reposi%'
           OR col.id IN (SELECT collaborator_id FROM users WHERE role = 'reposicao' AND status = 'ativo' AND collaborator_id IS NOT NULL)
@@ -3705,7 +3768,7 @@ async function api(req, res, url) {
       GROUP BY col.id, col.name
       ORDER BY total DESC, col.name
       `,
-      [start, end, ...repoScopeParams]
+      [start, end, ...repoScopeParams, ...(user.role === "reposicao" ? [user.collaborator_id] : [])]
     );
     const repoIndividualActivityRows = await query(
       `
@@ -3715,10 +3778,11 @@ async function api(req, res, url) {
       WHERE t.date BETWEEN ? AND ?
         AND t.status = 'Realizado'
         ${repoScopeClause.replaceAll("sector", "t.sector")}
+        ${user.role === "reposicao" ? "AND t.collaborator_id = ?" : ""}
       GROUP BY col.id, col.name, t.activity
       ORDER BY col.name, t.activity
       `,
-      [start, end, ...repoScopeParams]
+      [start, end, ...repoScopeParams, ...(user.role === "reposicao" ? [user.collaborator_id] : [])]
     );
     const repoActivityCounts = await query(
       `
@@ -3733,6 +3797,7 @@ async function api(req, res, url) {
     const repoTotalByUsers = repoUserCounts.reduce((sum, row) => sum + Number(row.total || 0), 0);
     return send(res, 200, {
       summary: {
+        dailyChecklists: Number(dailyChecklistRows[0]?.total || 0),
         taskTotal: expectedTaskTotal,
         submittedTasks: submittedTaskTotal,
         completed,
@@ -3776,8 +3841,9 @@ async function api(req, res, url) {
 
   if (method === "GET" && url.pathname === "/api/reposition/goals") {
     if (!canViewRepoGoals(user)) return send(res, 403, { error: "Acesso restrito às metas da reposição." });
+    const repoFilter = await repositionSectorFilter(user);
     return send(res, 200, {
-      rows: await query("SELECT * FROM repo_goals WHERE goal_type = 'checklist' ORDER BY sector"),
+      rows: await query(`SELECT * FROM repo_goals WHERE goal_type = 'checklist'${repoFilter.clause} ORDER BY sector`, repoFilter.params),
     });
   }
 
@@ -3882,6 +3948,112 @@ async function api(req, res, url) {
         [start, end, ...repoFilter.params]
       ),
     });
+  }
+
+  if (method === "GET" && url.pathname === "/api/reposition/daily-checklists") {
+    if (!canAccessReposition(user)) return send(res, 403, { error: "Acesso restrito ao módulo de reposição." });
+    const start = url.searchParams.get("startDate") || today();
+    const end = url.searchParams.get("endDate") || start;
+    const repoFilter = await repositionSectorFilter(user, "d.sector");
+    return send(res, 200, {
+      rows: await query(
+        `SELECT d.*, c.name AS collaborator FROM repo_daily_checklists d
+         JOIN collaborators c ON c.id = d.collaborator_id
+         WHERE d.date BETWEEN ? AND ?${repoFilter.clause}
+         ORDER BY d.date DESC, d.id DESC`,
+        [start, end, ...repoFilter.params]
+      ),
+    });
+  }
+
+  if (method === "POST" && url.pathname === "/api/reposition/daily-checklists") {
+    if (!["administrador", "encarregada", "gerente", "reposicao"].includes(user.role)) {
+      return send(res, 403, { error: "Acesso restrito ao checklist diário da reposição." });
+    }
+    const body = await readBody(req);
+    const date = body.date || today();
+    const sector = body.sector || "";
+    const collaboratorId = user.role === "reposicao" ? user.collaborator_id : Number(body.collaboratorId);
+    const parsedDate = new Date(`${date}T12:00:00Z`);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(parsedDate.getTime())
+      || parsedDate.toISOString().slice(0, 10) !== date) {
+      return send(res, 400, { error: "Data inválida." });
+    }
+    if (!repoSectors.includes(sector)) return send(res, 400, { error: "Selecione um setor válido." });
+    if (!collaboratorId || !(await query("SELECT id FROM collaborators WHERE id = ? AND status = 'ativo'", [collaboratorId])).length) {
+      return send(res, 400, { error: "Selecione um colaborador ativo." });
+    }
+    const sectorError = await validateRepoSectorForUser(user, sector);
+    if (sectorError) return send(res, 403, { error: sectorError });
+    let answers;
+    try { answers = JSON.parse(body.answers || "{}"); } catch { answers = {}; }
+    if (["stock", "rupture", "specific"].some((key) => !["Sim", "Não", "Não se aplica"].includes(answers[key]))
+      || !["Sim", "Não"].includes(answers.organized)) {
+      return send(res, 400, { error: "Responda todas as verificações do checklist." });
+    }
+    const priceSampleCount = Number(body.priceSampleCount ?? body.sampleCount);
+    const validitySampleCount = Number(body.validitySampleCount ?? body.sampleCount);
+    const priceIssues = Number(body.priceIssues);
+    const validityIssues = Number(body.validityIssues);
+    if (![priceSampleCount, validitySampleCount, priceIssues, validityIssues].every(Number.isInteger)
+      || priceSampleCount < 10 || validitySampleCount < 10 || priceIssues < 0 || validityIssues < 0
+      || priceIssues > priceSampleCount || validityIssues > validitySampleCount) {
+      return send(res, 400, { error: "Confira ao menos 10 produtos para preços e 10 para validades." });
+    }
+    const priceIssueDetails = priceIssues ? String(body.priceIssueDetails || body.divergenceDetails || "").trim() : "";
+    const validityIssueDetails = validityIssues ? String(body.validityIssueDetails || body.divergenceDetails || "").trim() : "";
+    if ((priceIssues && !priceIssueDetails) || (validityIssues && !validityIssueDetails)) {
+      return send(res, 400, { error: "Descreva separadamente as divergências de preço e validade." });
+    }
+    if (["stock", "rupture", "specific"].some((key) => answers[key] === "Não")
+      && !String(body.observation || "").trim()) {
+      return send(res, 400, { error: "Descreva na observação o que ficou pendente." });
+    }
+    const previous = (await query(
+      "SELECT before_photo_path, after_photo_path FROM repo_daily_checklists WHERE date = ? AND sector = ?",
+      [date, sector]
+    ))[0];
+    const organized = answers.organized === "Sim";
+    const area = String(body.organizationArea || "").trim();
+    if (organized && (!area || (!body.beforePhoto?.buffer?.length && !previous?.before_photo_path)
+      || (!body.afterPhoto?.buffer?.length && !previous?.after_photo_path))) {
+      return send(res, 400, { error: "Informe o local e envie as fotos de antes e depois da organização." });
+    }
+    for (const file of [body.beforePhoto, body.afterPhoto].filter(Boolean)) {
+      if (!file.contentType.startsWith("image/") || file.buffer.length > 12 * 1024 * 1024) {
+        return send(res, 400, { error: "Selecione fotos válidas de até 12 MB." });
+      }
+    }
+    const beforePath = organized && body.beforePhoto?.buffer?.length
+      ? await saveUploadBuffer(body.beforePhoto.buffer, body.beforePhoto.contentType, body.beforePhoto.filename)
+      : organized ? previous?.before_photo_path || null : null;
+    const afterPath = organized && body.afterPhoto?.buffer?.length
+      ? await saveUploadBuffer(body.afterPhoto.buffer, body.afterPhoto.contentType, body.afterPhoto.filename)
+      : organized ? previous?.after_photo_path || null : null;
+    await execute(
+      `INSERT INTO repo_daily_checklists
+       (date, sector, collaborator_id, answers_json, sample_count, price_sample_count, validity_sample_count,
+        price_issues, validity_issues, divergence_details, price_issue_details, validity_issue_details,
+        organization_area, before_photo_path, after_photo_path, observation, sent_at, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(date, sector) DO UPDATE SET
+         collaborator_id = excluded.collaborator_id, answers_json = excluded.answers_json,
+         sample_count = excluded.sample_count, price_sample_count = excluded.price_sample_count,
+         validity_sample_count = excluded.validity_sample_count, price_issues = excluded.price_issues,
+         validity_issues = excluded.validity_issues, divergence_details = excluded.divergence_details,
+         price_issue_details = excluded.price_issue_details,
+         validity_issue_details = excluded.validity_issue_details,
+         organization_area = excluded.organization_area, before_photo_path = excluded.before_photo_path,
+         after_photo_path = excluded.after_photo_path, observation = excluded.observation,
+         sent_at = excluded.sent_at, created_by = excluded.created_by`,
+      [date, sector, collaboratorId, JSON.stringify(answers), Math.max(priceSampleCount, validitySampleCount),
+        priceSampleCount, validitySampleCount, priceIssues, validityIssues,
+        [priceIssueDetails && `Preço: ${priceIssueDetails}`, validityIssueDetails && `Validade: ${validityIssueDetails}`].filter(Boolean).join("; "),
+        priceIssueDetails, validityIssueDetails, organized ? area : null, beforePath, afterPath,
+        String(body.observation || "").trim(), nowIso(), user.id]
+    );
+    await logAudit(user, previous ? "update" : "create", "repo_daily_checklists", `${date}|${sector}`, { priceSampleCount, validitySampleCount, organized });
+    return send(res, 200, { ok: true });
   }
 
   if (method === "POST" && url.pathname === "/api/reposition/tasks") {
@@ -3991,11 +4163,12 @@ async function api(req, res, url) {
 
   if (method === "GET" && url.pathname === "/api/reposition/damages") {
     if (!canAccessReposition(user)) return send(res, 403, { error: "Acesso restrito ao módulo de reposição." });
+    const repoFilter = await repositionSectorFilter(user);
     const start = url.searchParams.get("startDate");
     const end = url.searchParams.get("endDate") || start;
-    const dateClause = start ? "WHERE date BETWEEN ? AND ?" : "";
+    const dateClause = start ? " AND date BETWEEN ? AND ?" : "";
     const dateParams = start ? [start, end] : [];
-    return send(res, 200, { rows: await query(`SELECT * FROM repo_damages ${dateClause} ORDER BY date DESC, id DESC`, dateParams) });
+    return send(res, 200, { rows: await query(`SELECT * FROM repo_damages WHERE 1 = 1${repoFilter.clause}${dateClause} ORDER BY date DESC, id DESC`, [...repoFilter.params, ...dateParams]) });
   }
 
   if (method === "POST" && url.pathname === "/api/reposition/damages") {
@@ -4077,6 +4250,11 @@ async function api(req, res, url) {
 
   if (method === "GET" && url.pathname === "/api/collaborators") {
     const status = url.searchParams.get("status");
+    if (user.role === "reposicao") {
+      const rows = await query("SELECT * FROM collaborators WHERE id = ?", [user.collaborator_id || 0]);
+      const sectors = await sectorsForUser(user);
+      return send(res, 200, { rows: rows.map((row) => ({ ...row, sector: JSON.stringify(sectors) })) });
+    }
     const sql = status
       ? "SELECT * FROM collaborators WHERE status = ? ORDER BY name"
       : "SELECT * FROM collaborators ORDER BY status, name";

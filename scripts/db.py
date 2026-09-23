@@ -234,6 +234,31 @@ def init_db():
             FOREIGN KEY (created_by) REFERENCES users(id)
         );
 
+        CREATE TABLE IF NOT EXISTS repo_daily_checklists (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            date TEXT NOT NULL,
+            sector TEXT NOT NULL,
+            collaborator_id INTEGER NOT NULL,
+            answers_json TEXT NOT NULL,
+            sample_count INTEGER NOT NULL,
+            price_sample_count INTEGER NOT NULL DEFAULT 0,
+            validity_sample_count INTEGER NOT NULL DEFAULT 0,
+            price_issues INTEGER NOT NULL DEFAULT 0,
+            validity_issues INTEGER NOT NULL DEFAULT 0,
+            divergence_details TEXT,
+            price_issue_details TEXT,
+            validity_issue_details TEXT,
+            organization_area TEXT,
+            before_photo_path TEXT,
+            after_photo_path TEXT,
+            observation TEXT,
+            sent_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            created_by INTEGER NOT NULL,
+            UNIQUE(date, sector),
+            FOREIGN KEY (collaborator_id) REFERENCES collaborators(id),
+            FOREIGN KEY (created_by) REFERENCES users(id)
+        );
+
         CREATE TABLE IF NOT EXISTS repo_ruptures (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             date TEXT NOT NULL,
@@ -487,6 +512,14 @@ def init_db():
     expiration_columns = [row["name"] for row in conn.execute("PRAGMA table_info(repo_expirations)").fetchall()]
     if "commercial_updated_by" not in expiration_columns:
         conn.execute("ALTER TABLE repo_expirations ADD COLUMN commercial_updated_by INTEGER")
+
+    daily_columns = [row["name"] for row in conn.execute("PRAGMA table_info(repo_daily_checklists)").fetchall()]
+    for column in ("price_sample_count", "validity_sample_count"):
+        if column not in daily_columns:
+            conn.execute(f"ALTER TABLE repo_daily_checklists ADD COLUMN {column} INTEGER NOT NULL DEFAULT 0")
+    for column in ("price_issue_details", "validity_issue_details"):
+        if column not in daily_columns:
+            conn.execute(f"ALTER TABLE repo_daily_checklists ADD COLUMN {column} TEXT")
 
     management_columns = [row["name"] for row in conn.execute("PRAGMA table_info(management_monthly)").fetchall()]
     if "sold_quantity" not in management_columns:

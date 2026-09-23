@@ -89,6 +89,9 @@
     commercialCollaboratorIds: [],
     repoUsers: [],
     commercialUsers: [],
+    dailyPrompts: {},
+    dailyChecklists: [],
+    dailyCurrent: [],
     dashboard: null,
     tasks: [],
     ruptures: [],
@@ -533,6 +536,7 @@ async function bootstrap() {
       const repoOptions = await api("/api/reposition/options");
       state.repo.sectors = repoOptions.sectors;
       state.repo.activities = repoOptions.activities;
+      state.repo.dailyPrompts = repoOptions.dailyPrompts || {};
       state.repo.repoCollaboratorIds = repoOptions.repoCollaboratorIds || [];
       state.repo.commercialCollaboratorIds = repoOptions.commercialCollaboratorIds || [];
       state.repo.repoUsers = repoOptions.repoUsers || [];
@@ -1014,17 +1018,22 @@ async function loadManagementEntryPeriod() {
 
 async function loadReposition() {
   const qs = new URLSearchParams(state.repo.filters);
-  const [dashboard, tasks, ruptures, expirations] = await Promise.all([
+  const todayQs = new URLSearchParams({ startDate: localDateValue(), endDate: localDateValue() });
+  const [dashboard, tasks, ruptures, expirations, daily, dailyCurrent] = await Promise.all([
     api(`/api/reposition/dashboard?${qs.toString()}`),
     api(`/api/reposition/tasks?${qs.toString()}`),
     api(`/api/reposition/ruptures?${qs.toString()}`),
     api(`/api/reposition/expirations?${qs.toString()}`),
+    api(`/api/reposition/daily-checklists?${qs.toString()}`),
+    api(`/api/reposition/daily-checklists?${todayQs.toString()}`),
   ]);
   const goals = ["gerente", "comercial"].includes(state.user?.role)
     ? { rows: [] }
     : await api("/api/reposition/goals");
   state.repo.dashboard = dashboard;
   state.repo.tasks = tasks.rows;
+  state.repo.dailyChecklists = daily.rows;
+  state.repo.dailyCurrent = dailyCurrent.rows;
   state.repo.ruptures = ruptures.rows;
   state.repo.expirations = expirations.rows;
   state.repo.damages = [];
@@ -1727,7 +1736,7 @@ function collaboratorSectorCheckboxes(selected = []) {
 }
 
 function repoTaskSectorOptions(collaborator) {
-  const assigned = collaboratorSectors(collaborator);
+  const assigned = state.user?.role === "reposicao" ? state.repo.sectors : collaboratorSectors(collaborator);
   if (
     state.user?.role === "reposicao"
     && collaborator
@@ -1740,10 +1749,7 @@ function repoTaskSectorOptions(collaborator) {
 }
 
 function repoSectorsForCurrentUser() {
-  if (state.user?.role !== "reposicao" || !state.user?.collaborator_id) return state.repo.sectors || [];
-  const collaborator = state.collaborators.find((item) => Number(item.id) === Number(state.user.collaborator_id));
-  const assigned = collaboratorSectors(collaborator);
-  return assigned;
+  return state.repo.sectors || [];
 }
 
 function repoSectorOptionsForCurrentUser() {
@@ -1780,11 +1786,13 @@ function checklistFormData(body, photoFile) {
 
 async function sendChecklistRequest(path, method, body, photoFile) {
   if (photoFile) {
+    if (!photoFile.type?.startsWith("image/")) {
+      throw new Error("Selecione uma imagem valida.");
+    }
     if (photoFile.size > 12 * 1024 * 1024) {
       throw new Error("Foto muito pesada. Tire uma nova foto em qualidade menor ou envie uma imagem com ate 12 MB.");
     }
-    const preparedPhoto = await imageFileToUploadBlob(photoFile);
-    return apiMultipart(path, checklistFormData(body, preparedPhoto), method);
+    return apiMultipart(path, checklistFormData(body, photoFile), method);
   }
   return api(path, { method, body: JSON.stringify(body) });
 }
@@ -1846,7 +1854,7 @@ function renderChecklist() {
         <label>Total final <input name="bottlesFinalCount" type="number" readonly></label>
       </div>
       <label data-checklist-photo-field>Foto do checklist
-        <input name="photoFile" type="file" accept="image/*" capture="environment">
+        <input name="photoFile" type="file" accept="image/*">
         <span class="field-help">Cotacoes e recebimentos contam por foto. Precificacao e validade contam pela quantidade informada em produtos identificados.</span>
       </label>
       <label data-price-quantity-field>Quantidade de itens conferidos (opcional) <input name="priceDivergenceQuantity" type="number" min="1" step="1"></label>
@@ -1954,9 +1962,13 @@ function renderChecklist() {
   checklistForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = event.currentTarget;
+    const submitButton = form.querySelector('button[type="submit"]');
+    if (submitButton.disabled) return;
     const body = Object.fromEntries(new FormData(form).entries());
     delete body.photoFile;
     const photoFile = form.elements.photoFile?.files?.[0];
+    submitButton.disabled = true;
+    submitButton.textContent = "Enviando checklist...";
     try {
       await sendChecklistRequest("/api/checklists", "POST", body, photoFile);
       form.reset();
@@ -1964,6 +1976,9 @@ function renderChecklist() {
       toast("Checklist enviado com data e hora registradas.");
     } catch (error) {
       toast(error.message || "Nao foi possivel enviar o checklist com a foto.");
+    } finally {
+      submitButton.disabled = false;
+      submitButton.textContent = "Enviar checklist";
     }
   });
   const generalObservationForm = document.getElementById("generalStoreObservationForm");
@@ -2494,6 +2509,24 @@ function repoCollaboratorReportOptions() {
 function repoReportRows(filters = {}) {
   const allowedSectors = state.user?.role === "reposicao" ? repoSectorsForCurrentUser() : [];
   const allowedSet = new Set(allowedSectors);
+  const daily = (state.repo.dailyChecklists || []).map((row) => {
+    let answers = {};
+    try { answers = JSON.parse(row.answers_json || "{}"); } catch { /* registro antigo incompleto */ }
+    return {
+      date: row.date,
+      type: "Checklist",
+      sector: row.sector,
+      collaborator: row.collaborator || "",
+      activity: "Checklist diário",
+      product: "",
+      detail: `Abastecimento: ${answers.stock || "-"}; rupturas: ${answers.rupture || "-"}; setor: ${answers.specific || "-"}; preços: ${Number(row.price_sample_count) || row.sample_count} conferidos, ${row.price_issues} divergentes; validades: ${Number(row.validity_sample_count) || row.sample_count} conferidos, ${row.validity_issues} divergentes${row.organization_area ? `; organização: ${row.organization_area}` : ""}`,
+      quantity: `${Number(row.price_sample_count) || row.sample_count} preços / ${Number(row.validity_sample_count) || row.sample_count} validades`,
+      observation: [row.divergence_details, row.observation].filter(Boolean).join("; "),
+      beforePhoto: row.before_photo_path,
+      afterPhoto: row.after_photo_path,
+      sentAt: row.sent_at,
+    };
+  });
   const tasks = (state.repo.tasks || []).map((row) => ({
     date: row.date,
     type: "Checklist",
@@ -2530,7 +2563,7 @@ function repoReportRows(filters = {}) {
     observation: row.observation || "",
     sentAt: row.sent_at,
   }));
-  return [...tasks, ...ruptures, ...expirations]
+  return [...daily, ...tasks, ...ruptures, ...expirations]
     .filter((row) => state.user?.role !== "reposicao" || allowedSet.has(row.sector))
     .filter((row) => !filters.sector || row.sector === filters.sector)
     .filter((row) => !filters.collaborator || row.collaborator === filters.collaborator)
@@ -2550,7 +2583,7 @@ function repoReportRows(filters = {}) {
 function drawRepoReportTable(filters = {}) {
   const rows = repoReportRows(filters);
   document.getElementById("repoReportTable").innerHTML = `
-    <table><thead><tr><th>Data</th><th>Tipo</th><th>Setor</th><th>Colaborador</th><th>Atividade</th><th>Produto</th><th>Detalhe</th><th>Quantidade</th><th>Observação</th><th>Enviado em</th></tr></thead><tbody>
+    <table><thead><tr><th>Data</th><th>Tipo</th><th>Setor</th><th>Colaborador</th><th>Atividade</th><th>Produto</th><th>Detalhe</th><th>Quantidade</th><th>Observação</th><th>Fotos</th><th>Enviado em</th></tr></thead><tbody>
       ${rows.map((row) => `<tr>
         <td data-label="Data">${fmtDate(row.date)}</td>
         <td data-label="Tipo">${escapeHtml(row.type)}</td>
@@ -2561,8 +2594,9 @@ function drawRepoReportTable(filters = {}) {
         <td data-label="Detalhe">${escapeHtml(row.detail || "-")}</td>
         <td data-label="Quantidade">${escapeHtml(row.quantity || "-")}</td>
         <td data-label="Observação">${escapeHtml(row.observation || "-")}</td>
+        <td data-label="Fotos">${row.beforePhoto ? `<a href="${escapeHtml(row.beforePhoto)}" target="_blank" rel="noopener noreferrer">Antes</a>` : "-"} ${row.afterPhoto ? `<a href="${escapeHtml(row.afterPhoto)}" target="_blank" rel="noopener noreferrer">Depois</a>` : ""}</td>
         <td data-label="Enviado em">${row.sentAt ? new Date(row.sentAt).toLocaleString("pt-BR") : "-"}</td>
-      </tr>`).join("") || `<tr><td colspan="10">Nenhum registro encontrado.</td></tr>`}
+      </tr>`).join("") || `<tr><td colspan="11">Nenhum registro encontrado.</td></tr>`}
     </tbody></table>
   `;
 }
@@ -3353,7 +3387,8 @@ function renderRepoDashboard() {
   const taskTotal = Number(summary.taskTotal || 0);
   const percent = taskTotal ? Math.round((completed / taskTotal) * 100) : 0;
   const metrics = [
-    ["Atividades realizadas", `${completed}/${taskTotal}`],
+    ["Checklists diários", Number(summary.dailyChecklists || 0), "enviados no período"],
+    ["Atividades avulsas realizadas", `${completed}/${taskTotal}`, `${percent}% realizado no período`],
   ];
   view.innerHTML = `
     <div class="topbar">
@@ -3374,7 +3409,7 @@ function renderRepoDashboard() {
       </div>
       <button class="btn primary" type="submit">Aplicar período</button>
     </form>
-    <div class="metrics dashboard-summary repo-dashboard-summary">${metrics.map(([label, value]) => `<div class="metric"><span class="muted">${label}</span><strong>${value}</strong><small>${percent}% realizado no período</small></div>`).join("")}</div>
+    <div class="metrics dashboard-summary repo-dashboard-summary">${metrics.map(([label, value, note]) => `<div class="metric"><span class="muted">${label}</span><strong>${value}</strong><small>${note}</small></div>`).join("")}</div>
     <div class="repo-dashboard-grid">
       <section class="panel repo-dashboard-card">
         <h3>Itens identificados por setor</h3>
@@ -3472,6 +3507,97 @@ function renderCommercialDashboard() {
   bindRepoCommercialButtons();
   fixVisibleText(view);
 }
+const REPO_DAILY_OWNERS = {
+  "Açougue": "Rafael",
+  "Perecíveis": "Karla",
+  "FLV e Granjeiro": "Sabrina",
+  "Perfumaria": "Debora",
+  "Mercearia doce": "Francisco",
+  "Mercearia salgada": "Francisco",
+  "Mercearia seca": "Francisco",
+};
+
+function repoDailyChecklistForm() {
+  const linked = state.user?.collaborator_id
+    ? state.collaborators.find((item) => Number(item.id) === Number(state.user.collaborator_id)) : null;
+  const sectors = state.user?.role === "reposicao" ? repoSectorsForCurrentUser()
+    : linked ? collaboratorSectors(linked) : state.repo.sectors;
+  const sector = sectors[0] || "";
+  const collaboratorField = linked
+    ? `<input value="${escapeHtml(linked.name)}" disabled><input type="hidden" name="collaboratorId" value="${linked.id}">`
+    : `<select name="collaboratorId" required>${repoCollaboratorOptions()}</select>`;
+  return `
+    <h3>Checklist diário do encarregado</h3>
+    <form class="grid" id="repoDailyForm" style="margin-top:12px">
+      <input type="hidden" name="date" value="${localDateValue()}">
+      <div class="grid two">
+        <label>Encarregado ${collaboratorField}</label>
+        <label>Setor <select name="sector" required>${repoOptions(sectors)}</select></label>
+      </div>
+      <div class="muted" data-repo-owner>${sector ? `Responsável: ${escapeHtml(REPO_DAILY_OWNERS[sector] || "encarregado do setor")}` : "Selecione um setor"}</div>
+      <div class="grid two">
+        <label>Setor abastecido e organizado?
+          <select name="stock" required><option value="">Selecione</option>${repoOptions(["Sim", "Não", "Não se aplica"])}</select>
+        </label>
+        <label>Rupturas identificadas foram comunicadas?
+          <select name="rupture" required><option value="">Selecione</option>${repoOptions(["Sim", "Não", "Não se aplica"])}</select>
+        </label>
+      </div>
+      <label data-repo-specific-label>${escapeHtml(state.repo.dailyPrompts[sector] || "Condições do setor foram verificadas?")}
+        <select name="specific" required><option value="">Selecione</option>${repoOptions(["Sim", "Não", "Não se aplica"])}</select>
+      </label>
+      <div class="grid two repo-daily-checks">
+        <div class="grid">
+          <h4>Conferência de preços</h4>
+          <label>Produtos conferidos <input name="priceSampleCount" type="number" min="10" step="1" value="10" required></label>
+          <label>Preços divergentes <input name="priceIssues" type="number" min="0" step="1" value="0" required></label>
+          <label data-repo-price-divergence class="hidden">Produtos com preço divergente <textarea name="priceIssueDetails" placeholder="Produto e diferença encontrada"></textarea></label>
+        </div>
+        <div class="grid">
+          <h4>Conferência de validades</h4>
+          <label>Produtos conferidos <input name="validitySampleCount" type="number" min="10" step="1" value="10" required></label>
+          <label>Validades divergentes <input name="validityIssues" type="number" min="0" step="1" value="0" required></label>
+          <label data-repo-validity-divergence class="hidden">Produtos com validade divergente <textarea name="validityIssueDetails" placeholder="Produto e data de validade"></textarea></label>
+        </div>
+      </div>
+      <label>Foi realizada organização de algum ponto?
+        <select name="organized" required><option value="">Selecione</option>${repoOptions(["Sim", "Não"])}</select>
+      </label>
+      <div class="grid hidden" data-repo-organization>
+        <label>Local organizado <input name="organizationArea" placeholder="Ex.: gôndola de bebidas"></label>
+        <div class="grid two">
+          <label>Foto antes <input name="beforePhoto" type="file" accept="image/*"></label>
+          <label>Foto depois <input name="afterPhoto" type="file" accept="image/*"></label>
+        </div>
+        <div class="muted" data-repo-existing-photos></div>
+      </div>
+      <label>Observação <textarea name="observation"></textarea></label>
+      <button class="btn primary" type="submit">Salvar checklist do dia</button>
+    </form>
+  `;
+}
+
+function repoDailyHistoryTable() {
+  const rows = state.repo.dailyChecklists || [];
+  return `<table><thead><tr><th>Data</th><th>Setor</th><th>Encarregado</th><th>Preços</th><th>Validades</th><th>Organização</th><th>Fotos</th></tr></thead><tbody>
+    ${rows.map((row) => {
+      let answers = {};
+      try { answers = JSON.parse(row.answers_json || "{}"); } catch { /* registro antigo incompleto */ }
+      const photoLink = (path, label) => path
+        ? `<a class="repo-daily-photo" href="${escapeHtml(path)}" target="_blank" rel="noopener noreferrer"><img src="${escapeHtml(path)}" alt="Foto ${label.toLowerCase()} da organização" loading="lazy"><span>${label}</span></a>` : "-";
+      return `<tr>
+        <td data-label="Data">${fmtDate(row.date)}</td>
+        <td data-label="Setor">${escapeHtml(row.sector)}</td>
+        <td data-label="Encarregado">${escapeHtml(row.collaborator)}</td>
+        <td data-label="Preços">${Number(row.price_sample_count) || row.sample_count} conferidos; ${row.price_issues} divergentes</td>
+        <td data-label="Validades">${Number(row.validity_sample_count) || row.sample_count} conferidos; ${row.validity_issues} divergentes</td>
+        <td data-label="Organização">${answers.organized === "Sim" ? escapeHtml(row.organization_area || "Sim") : "Não"}</td>
+        <td data-label="Fotos"><div class="repo-daily-photos">${photoLink(row.before_photo_path, "Antes")}${photoLink(row.after_photo_path, "Depois")}</div></td>
+      </tr>`;
+    }).join("") || `<tr><td colspan="7">Nenhum checklist diário neste período.</td></tr>`}
+  </tbody></table>`;
+}
+
 function renderReposition() {
   const data = state.repo.dashboard || { summary: {}, bySector: [] };
   view.innerHTML = `
@@ -3490,9 +3616,17 @@ function renderReposition() {
       <button class="btn primary" type="submit">Aplicar perÃ­odo</button>
     </form>
     <div class="grid" style="margin-top:14px">
-      <section class="panel">${repoTaskForm()}</section>
+      <section class="panel">${repoDailyChecklistForm()}</section>
     </div>
-    <div class="grid two" style="margin-top:14px">
+    <section class="panel" style="margin-top:14px">
+      <h3>Checklists diários</h3>
+      <div class="table-wrap" style="margin-top:12px">${repoDailyHistoryTable()}</div>
+    </section>
+    <details class="panel" style="margin-top:14px">
+      <summary>Registro avulso de atividade</summary>
+      <div style="margin-top:12px">${repoTaskForm()}</div>
+    </details>
+    <div class="grid" style="margin-top:14px">
       <section class="panel">
         <h3>Indicadores por setor</h3>
         <div class="table-wrap" style="margin-top:12px">${repoSectorTable(data.bySector || [])}</div>
@@ -3517,13 +3651,14 @@ function renderReposition() {
     await loadReposition();
     renderReposition();
   });
+  bindRepoDailyForm();
   bindRepoForms();
   fixVisibleText(view);
 }
 
 function repoTaskForm() {
   const linked = state.user?.collaborator_id ? state.collaborators.find((item) => Number(item.id) === Number(state.user.collaborator_id)) : null;
-  const linkedSectors = collaboratorSectors(linked);
+  const linkedSectors = state.user?.role === "reposicao" ? repoSectorsForCurrentUser() : collaboratorSectors(linked);
   const collaboratorField = linked
     ? `<input value="${escapeHtml(linked.name)}" disabled><input type="hidden" name="collaboratorId" value="${linked.id}">`
     : `<select name="collaboratorId" required>${repoCollaboratorOptions()}</select>`;
@@ -3581,6 +3716,122 @@ function repoIssueForm(kind, title, productLabel, fields) {
       <button class="btn primary" type="submit">Salvar</button>
     </form>
   `;
+}
+
+function bindRepoDailyForm() {
+  const form = document.getElementById("repoDailyForm");
+  if (!form) return;
+  let current = null;
+  const syncIssues = () => {
+    for (const [kind, issueField, detailField] of [
+      ["price", "priceIssues", "priceIssueDetails"],
+      ["validity", "validityIssues", "validityIssueDetails"],
+    ]) {
+      const hasIssues = Number(form.elements[issueField].value) > 0;
+      form.elements[issueField].max = form.elements[kind === "price" ? "priceSampleCount" : "validitySampleCount"].value;
+      form.querySelector(`[data-repo-${kind}-divergence]`).classList.toggle("hidden", !hasIssues);
+      form.elements[detailField].required = hasIssues;
+    }
+  };
+  const syncAnswers = () => {
+    form.elements.observation.required = ["stock", "rupture", "specific"]
+      .some((key) => form.elements[key].value === "Não");
+  };
+  const syncOrganization = () => {
+    const organized = form.elements.organized.value === "Sim";
+    form.querySelector("[data-repo-organization]").classList.toggle("hidden", !organized);
+    form.elements.organizationArea.required = organized;
+    form.elements.beforePhoto.required = organized && !current?.before_photo_path;
+    form.elements.afterPhoto.required = organized && !current?.after_photo_path;
+  };
+  const syncSector = () => {
+    const sector = form.elements.sector.value;
+    current = (state.repo.dailyCurrent || []).find((row) => row.sector === sector) || null;
+    form.querySelector("[data-repo-owner]").textContent = `Responsável: ${REPO_DAILY_OWNERS[sector] || "encarregado do setor"}`;
+    form.querySelector("[data-repo-specific-label]").firstChild.textContent = state.repo.dailyPrompts[sector] || "Condições do setor foram verificadas?";
+    let answers = {};
+    try { answers = JSON.parse(current?.answers_json || "{}"); } catch { /* registro incompleto */ }
+    for (const key of ["stock", "rupture", "specific", "organized"]) form.elements[key].value = answers[key] || "";
+    form.elements.priceSampleCount.value = Number(current?.price_sample_count) || current?.sample_count || 10;
+    form.elements.validitySampleCount.value = Number(current?.validity_sample_count) || current?.sample_count || 10;
+    form.elements.priceIssues.value = current?.price_issues ?? 0;
+    form.elements.validityIssues.value = current?.validity_issues ?? 0;
+    form.elements.priceIssueDetails.value = current?.price_issue_details || (Number(current?.price_issues) ? current?.divergence_details || "" : "");
+    form.elements.validityIssueDetails.value = current?.validity_issue_details || (Number(current?.validity_issues) ? current?.divergence_details || "" : "");
+    form.elements.organizationArea.value = current?.organization_area || "";
+    form.elements.observation.value = current?.observation || "";
+    form.elements.beforePhoto.value = "";
+    form.elements.afterPhoto.value = "";
+    form.querySelector("[data-repo-existing-photos]").innerHTML = current?.before_photo_path && current?.after_photo_path
+      ? `<a href="${escapeHtml(current.before_photo_path)}" target="_blank" rel="noopener noreferrer">Antes atual</a> · <a href="${escapeHtml(current.after_photo_path)}" target="_blank" rel="noopener noreferrer">Depois atual</a>`
+      : "";
+    syncIssues();
+    syncAnswers();
+    syncOrganization();
+  };
+  const syncCollaborator = () => {
+    const collaborator = state.collaborators.find((item) => Number(item.id) === Number(form.elements.collaboratorId.value));
+    const sectors = collaboratorSectors(collaborator);
+    const previous = form.elements.sector.value;
+    form.elements.sector.innerHTML = repoOptions(sectors.length ? sectors : state.repo.sectors);
+    if (sectors.includes(previous)) form.elements.sector.value = previous;
+    syncSector();
+  };
+  form.elements.collaboratorId?.addEventListener("change", syncCollaborator);
+  form.elements.sector.addEventListener("change", syncSector);
+  form.elements.organized.addEventListener("change", syncOrganization);
+  for (const key of ["stock", "rupture", "specific"]) form.elements[key].addEventListener("change", syncAnswers);
+  form.elements.priceIssues.addEventListener("input", syncIssues);
+  form.elements.validityIssues.addEventListener("input", syncIssues);
+  form.elements.priceSampleCount.addEventListener("input", syncIssues);
+  form.elements.validitySampleCount.addEventListener("input", syncIssues);
+  if (form.elements.collaboratorId?.tagName === "SELECT") syncCollaborator();
+  else syncSector();
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const button = form.querySelector('button[type="submit"]');
+    const before = form.elements.beforePhoto.files?.[0];
+    const after = form.elements.afterPhoto.files?.[0];
+    const organized = form.elements.organized.value === "Sim";
+    if (organized && (!form.elements.organizationArea.value.trim()
+      || (!before && !current?.before_photo_path) || (!after && !current?.after_photo_path))) {
+      toast("Informe o local e as fotos de antes e depois.");
+      return;
+    }
+    if ([before, after].filter(Boolean).some((file) => file.size > 12 * 1024 * 1024)) {
+      toast("Cada foto deve ter no máximo 12 MB.");
+      return;
+    }
+    button.disabled = true;
+    button.textContent = "Preparando fotos...";
+    try {
+      const payload = new FormData(form);
+      payload.delete("beforePhoto");
+      payload.delete("afterPhoto");
+      for (const key of ["stock", "rupture", "specific", "organized"]) payload.delete(key);
+      payload.append("answers", JSON.stringify(Object.fromEntries(
+        ["stock", "rupture", "specific", "organized"].map((key) => [key, form.elements[key].value])
+      )));
+      if (before) {
+        const photo = await imageFileToUploadBlob(before);
+        payload.append("beforePhoto", photo, photo.name || "antes.jpg");
+      }
+      if (after) {
+        const photo = await imageFileToUploadBlob(after);
+        payload.append("afterPhoto", photo, photo.name || "depois.jpg");
+      }
+      button.textContent = "Enviando checklist...";
+      await apiMultipart("/api/reposition/daily-checklists", payload);
+      await loadReposition();
+      renderReposition();
+      toast("Checklist diário salvo.");
+    } catch (error) {
+      toast(error.message || "Não foi possível salvar o checklist.");
+      button.disabled = false;
+      button.textContent = "Salvar checklist do dia";
+    }
+  });
 }
 
 function bindRepoForms() {
@@ -3752,21 +4003,22 @@ function repoActivityCompletionTable(rows) {
 }
 
 function repoCommercialTable() {
+  const canEdit = ["administrador", "encarregada", "gerente", "comercial"].includes(state.user?.role);
   const rows = [
     ...state.repo.ruptures.map((row) => ({ ...row, kind: "ruptures", origin: "Ruptura", detail: row.type || "" })),
     ...state.repo.expirations.map((row) => ({ ...row, kind: "expirations", origin: "Validade", detail: row.expiration_date ? fmtDate(row.expiration_date) : "" })),
-  ].slice(0, 30);
+  ].sort((a, b) => String(b.sent_at || b.date).localeCompare(String(a.sent_at || a.date))).slice(0, 30);
   return `
-    <table><thead><tr><th>Origem</th><th>Produto</th><th>Setor</th><th>Detalhe</th><th>Status</th><th>Retorno</th><th>AÃ§Ã£o</th></tr></thead><tbody>
+    <table><thead><tr><th>Origem</th><th>Produto</th><th>Setor</th><th>Detalhe</th><th>Status</th><th>Retorno</th>${canEdit ? "<th>Ação</th>" : ""}</tr></thead><tbody>
       ${rows.map((row) => `<tr>
         <td data-label="Origem">${row.origin}</td>
         <td data-label="Produto">${escapeHtml(row.product)}</td>
         <td data-label="Setor">${escapeHtml(row.sector)}</td>
         <td data-label="Detalhe">${escapeHtml(row.detail)}</td>
         <td data-label="Status"><span class="status ${row.status === "Resolvido" ? "ok" : "warn"}">${escapeHtml(row.status)}</span></td>
-        <td data-label="Retorno">${escapeHtml(row.commercial_status || "")}</td>
-        <td data-label="AÃ§Ã£o"><button class="btn" type="button" data-repo-commercial="${row.kind}:${row.id}">Atualizar</button></td>
-      </tr>`).join("") || `<tr><td colspan="7">Sem registros comerciais.</td></tr>`}
+        <td data-label="Retorno">${escapeHtml(row.commercial_status || "")}${row.commercial_observation ? `<br><small>${escapeHtml(row.commercial_observation)}</small>` : ""}</td>
+        ${canEdit ? `<td data-label="Ação"><button class="btn" type="button" data-repo-commercial="${row.kind}:${row.id}">Atualizar</button></td>` : ""}
+      </tr>`).join("") || `<tr><td colspan="${canEdit ? 7 : 6}">Sem registros comerciais.</td></tr>`}
     </tbody></table>
   `;
 }

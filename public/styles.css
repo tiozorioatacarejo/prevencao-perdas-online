@@ -1803,3 +1803,29 @@ th {
     font-size: 19px;
   }
 }
+
+.repo-daily-photos {
+  display: flex;
+  gap: 8px;
+}
+
+.repo-daily-photo {
+  display: grid;
+  gap: 3px;
+  width: 68px;
+  font-size: 12px;
+  text-align: center;
+}
+
+.repo-daily-photo img {
+  width: 68px;
+  height: 68px;
+  object-fit: cover;
+  border: 1px solid #d5e1da;
+  border-radius: 4px;
+}
+
+.repo-daily-checks h4 {
+  margin: 0;
+  font-size: 14px;
+}
