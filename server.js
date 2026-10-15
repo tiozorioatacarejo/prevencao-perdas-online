@@ -129,14 +129,11 @@ const LEGACY_PREVENTION_GOAL_ADJUSTMENTS = {
 };
 
 const MANAGER_STORE = "Atacarejo Antônio de Ozorio";
-const MANAGER_CHECKLIST_MIN_TIME = "08:00";
-const MANAGER_CHECKLIST_MAX_TIME = "18:00";
 const MANAGER_CHECKLIST_TEMPLATES = [
   {
     id: "abertura",
     order: 1,
     title: "1 - Gerente Loja - Abertura",
-    dueTime: "08:00",
     items: [
       { id: "abertura-reuniao-lideres", text: "Reunião rápida de 5 minutos com os líderes de setor para alinhar o dia", photo: false },
       { id: "abertura-escala", text: "Escala do dia conferida e ausências tratadas com o RH", photo: false },
@@ -148,7 +145,6 @@ const MANAGER_CHECKLIST_TEMPLATES = [
     id: "acougue-peixaria-frios",
     order: 2,
     title: "2 - Gerente Loja - Açougue, Peixaria e Frios",
-    dueTime: "08:00",
     items: [
       { id: "apf-higiene", text: "Validar balcões limpos, organizados e com apresentação adequada para venda", photo: true },
       { id: "apf-temperatura", text: "Validar balcões cheios e sem rupturas visíveis nos itens de maior saída", photo: true },
@@ -159,7 +155,6 @@ const MANAGER_CHECKLIST_TEMPLATES = [
     id: "padaria",
     order: 3,
     title: "3 - Gerente Loja - Padaria",
-    dueTime: "10:00",
     items: [
       { id: "padaria-fornada", text: "Acompanhar a fornada da manhã e a reposição da vitrine", photo: true },
       { id: "padaria-limpeza", text: "Validar limpeza da vitrine, balcão e bancadas", photo: true },
@@ -170,7 +165,6 @@ const MANAGER_CHECKLIST_TEMPLATES = [
     id: "hortifrut",
     order: 4,
     title: "4 - Gerente Loja - Hortifrut",
-    dueTime: "08:00",
     items: [
       { id: "hortifrut-retirada", text: "Validar a retirada de produtos murchos ou estragados", photo: true },
       { id: "hortifrut-etiquetas", text: "Conferir etiquetas de preço legíveis e alinhadas ao sistema", photo: false },
@@ -181,7 +175,6 @@ const MANAGER_CHECKLIST_TEMPLATES = [
     id: "mercearia-bebidas-limpeza",
     order: 5,
     title: "5 - Gerente Loja - Mercearia, Bebidas e Limpeza",
-    dueTime: "11:00",
     items: [
       { id: "mbl-limpeza-gondolas", text: "Validar limpeza das gôndolas e prateleiras (sem poeira, sem produto sujo)", photo: true },
       { id: "mbl-corredores", text: "Caminhar corredor a corredor acompanhando a reposição das gôndolas", photo: false },
@@ -192,7 +185,6 @@ const MANAGER_CHECKLIST_TEMPLATES = [
     id: "limpeza-organizacao",
     order: 6,
     title: "6 - Gerente Loja - Ronda de Limpeza e Organização",
-    dueTime: "12:00",
     items: [
       { id: "loja-piso", text: "Validar piso da loja limpo, seco e sem obstruções nos corredores", photo: false },
       { id: "loja-carrinhos", text: "Solicitar recolhimento de carrinhos no estacionamento", photo: false },
@@ -204,7 +196,6 @@ const MANAGER_CHECKLIST_TEMPLATES = [
     id: "recebimento-estoque",
     order: 7,
     title: "7 - Gerente Loja - Recebimento e Estoque",
-    dueTime: "12:00",
     items: [
       { id: "recebimento-doca", text: "Conferir doca e depósito limpos, organizados e sem obstruções", photo: true },
       { id: "recebimento-critico", text: "Acompanhar o recebimento crítico do dia (acompanhar pelo menos conferência de 1 NF)", photo: false },
@@ -215,7 +206,6 @@ const MANAGER_CHECKLIST_TEMPLATES = [
     id: "pico-movimento",
     order: 8,
     title: "8 - Gerente Loja - Preparação para Pico de Movimento",
-    dueTime: "16:00",
     items: [
       { id: "pico-frente-caixa", text: "Reforçar frente de caixa para o pico do fim de tarde - se necessário", photo: false },
       { id: "pico-reposicao", text: "Acompanhar reforço de reposição em mercearia, bebidas e hortifruti", photo: false },
@@ -227,7 +217,6 @@ const MANAGER_CHECKLIST_TEMPLATES = [
     id: "padrao-loja",
     order: 9,
     title: "9 - Gerente Loja - Checagem de Padrão de Loja",
-    dueTime: "17:00",
     items: [
       { id: "padrao-pendencias", text: "Registrar pendências críticas para o turno da noite e dia seguinte", photo: false },
       { id: "padrao-indicadores", text: "Conferir indicadores do dia: vendas, ticket médio e quebras", photo: false },
@@ -589,6 +578,18 @@ async function initPostgres(pool) {
       audited_by INTEGER REFERENCES users(id),
       audited_at TIMESTAMP,
       UNIQUE(date, sector, focus)
+    );
+
+    CREATE TABLE IF NOT EXISTS sector_ratings (
+      id SERIAL PRIMARY KEY,
+      date TEXT NOT NULL,
+      sector TEXT NOT NULL,
+      score NUMERIC(4, 2) NOT NULL CHECK (score >= 0 AND score <= 10),
+      observation TEXT NOT NULL DEFAULT '',
+      rated_by INTEGER NOT NULL REFERENCES users(id),
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(date, sector)
     );
 
     CREATE TABLE IF NOT EXISTS audit_logs (
@@ -1044,6 +1045,35 @@ function canAccessSectorAudit(user) {
   return ["administrador", "gerente", "encarregada"].includes(user.role);
 }
 
+function canViewSectorRatings(user) {
+  return ["administrador", "gerente", "encarregada"].includes(user.role);
+}
+
+function canRateSectors(user) {
+  return ["gerente", "encarregada"].includes(user.role);
+}
+
+function validSectorRatingDate(value) {
+  if (!validDateValue(value)) return false;
+  const date = new Date(`${value}T12:00:00Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
+}
+
+function sectorRatingSummaries(rows, sectors) {
+  return sectors.map((sector) => {
+    const ratings = rows.filter((row) => row.sector === sector);
+    const sum = ratings.reduce((total, row) => total + Math.round(Number(row.score) * 100), 0) / 100;
+    return {
+      sector,
+      count: ratings.length,
+      evaluatedDays: new Set(ratings.map((row) => row.date)).size,
+      sum,
+      average: ratings.length ? sum / ratings.length : null,
+      latest: ratings[0] || null,
+    };
+  });
+}
+
 function canAccessManagementIndicators(user) {
   return user.role === "administrador";
 }
@@ -1427,39 +1457,13 @@ function normalizeManagerChecklistAnswer(value) {
   return ["Pendente", "Conforme", "Não conforme"].includes(answer) ? answer : "Pendente";
 }
 
-function boundedManagerChecklistTime(value) {
-  const time = validTimeValue(value) && value ? value : MANAGER_CHECKLIST_MIN_TIME;
-  if (time < MANAGER_CHECKLIST_MIN_TIME) return MANAGER_CHECKLIST_MIN_TIME;
-  if (time > MANAGER_CHECKLIST_MAX_TIME) return MANAGER_CHECKLIST_MAX_TIME;
-  return time;
-}
-
-function currentLocalDateTimeParts() {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "America/Fortaleza",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }).formatToParts(new Date());
-  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-  return {
-    date: `${values.year}-${values.month}-${values.day}`,
-    time: `${values.hour}:${values.minute}`,
-  };
-}
-
-function managerChecklistIsOverdue(template, date, status) {
+function managerChecklistIsOverdue(date, status) {
   if (status === "Concluido" || isSunday(date)) return false;
-  const now = currentLocalDateTimeParts();
-  const dueTime = boundedManagerChecklistTime(template.dueTime);
-  return date < now.date || (date === now.date && now.time > dueTime);
+  return date < today();
 }
 
-function managerChecklistDisplayStatus(template, date, status) {
-  return managerChecklistIsOverdue(template, date, status) ? "Atrasado" : status;
+function managerChecklistDisplayStatus(date, status) {
+  return managerChecklistIsOverdue(date, status) ? "Atrasado" : status;
 }
 
 function managerChecklistSummary(template, answers = []) {
@@ -1514,8 +1518,7 @@ function managerChecklistDto(template, date, run = null) {
   const answers = run?.answers || [];
   const answerMap = new Map(answers.map((answer) => [answer.item_id, answer]));
   const summary = managerChecklistSummary(template, answers);
-  const dueTime = boundedManagerChecklistTime(template.dueTime);
-  const displayStatus = managerChecklistDisplayStatus(template, date, summary.status);
+  const displayStatus = managerChecklistDisplayStatus(date, summary.status);
   const displaySummary = { ...summary, status: displayStatus, overdue: displayStatus === "Atrasado" };
   return {
     id: template.id,
@@ -1523,7 +1526,6 @@ function managerChecklistDto(template, date, run = null) {
     title: template.title,
     store: run?.store || MANAGER_STORE,
     date,
-    dueTime,
     status: displayStatus,
     startedAt: run?.started_at || "",
     finishedAt: run?.finished_at || "",
@@ -1585,10 +1587,10 @@ async function managerChecklistHistory(startDate, endDate, ownerId, filters = {}
     const day = await managerChecklistDay(date, ownerId);
     rows.push(...day.map((item) => ({
       id: item.id,
+      order: item.order,
       title: item.title,
       store: item.store,
       date: item.date,
-      dueTime: item.dueTime,
       status: item.summary.status,
       total: item.summary.total,
       conformes: item.summary.conformes,
@@ -1624,7 +1626,7 @@ async function managerChecklistHistory(startDate, endDate, ownerId, filters = {}
   const filteredRows = rows
     .filter((row) => !search || normalizeText(row.title).includes(search))
     .filter((row) => !status || row.status === status)
-    .sort((a, b) => `${b.date} ${b.dueTime}`.localeCompare(`${a.date} ${a.dueTime}`));
+    .sort((a, b) => b.date.localeCompare(a.date) || a.order - b.order);
   return { rows: filteredRows, summary };
 }
 
@@ -3780,6 +3782,65 @@ async function api(req, res, url) {
           })),
       })),
     });
+  }
+
+  if (method === "GET" && url.pathname === "/api/sector-ratings") {
+    if (!canViewSectorRatings(user)) return send(res, 403, { error: "Acesso restrito à avaliação dos setores." });
+    const date = url.searchParams.get("date") || today();
+    const start = url.searchParams.get("startDate") || date;
+    const end = url.searchParams.get("endDate") || start;
+    const sector = url.searchParams.get("sector") || "";
+    if (![date, start, end].every(validSectorRatingDate) || start > end) {
+      return send(res, 400, { error: "Informe uma data e um período válidos." });
+    }
+    if (sector && !repoSectors.includes(sector)) return send(res, 400, { error: "Selecione um setor válido." });
+    const clause = sector ? " AND r.sector = ?" : "";
+    const params = sector ? [sector] : [];
+    const select = `SELECT r.*, u.display_name AS rated_by_name FROM sector_ratings r
+      LEFT JOIN users u ON u.id = r.rated_by`;
+    const rows = await query(`${select} WHERE r.date BETWEEN ? AND ?${clause} ORDER BY r.date DESC, r.sector`, [start, end, ...params]);
+    const daily = await query(`${select} WHERE r.date = ?${clause} ORDER BY r.sector`, [date, ...params]);
+    const sectors = sector ? [sector] : repoSectors;
+    return send(res, 200, {
+      date, startDate: start, endDate: end, sectors, daily, rows,
+      summaries: sectorRatingSummaries(rows, sectors),
+      summary: {
+        evaluatedDays: new Set(rows.map((row) => row.date)).size,
+        totalEvaluations: rows.length,
+        evaluatedSectors: new Set(rows.map((row) => row.sector)).size,
+      },
+      canRate: canRateSectors(user),
+    });
+  }
+
+  if (method === "PUT" && url.pathname === "/api/sector-ratings") {
+    if (!canRateSectors(user)) return send(res, 403, { error: "Apenas a gerente pode registrar avaliações dos setores." });
+    const body = await readBody(req);
+    const date = String(body.date || "");
+    const sector = String(body.sector || "");
+    const rawScore = typeof body.score === "string" ? body.score.trim().replace(",", ".") : body.score;
+    const score = Number(rawScore);
+    if (!validSectorRatingDate(date)) return send(res, 400, { error: "Informe uma data válida." });
+    if (!repoSectors.includes(sector)) return send(res, 400, { error: "Selecione um setor válido." });
+    if (!["string", "number"].includes(typeof rawScore) || rawScore === "" || !Number.isFinite(score)
+      || score < 0 || score > 10 || Math.abs(score * 100 - Math.round(score * 100)) > 0.000001) {
+      return send(res, 400, { error: "Informe uma nota de 0 a 10, com até duas casas decimais." });
+    }
+    const observation = String(body.observation || "").trim();
+    const previous = (await query("SELECT * FROM sector_ratings WHERE date = ? AND sector = ?", [date, sector]))[0] || null;
+    await execute(
+      `INSERT INTO sector_ratings (date, sector, score, observation, rated_by, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(date, sector) DO UPDATE SET
+         score=excluded.score, observation=excluded.observation,
+         rated_by=excluded.rated_by, updated_at=excluded.updated_at`,
+      [date, sector, score, observation, user.id, nowIso()]
+    );
+    await logAudit(user, previous ? "update" : "create", "sector_ratings", `${date}|${sector}`, {
+      previous: previous ? { score: previous.score, observation: previous.observation, ratedBy: previous.rated_by } : null,
+      score, observation,
+    });
+    return send(res, 200, { ok: true });
   }
 
   if (method === "GET" && url.pathname === "/api/sector-audits") {

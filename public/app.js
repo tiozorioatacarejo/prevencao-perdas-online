@@ -17,6 +17,16 @@
   pendencies: [],
   sectorAudits: [],
   sectorAuditSummary: { evaluatedByUser: 0, evaluatedTotal: 0 },
+  sectorRatings: {
+    date: localDateValue(),
+    mode: "month",
+    month: localMonthValue(),
+    startDate: monthRange(localMonthValue()).startDate,
+    endDate: monthRange(localMonthValue()).endDate,
+    sector: "",
+    drafts: {},
+    data: { sectors: [], daily: [], rows: [], summaries: [], canRate: false },
+  },
   managerChecklists: {
     date: localDateValue(),
     scheduled: true,
@@ -614,6 +624,7 @@ function tabIcon(id) {
     managementProductivity: "&#128200;",
     managementOperators: "&#128101;",
     sectorAudit: "&#128269;",
+    sectorRatings: "&#9733;",
     managerChecklists: "&#9745;",
     pendencies: "&#9888;",
     collaborators: "&#128101;",
@@ -752,7 +763,7 @@ function navGroups(tabs) {
       id: "management",
       label: "Gerencial",
       icon: "🔎",
-      tabs: ["managerChecklists", "pendencies"],
+      tabs: ["managerChecklists", "sectorRatings", "pendencies"],
     },
     {
       id: "admin",
@@ -787,6 +798,7 @@ async function refreshForTab() {
   if (state.tab === "preventionGoals") await loadPreventionGoals();
   if (state.tab === "repoDashboard" || state.tab === "commercialDashboard") await Promise.all([loadCollaborators(), loadReposition()]);
   if (state.tab === "sectorAudit") await Promise.all([loadCollaborators(), loadSectorAudits()]);
+  if (state.tab === "sectorRatings") await loadSectorRatings();
   if (state.tab === "collaborators" || state.tab === "checklist" || state.tab === "pendencies") await loadCollaborators();
   if (state.tab === "reposition" || state.tab === "commercial") await Promise.all([loadCollaborators(), loadReposition()]);
   if (state.tab === "repoReports") await Promise.all([loadCollaborators(), loadReposition()]);
@@ -818,6 +830,7 @@ function renderView() {
     commercial: renderCommercial,
     managerChecklists: renderManagerChecklists,
     sectorAudit: renderSectorAudit,
+    sectorRatings: renderSectorRatings,
     pendencies: renderPendencies,
     collaborators: renderCollaborators,
     users: renderUsers,
@@ -839,11 +852,12 @@ function allowedTabs() {
   if (state.user?.role === "reposicao") return [["dailyTasks", "Agenda/Tarefas"], ["repoDashboard", "Painel Reposi\u00e7\u00e3o"], ["reposition", "Reposi\u00e7\u00e3o"], ["repoReports", "Relatórios Reposição"]];
   if (state.user?.role === "recebimento") return [["dailyTasks", "Agenda/Tarefas"], ["receivingAgenda", "Agenda Recebimento"]];
   if (state.user?.role === "comercial") return [["dailyTasks", "Agenda/Tarefas"], ["commercialDashboard", "Painel Comercial"], ["commercial", "Comercial"], ["commercialAgenda", "Agenda Comercial"]];
-  if (state.user?.role === "gerente") return [["dailyTasks", "Agenda/Tarefas"], ["managerChecklists", "Checklist Gerente Loja"]];
+  if (state.user?.role === "gerente") return [["dailyTasks", "Agenda/Tarefas"], ["managerChecklists", "Checklist Gerente Loja"], ["sectorRatings", "Avaliação dos Setores"]];
   if (state.user?.role === "encarregada") {
     const tabs = [
       ["dailyTasks", "Agenda/Tarefas"],
       ["managerChecklists", "Checklist Gerente Loja"],
+      ["sectorRatings", "Avaliação dos Setores"],
       ["receivingAgenda", "Agenda Recebimento"],
       ["repoReports", "Relatórios Reposição"],
       ["reports", "Relatórios Prevenção"],
@@ -872,6 +886,7 @@ function allowedTabs() {
     ["repoDashboard", "Painel Reposi\u00e7\u00e3o"],
     ["commercialDashboard", "Painel Comercial"],
     ["managerChecklists", "Checklist Gerente Loja"],
+    ["sectorRatings", "Avaliação dos Setores"],
     ["checklist", "Checklist"],
     ["reposition", "ReposiÃ§Ã£o"],
     ["commercial", "Comercial"],
@@ -1038,6 +1053,14 @@ async function loadSectorAudits() {
   const data = await api(`/api/sector-audits?${qs.toString()}`);
   state.sectorAudits = data.rows || [];
   state.sectorAuditSummary = data.summary || { evaluatedByUser: 0, evaluatedTotal: 0 };
+}
+
+async function loadSectorRatings() {
+  const ratings = state.sectorRatings;
+  const range = ratings.mode === "period"
+    ? { startDate: ratings.startDate, endDate: ratings.endDate } : monthRange(ratings.month);
+  const qs = new URLSearchParams({ date: ratings.date, ...range, sector: ratings.sector });
+  ratings.data = await api(`/api/sector-ratings?${qs.toString()}`);
 }
 
 async function loadManagerChecklists() {
@@ -3914,7 +3937,6 @@ function renderManagerChecklistRow(checklist) {
       <summary>
         <strong>${escapeHtml(checklist.title)}</strong>
         <span class="status ${managerChecklistStatusClass(checklist.summary.status)}" style="margin-left:8px">${escapeHtml(checklist.summary.status)}</span>
-        <span class="muted" style="margin-left:8px">Prazo ${escapeHtml(checklist.dueTime)}</span>
       </summary>
       <div class="muted" style="margin-top:8px">${escapeHtml(checklist.store)} · ${fmtDate(checklist.date)}</div>
       <div class="table-wrap">
@@ -3994,19 +4016,18 @@ function renderManagerChecklistHistory() {
       </div>
       <div class="table-wrap" style="margin-top:14px">
         <table>
-          <thead><tr><th>Checklist</th><th>Data</th><th>Prazo</th><th>Status</th><th>Conformes</th><th>Não conformes</th><th>Taxa</th></tr></thead>
+          <thead><tr><th>Checklist</th><th>Data</th><th>Status</th><th>Conformes</th><th>Não conformes</th><th>Taxa</th></tr></thead>
           <tbody>
             ${rows.map((row) => `
               <tr>
                 <td data-label="Checklist">${escapeHtml(row.title)}</td>
                 <td data-label="Data">${fmtDate(row.date)}</td>
-                <td data-label="Prazo">${escapeHtml(row.dueTime || "-")}</td>
                 <td data-label="Status"><span class="status ${managerChecklistStatusClass(row.status)}">${escapeHtml(row.status)}</span></td>
                 <td data-label="Conformes">${row.conformes || 0}/${row.total || 0}</td>
                 <td data-label="Não conformes">${row.naoConformes || 0}</td>
                 <td data-label="Taxa">${row.conformityRate || 0}%</td>
               </tr>
-            `).join("") || `<tr><td colspan="7">Nenhum checklist encontrado.</td></tr>`}
+            `).join("") || `<tr><td colspan="6">Nenhum checklist encontrado.</td></tr>`}
           </tbody>
         </table>
       </div>
@@ -4133,6 +4154,187 @@ function renderManagerChecklists() {
       toast("Checklist salvo.");
     });
   });
+  fixVisibleText(view);
+}
+
+function fmtSectorScore(value) {
+  return value === null || value === undefined ? "—" : Number(value).toLocaleString("pt-BR", {
+    minimumFractionDigits: 2, maximumFractionDigits: 2,
+  });
+}
+
+function sectorRatingsSummaryTable() {
+  return `<table><thead><tr><th>Setor</th><th>Dias avaliados</th><th>Avaliações</th><th>Soma das notas</th><th>Nota média</th><th>Última avaliação</th></tr></thead><tbody>
+    ${state.sectorRatings.data.summaries.map((row) => `<tr>
+      <td data-label="Setor"><strong>${escapeHtml(row.sector)}</strong></td>
+      <td data-label="Dias avaliados">${row.evaluatedDays}</td>
+      <td data-label="Avaliações">${row.count}</td>
+      <td data-label="Soma das notas">${row.count ? fmtSectorScore(row.sum) : "—"}</td>
+      <td data-label="Nota média"><strong>${fmtSectorScore(row.average)}</strong></td>
+      <td data-label="Última avaliação">${row.latest ? `${fmtDate(row.latest.date)} · ${fmtSectorScore(row.latest.score)}` : "Sem avaliação"}</td>
+    </tr>`).join("")}
+  </tbody></table>`;
+}
+
+function sectorRatingsHistoryTable(editable = true) {
+  const canEdit = editable && state.sectorRatings.data.canRate;
+  return `<table><thead><tr><th>Data</th><th>Setor</th><th>Nota</th><th>Observação</th><th>Avaliadora</th>${canEdit ? "<th>Ação</th>" : ""}</tr></thead><tbody>
+    ${state.sectorRatings.data.rows.map((row) => `<tr>
+      <td data-label="Data">${fmtDate(row.date)}</td>
+      <td data-label="Setor">${escapeHtml(row.sector)}</td>
+      <td data-label="Nota"><strong>${fmtSectorScore(row.score)}</strong></td>
+      <td data-label="Observação" style="white-space:pre-wrap">${escapeHtml(row.observation || "—")}</td>
+      <td data-label="Avaliadora">${escapeHtml(row.rated_by_name || "—")}</td>
+      ${canEdit ? `<td data-label="Ação"><button class="btn" type="button" data-edit-sector-rating="${escapeHtml(row.date)}">Editar</button></td>` : ""}
+    </tr>`).join("") || `<tr><td colspan="${canEdit ? 6 : 5}">Nenhuma avaliação no período.</td></tr>`}
+  </tbody></table>`;
+}
+
+function exportSectorRatingsCsv() {
+  const data = state.sectorRatings.data;
+  downloadCsv(`avaliacao-setores-${data.startDate}-a-${data.endDate}.csv`, [
+    ["Avaliação dos Setores", `${fmtDate(data.startDate)} a ${fmtDate(data.endDate)}`],
+    ["Nota geral", "Organização, limpeza e abastecimento", "Escala 0 a 10"],
+    [], ["Setor", "Dias avaliados", "Avaliações", "Soma das notas", "Nota média"],
+    ...data.summaries.map((row) => [row.sector, row.evaluatedDays, row.count, row.count ? fmtSectorScore(row.sum) : "", row.average === null ? "" : fmtSectorScore(row.average)]),
+    [], ["Histórico"], ["Data", "Setor", "Nota", "Observação", "Avaliadora"],
+    ...data.rows.map((row) => [fmtDate(row.date), row.sector, fmtSectorScore(row.score), row.observation, row.rated_by_name]),
+  ]);
+}
+
+function printSectorRatingsReport() {
+  const data = state.sectorRatings.data;
+  const report = window.open("", "_blank");
+  if (!report) return toast("Permita a abertura da janela para gerar o relatório.");
+  report.onload = () => { report.focus(); report.print(); };
+  report.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
+    <title>Avaliação dos Setores - ${fmtDate(data.startDate)} a ${fmtDate(data.endDate)}</title>
+    <style>
+      @page { size: A4 landscape; margin: 12mm; }
+      * { box-sizing: border-box; }
+      body { font: 11px Arial, sans-serif; color: #17251d; margin: 0; }
+      header { display: flex; justify-content: space-between; align-items: start; gap: 20px; border-bottom: 2px solid #1b7950; padding-bottom: 12px; }
+      h1 { font-size: 21px; margin: 0 0 5px; } h2 { font-size: 14px; margin: 18px 0 8px; }
+      p { margin: 5px 0; } .muted { color: #52665a; }
+      table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+      th, td { border-bottom: 1px solid #d6dfd9; padding: 7px; text-align: left; vertical-align: top; overflow-wrap: anywhere; }
+      th { background: #edf4f0; font-size: 10px; text-transform: uppercase; }
+      thead { display: table-header-group; } tr { break-inside: avoid; }
+      footer { border-top: 1px solid #d6dfd9; padding-top: 8px; margin-top: 16px; color: #52665a; }
+    </style></head><body>
+      <header><div><h1>Avaliação dos Setores</h1><p>Controle Atacarejo · ${fmtDate(data.startDate)} a ${fmtDate(data.endDate)}</p>
+      <p class="muted">Nota geral de organização, limpeza e abastecimento · Escala de 0 a 10</p></div>
+      <div class="muted">Gerado em ${escapeHtml(new Date().toLocaleString("pt-BR"))}</div></header>
+      <h2>Resultado por setor</h2>${sectorRatingsSummaryTable()}
+      <p class="muted">Média = soma das notas ÷ avaliações registradas. Dias sem avaliação não entram no cálculo; notas zero entram.</p>
+      <h2>Histórico de avaliações</h2>${sectorRatingsHistoryTable(false)}
+      <footer>Notas registradas pela gerente para acompanhamento do PRV da loja.</footer>
+    </body></html>`);
+  report.document.close();
+}
+
+function renderSectorRatings() {
+  const ratings = state.sectorRatings;
+  const data = ratings.data;
+  const daily = new Map(data.daily.map((row) => [row.sector, row]));
+  view.innerHTML = `
+    <div class="topbar"><div><h2>Avaliação dos Setores</h2>
+      <div class="muted">Nota geral de organização, limpeza e abastecimento</div></div>
+      <div class="toolbar"><button class="btn" id="sectorRatingsPdf">PDF</button>
+      <button class="btn" id="sectorRatingsExcel">Excel</button><button class="btn" id="refreshSectorRatings">Atualizar</button></div>
+    </div>
+    <form class="panel grid" id="sectorRatingsFilter" style="margin-bottom:14px"><div class="grid three">
+      <label>Visualizar <select name="mode"><option value="month" ${ratings.mode === "month" ? "selected" : ""}>Mês</option><option value="period" ${ratings.mode === "period" ? "selected" : ""}>Período</option></select></label>
+      <label data-sector-ratings-month class="${ratings.mode === "period" ? "hidden" : ""}">Mês <input name="month" type="month" required value="${escapeHtml(ratings.month)}"></label>
+      <label data-sector-ratings-period class="${ratings.mode === "period" ? "" : "hidden"}">Início <input name="startDate" type="date" required value="${escapeHtml(ratings.startDate)}"></label>
+      <label data-sector-ratings-period class="${ratings.mode === "period" ? "" : "hidden"}">Fim <input name="endDate" type="date" required value="${escapeHtml(ratings.endDate)}"></label>
+      <label>Setor <select name="sector"><option value="">Todos</option>${repoOptions(state.repo.sectors || [], ratings.sector)}</select></label>
+    </div><button class="btn primary" type="submit">Aplicar período</button></form>
+    <section class="panel" style="margin-bottom:14px"><h3>Média por setor</h3>
+      <div class="muted" style="margin-top:6px">${fmtDate(data.startDate)} a ${fmtDate(data.endDate)}</div>
+      <div class="table-wrap" style="margin-top:12px">${sectorRatingsSummaryTable()}</div>
+    </section>
+    <section class="panel" style="margin-bottom:14px"><h3>Avaliação diária</h3>
+      <form class="toolbar" id="sectorRatingsDate" style="margin:12px 0;align-items:end">
+        <label>Data <input name="date" type="date" required value="${escapeHtml(ratings.date)}"></label>
+        <button class="btn" type="submit">Consultar data</button>
+      </form>
+      <div class="table-wrap"><table><thead><tr><th>Setor</th><th>Nota geral (0 a 10)</th><th>Observação</th><th>Avaliadora</th>${data.canRate ? "<th>Ação</th>" : ""}</tr></thead><tbody>
+      ${data.sectors.map((sector) => {
+        const row = daily.get(sector);
+        const draft = ratings.drafts[`${ratings.date}|${sector}`];
+        const score = draft ? draft.score : row ? Number(row.score) : "";
+        const observation = draft ? draft.observation : row?.observation || "";
+        return `<tr data-sector-rating="${escapeHtml(sector)}">
+          <td data-label="Setor"><strong>${escapeHtml(sector)}</strong></td>
+          <td data-label="Nota geral">${data.canRate ? `<input name="score" type="number" min="0" max="10" step="0.01" required aria-label="Nota de ${escapeHtml(sector)}" value="${escapeHtml(score)}" placeholder="Sem nota" style="width:110px;max-width:100%">` : fmtSectorScore(row?.score)}</td>
+          <td data-label="Observação">${data.canRate ? `<textarea name="observation" aria-label="Observação de ${escapeHtml(sector)}">${escapeHtml(observation)}</textarea>` : escapeHtml(row?.observation || "—")}</td>
+          <td data-label="Avaliadora">${escapeHtml(row?.rated_by_name || "Sem avaliação")}</td>
+          ${data.canRate ? `<td data-label="Ação"><button class="btn primary" type="button" data-save-sector-rating>${row ? "Salvar alteração" : "Salvar nota"}</button></td>` : ""}
+        </tr>`;
+      }).join("")}</tbody></table></div>
+    </section>
+    <section class="panel"><h3>Histórico do período</h3><div class="table-wrap" style="margin-top:12px">${sectorRatingsHistoryTable()}</div></section>
+  `;
+  document.getElementById("sectorRatingsFilter").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const previous = { mode: ratings.mode, month: ratings.month, sector: ratings.sector, startDate: ratings.startDate, endDate: ratings.endDate };
+    ratings.mode = form.get("mode"); ratings.month = form.get("month"); ratings.sector = form.get("sector");
+    ratings.startDate = form.get("startDate"); ratings.endDate = form.get("endDate");
+    try { await loadSectorRatings(); renderSectorRatings(); }
+    catch (error) { Object.assign(ratings, previous); toast(error.message); }
+  });
+  document.querySelector('#sectorRatingsFilter [name="mode"]').addEventListener("change", (event) => {
+    const isPeriod = event.currentTarget.value === "period";
+    document.querySelector("[data-sector-ratings-month]").classList.toggle("hidden", isPeriod);
+    document.querySelectorAll("[data-sector-ratings-period]").forEach((label) => label.classList.toggle("hidden", !isPeriod));
+  });
+  document.getElementById("sectorRatingsDate").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const previous = ratings.date;
+    ratings.date = new FormData(event.currentTarget).get("date");
+    try { await loadSectorRatings(); renderSectorRatings(); }
+    catch (error) { ratings.date = previous; toast(error.message); }
+  });
+  document.getElementById("refreshSectorRatings").addEventListener("click", async () => {
+    try { await loadSectorRatings(); renderSectorRatings(); } catch (error) { toast(error.message); }
+  });
+  document.getElementById("sectorRatingsPdf").addEventListener("click", printSectorRatingsReport);
+  document.getElementById("sectorRatingsExcel").addEventListener("click", exportSectorRatingsCsv);
+  document.querySelectorAll("[data-sector-rating] input, [data-sector-rating] textarea").forEach((input) => input.addEventListener("input", () => {
+    const row = input.closest("[data-sector-rating]");
+    ratings.drafts[`${data.date}|${row.dataset.sectorRating}`] = {
+      score: row.querySelector('[name="score"]').value,
+      observation: row.querySelector('[name="observation"]').value,
+    };
+  }));
+  document.querySelectorAll("[data-edit-sector-rating]").forEach((button) => button.addEventListener("click", async () => {
+    const previous = ratings.date;
+    ratings.date = button.dataset.editSectorRating;
+    try {
+      await loadSectorRatings(); renderSectorRatings();
+      document.getElementById("sectorRatingsDate").scrollIntoView({ block: "start", behavior: "smooth" });
+    } catch (error) { ratings.date = previous; toast(error.message); }
+  }));
+  document.querySelectorAll("[data-save-sector-rating]").forEach((button) => button.addEventListener("click", async () => {
+    const row = button.closest("[data-sector-rating]");
+    const input = row.querySelector('[name="score"]');
+    if (!input.reportValidity()) return;
+    button.disabled = true;
+    const originalLabel = button.textContent; button.textContent = "Salvando...";
+    const date = data.date;
+    const sector = row.dataset.sectorRating;
+    try {
+      await api("/api/sector-ratings", { method: "PUT", body: JSON.stringify({
+        date, sector,
+        score: input.value, observation: row.querySelector('[name="observation"]').value,
+      }) });
+      delete ratings.drafts[`${date}|${sector}`];
+      await loadSectorRatings(); renderSectorRatings(); toast("Avaliação salva.");
+    } catch (error) { toast(error.message); }
+    finally { button.disabled = false; button.textContent = originalLabel; }
+  }));
   fixVisibleText(view);
 }
 

@@ -228,6 +228,18 @@ async function initPostgres() {
       UNIQUE(date, sector, focus)
     );
 
+    CREATE TABLE IF NOT EXISTS sector_ratings (
+      id SERIAL PRIMARY KEY,
+      date TEXT NOT NULL,
+      sector TEXT NOT NULL,
+      score NUMERIC(4, 2) NOT NULL CHECK (score >= 0 AND score <= 10),
+      observation TEXT NOT NULL DEFAULT '',
+      rated_by INTEGER NOT NULL REFERENCES users(id),
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(date, sector)
+    );
+
     CREATE TABLE IF NOT EXISTS audit_logs (
       id SERIAL PRIMARY KEY,
       user_id INTEGER REFERENCES users(id),

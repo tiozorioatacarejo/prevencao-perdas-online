@@ -372,6 +372,19 @@ def init_db():
             FOREIGN KEY (audited_by) REFERENCES users(id)
         );
 
+        CREATE TABLE IF NOT EXISTS sector_ratings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            date TEXT NOT NULL,
+            sector TEXT NOT NULL,
+            score REAL NOT NULL CHECK (score >= 0 AND score <= 10),
+            observation TEXT NOT NULL DEFAULT '',
+            rated_by INTEGER NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(date, sector),
+            FOREIGN KEY (rated_by) REFERENCES users(id)
+        );
+
         CREATE TABLE IF NOT EXISTS audit_logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER,
